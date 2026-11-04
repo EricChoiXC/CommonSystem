@@ -8,6 +8,8 @@ import com.common.system.sys.att.model.SysAttFile;
 import com.common.system.sys.att.request.SysAttFileRequest;
 import com.common.system.sys.att.resolver.AttResolver;
 import com.common.system.sys.att.service.SysAttFileService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,6 +31,7 @@ import static com.common.system.sys.att.properties.SysAttConstants.ACTION_FILE_L
  */
 @RestController
 @RequestMapping("/backend/sys/att/file")
+@Tag(name = "附件-文件", description = "后台管理：物理文件清单查询（文件类型/大小/路径/是否删除）；需要 SYS_ATT_MAIN")
 public class SysAttFileController extends BaseCrudController<SysAttFile, SysAttFileService, AttResolver> {
 
     public SysAttFileController(SysAttFileService baseService, AttResolver baseResolver,
@@ -41,8 +44,14 @@ public class SysAttFileController extends BaseCrudController<SysAttFile, SysAttF
      * 请求体为 { body: { fieldName, fieldFileType, fieldFilePath, fieldIsDelete },
      *           pages: { pageNo, pageSize, needPage }, sortField, sortOrder }，
      * 总数经 metadata.total 返回；排序字段取 createTime / fileSize。
+     *
+     * @param request 文件列表请求（条件 + 分页 + 单条件排序）
+     * @return 统一响应，data 为文件列表，metadata.total 为总数
      */
     @PostMapping("/list")
+    @Operation(summary = "文件列表查询", description = "鉴权动作 sys.att.file.list（需要 SYS_ATT_MAIN）；"
+            + "请求体 { body: { fieldName, fieldFileType, fieldFilePath, fieldIsDelete }, pages, "
+            + "sortField, sortOrder }，排序字段取 createTime / fileSize")
     public BaseResponse<List<SysAttFile>> selectList(@RequestBody SysAttFileRequest request) {
         authorize(new AuthorizationContext(ACTION_FILE_LIST));
         SysAttFile criteria = null == request ? null : request.getBody();

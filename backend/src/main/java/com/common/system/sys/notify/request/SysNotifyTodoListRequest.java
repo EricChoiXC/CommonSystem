@@ -1,6 +1,7 @@
 package com.common.system.sys.notify.request;
 
 import com.common.system.common.base.model.BaseRequest;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * 我的待办列表请求对象
@@ -13,9 +14,13 @@ import com.common.system.common.base.model.BaseRequest;
 public class SysNotifyTodoListRequest extends BaseRequest<SysNotifyTodoQuery> {
 
     /** 排序字段：receiveTime（白名单，Service 层归一化） */
+    @Schema(description = "排序字段：receiveTime（接收时间），白名单校验", allowableValues = {"receiveTime"},
+            defaultValue = "receiveTime")
     private String sortField;
 
     /** 排序方向：asc / desc（白名单，Service 层归一化） */
+    @Schema(description = "排序方向：asc / desc，默认 desc", allowableValues = {"asc", "desc"},
+            defaultValue = "desc")
     private String sortOrder;
 
     @Override

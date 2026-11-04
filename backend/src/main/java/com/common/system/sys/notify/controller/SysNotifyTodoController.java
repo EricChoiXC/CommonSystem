@@ -15,6 +15,9 @@ import com.common.system.sys.notify.resolver.NotifyResolver;
 import com.common.system.sys.notify.response.SysNotifyAdminTodoVo;
 import com.common.system.sys.notify.response.SysNotifyTodoVo;
 import com.common.system.sys.notify.service.SysNotifyTodoService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -42,6 +45,7 @@ import static com.common.system.sys.notify.properties.SysNotifyConstants.*;
  */
 @RestController
 @RequestMapping("/backend/sys/notify/todo")
+@Tag(name = "通知待办", description = "我的待办（列表/详情/已办/星标/删除/批量）登录即可并按本人过滤；发送待办与后台待办列表仅 SYS_NOTIFY_ADMIN")
 public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, SysNotifyTodoService, NotifyResolver> {
 
     public SysNotifyTodoController(SysNotifyTodoService baseService, NotifyResolver baseResolver,
@@ -54,8 +58,14 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
      * 请求体 { body: { fieldName, fieldNotifyType, fieldModelName, fieldModelId, fieldUrl, fieldContent }, userIds: string[] }；
      * 仅 SYS_NOTIFY_ADMIN 权限账号调用，提供专属发送待办页面；
      * fieldModelName 必须为 model:name:map 中的合法 MODEL_KEY（由前端下拉选择）。
+     *
+     * @param request 发送请求，body 为待办内容，userIds 为接收人 ID 列表
+     * @return 统一响应，data 为创建的主待办记录
      */
     @PostMapping("/send")
+    @Operation(summary = "发送待办", description = "鉴权动作 sys.notify.todo.send（仅 SYS_NOTIFY_ADMIN）；请求体 "
+            + "{ body: { fieldName, fieldNotifyType, fieldModelName, fieldModelId, fieldUrl, fieldContent }, "
+            + "userIds: string[] }，fieldModelName 必须为 model:name:map 中的合法 MODEL_KEY")
     public BaseResponse<SysNotifyTodo> send(@RequestBody SysNotifySendRequest request) {
         authorize(new AuthorizationContext(ACTION_SEND));
         SysNotifyTodo todo = null == request ? null : request.getBody();
@@ -70,8 +80,12 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
      * 来源模块选项：GET /backend/sys/notify/todo/modelOptions
      * 读取 model:name:map 缓存返回 MODEL_KEY → MODEL_NAME 映射，
      * 供发送待办页与列表筛选区的「来源模块」下拉使用；登录即可访问。
+     *
+     * @return 统一响应，data 为 MODEL_KEY → MODEL_NAME 映射
      */
     @GetMapping("/modelOptions")
+    @Operation(summary = "来源模块选项", description = "鉴权动作 sys.notify.todo.modelOptions（登录即可）；"
+            + "读取 model:name:map 缓存返回 MODEL_KEY → MODEL_NAME 映射，供发送待办页与筛选区下拉使用")
     public BaseResponse<Map<String, String>> modelOptions() {
         authorize(new AuthorizationContext(ACTION_MODEL_OPTIONS));
         return BaseResponse.success(getBaseService().modelOptions(), null);
@@ -82,8 +96,15 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
      * 请求体 { body: { fieldNotifyType, fieldModelName, fieldIsStar, fieldName, fieldReceiveTimeStart, fieldReceiveTimeEnd },
      *           pages: { pageNo, pageSize, needPage }, sortField, sortOrder }；
      * 只显示当前用户接收到的待办，总数经 metadata.total 返回。
+     *
+     * @param request 列表请求（条件 + 分页 + 单条件排序），排序字段取 receiveTime
+     * @return 统一响应，data 为当前用户的待办列表，metadata.total 为总数
      */
     @PostMapping("/myList")
+    @Operation(summary = "我的待办列表", description = "鉴权动作 sys.notify.todo.myList（登录即可）；请求体 "
+            + "{ body: { fieldNotifyType, fieldModelName, fieldIsStar, fieldName, fieldReceiveTimeStart, "
+            + "fieldReceiveTimeEnd }, pages, sortField, sortOrder }，只显示当前用户接收到的待办，"
+            + "排序字段取 receiveTime")
     public BaseResponse<List<SysNotifyTodoVo>> myList(@RequestBody SysNotifyTodoListRequest request) {
         authorize(new AuthorizationContext(ACTION_MY_LIST));
         SysNotifyTodoQuery query = null == request ? null : request.getBody();

@@ -10,6 +10,12 @@ import com.common.system.sys.att.request.SysAttMainRequest;
 import com.common.system.sys.att.resolver.AttResolver;
 import com.common.system.sys.att.response.SysAttMainResponse;
 import com.common.system.sys.att.service.SysAttMainService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -45,6 +51,7 @@ import static com.common.system.sys.att.properties.SysAttConstants.*;
  */
 @RestController
 @RequestMapping("/backend/sys/att/main")
+@Tag(name = "附件-主表", description = "附件上传下载预览与后台管理；公共组件接口登录即可用，后台管理需要 SYS_ATT_MAIN")
 public class SysAttMainController extends BaseCrudController<SysAttMain, SysAttMainService, AttResolver> {
 
     public SysAttMainController(SysAttMainService baseService, AttResolver baseResolver,
@@ -55,12 +62,21 @@ public class SysAttMainController extends BaseCrudController<SysAttMain, SysAttM
     /**
      * 上传：POST /backend/sys/att/main/upload
      * multipart 参数：file、modelName、modelId、key(可空)
+     *
+     * @param file      multipart 文件
+     * @param modelName 业务模块名（如 sys_org_user）
+     * @param modelId   业务数据 ID
+     * @param key       同一业务下附件分组键，可为空
+     * @return 统一响应，data 为保存后的附件主表记录（含生成的 fieldId）
      */
     @PostMapping("/upload")
-    public SysAttMainResponse upload(@RequestParam("file") MultipartFile file,
-                                     @RequestParam("modelName") String modelName,
-                                     @RequestParam("modelId") String modelId,
-                                     @RequestParam(value = "key", required = false) String key) {
+    @Operation(summary = "上传附件", description = "鉴权动作 sys.att.main.upload；multipart 参数 "
+            + "file / modelName / modelId / key(可空)，保存物理文件并写入附件主表")
+    public SysAttMainResponse upload(
+            @Parameter(description = "上传的文件", required = true) @RequestParam("file") MultipartFile file,
+            @Parameter(description = "业务模块名，如 sys_org_user", required = true) @RequestParam("modelName") String modelName,
+            @Parameter(description = "业务数据 ID", required = true) @RequestParam("modelId") String modelId,
+            @Parameter(description = "同一业务下附件分组键，可空") @RequestParam(value = "key", required = false) String key) {
         authorize(new AuthorizationContext(ACTION_UPLOAD));
         return SysAttMainResponse.success(getBaseService().upload(file, modelName, modelId, key));
     }
@@ -68,9 +84,18 @@ public class SysAttMainController extends BaseCrudController<SysAttMain, SysAttM
     /**
      * 下载：GET /backend/sys/att/main/download?fieldId=${id}
      * 公共组件查看状态对所有人显示；下载次数 +1 并记录操作日志。
+     *
+     * @param fieldId 附件 ID
+     * @return 附件二进制流（Content-Disposition: attachment，文件名按 UTF-8 编码）
      */
     @GetMapping("/download")
-    public ResponseEntity<Resource> download(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "下载附件", description = "鉴权动作 sys.att.main.download；下载次数 +1 并记录操作日志，"
+            + "以 attachment 方式返回文件流")
+    @ApiResponse(responseCode = "200", description = "附件二进制流",
+            content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
+    public ResponseEntity<Resource> download(
+            @Parameter(description = "附件 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_DOWNLOAD, fieldId);
         return stream(fieldId, SysAttOperateType.DOWNLOAD, false);
     }
@@ -78,9 +103,18 @@ public class SysAttMainController extends BaseCrudController<SysAttMain, SysAttM
     /**
      * 预览：GET /backend/sys/att/main/view?fieldId=${id}
      * 公共组件查看状态对所有人显示；预览次数 +1 并记录操作日志，浏览器内联打开。
+     *
+     * @param fieldId 附件 ID
+     * @return 附件二进制流（Content-Disposition: inline，浏览器内联打开）
      */
     @GetMapping("/view")
-    public ResponseEntity<Resource> view(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "预览附件", description = "鉴权动作 sys.att.main.view；预览次数 +1 并记录操作日志，"
+            + "以 inline 方式返回文件流供浏览器内联打开")
+    @ApiResponse(responseCode = "200", description = "附件二进制流（inline）",
+            content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
+    public ResponseEntity<Resource> view(
+            @Parameter(description = "附件 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_VIEW, fieldId);
         return stream(fieldId, SysAttOperateType.VIEW, true);
     }
@@ -88,9 +122,15 @@ public class SysAttMainController extends BaseCrudController<SysAttMain, SysAttM
     /**
      * 删除（公共组件）：DELETE /backend/sys/att/main/delete?fieldId=${id}
      * 仅上传者本人或 SYS_ATT_MAIN；软删除并记录「删除」操作日志。
+     *
+     * @param fieldId 附件 ID
+     * @return 统一响应
      */
     @DeleteMapping("/delete")
-    public SysAttMainResponse delete(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "删除附件（公共组件）", description = "鉴权动作 sys.att.main.delete；仅上传者本人或 "
+            + "SYS_ATT_MAIN；软删除并记录删除操作日志")
+    public SysAttMainResponse delete(
+            @Parameter(description = "附件 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_DELETE, fieldId);
         getBaseService().delete(fieldId, SysAttOperateType.DELETE);
         return SysAttMainResponse.success(null);
@@ -101,8 +141,14 @@ public class SysAttMainController extends BaseCrudController<SysAttMain, SysAttM
      * 请求体为 { body: { fieldName, fieldModelName, fieldModelId, fieldKey, fieldEnable },
      *           pages: { pageNo, pageSize, needPage }, sortField, sortOrder }，
      * 总数经 metadata.total 返回；排序字段取 createTime / download / view。
+     *
+     * @param request 附件列表请求（条件 + 分页 + 单条件排序），需要 SYS_ATT_MAIN
+     * @return 统一响应，data 为附件列表，metadata.total 为总数
      */
     @PostMapping("/list")
+    @Operation(summary = "附件列表（后台管理）", description = "鉴权动作 sys.att.main.list（需要 SYS_ATT_MAIN）；"
+            + "请求体 { body: { fieldName, fieldModelName, fieldModelId, fieldKey, fieldEnable }, pages, "
+            + "sortField, sortOrder }，排序字段取 createTime / download / view")
     public BaseResponse<List<SysAttMain>> selectList(@RequestBody SysAttMainRequest request) {
         authorize(new AuthorizationContext(ACTION_LIST));
         SysAttMain criteria = null == request ? null : request.getBody();
@@ -123,8 +169,14 @@ public class SysAttMainController extends BaseCrudController<SysAttMain, SysAttM
      * 登录且账号启用即可访问（不要求 SYS_ATT_MAIN）。
      * 请求体为 { body: { fieldModelName, fieldModelId, fieldKey }, pages: { pageNo, pageSize, needPage } }，
      * 固定按创建时间升序，仅返回启用（field_enable=true）附件；总数经 metadata.total 返回。
+     *
+     * @param request 附件查询请求，body 需含 fieldModelName / fieldModelId，fieldKey 可空
+     * @return 统一响应，data 为启用附件列表（固定按创建时间升序），metadata.total 为总数
      */
     @PostMapping("/componentList")
+    @Operation(summary = "附件列表（公共组件）", description = "鉴权动作 sys.att.main.componentList；"
+            + "请求体 { body: { fieldModelName, fieldModelId, fieldKey }, pages }，仅返回启用附件，"
+            + "固定按创建时间升序；登录且账号启用即可访问")
     public BaseResponse<List<SysAttMain>> componentList(@RequestBody SysAttMainRequest request) {
         authorize(new AuthorizationContext(ACTION_COMPONENT_LIST));
         SysAttMain criteria = null == request ? null : request.getBody();
@@ -149,9 +201,14 @@ public class SysAttMainController extends BaseCrudController<SysAttMain, SysAttM
 
     /**
      * 后台管理 - 附件详情：GET /backend/sys/att/main/load?fieldId=${id}
+     *
+     * @param fieldId 附件 ID
+     * @return 统一响应，data 为附件主表记录；不存在返回 E_NOT_FOUND
      */
     @GetMapping("/load")
-    public SysAttMainResponse load(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "附件详情（后台管理）", description = "鉴权动作 sys.att.main.load（需要 SYS_ATT_MAIN）")
+    public SysAttMainResponse load(
+            @Parameter(description = "附件 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_LOAD, fieldId);
         SysAttMain att = getBaseService().selectById(fieldId);
         if (null == att) {
@@ -163,9 +220,15 @@ public class SysAttMainController extends BaseCrudController<SysAttMain, SysAttM
     /**
      * 后台管理 - 删除：DELETE /backend/sys/att/main/adminDelete?fieldId=${id}
      * 操作日志类型区别于公共组件删除（4=后台删除）。
+     *
+     * @param fieldId 附件 ID
+     * @return 统一响应
      */
     @DeleteMapping("/adminDelete")
-    public SysAttMainResponse adminDelete(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "删除附件（后台管理）", description = "鉴权动作 sys.att.main.adminDelete（需要 "
+            + "SYS_ATT_MAIN）；操作日志类型为后台删除，区别于公共组件删除")
+    public SysAttMainResponse adminDelete(
+            @Parameter(description = "附件 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_ADMIN_DELETE, fieldId);
         getBaseService().delete(fieldId, SysAttOperateType.ADMIN_DELETE);
         return SysAttMainResponse.success(null);
@@ -173,9 +236,18 @@ public class SysAttMainController extends BaseCrudController<SysAttMain, SysAttM
 
     /**
      * 后台管理 - 下载：GET /backend/sys/att/main/adminDownload?fieldId=${id}
+     *
+     * @param fieldId 附件 ID
+     * @return 附件二进制流（Content-Disposition: attachment）
      */
     @GetMapping("/adminDownload")
-    public ResponseEntity<Resource> adminDownload(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "下载附件（后台管理）", description = "鉴权动作 sys.att.main.adminDownload（需要 "
+            + "SYS_ATT_MAIN）；以 attachment 方式返回文件流")
+    @ApiResponse(responseCode = "200", description = "附件二进制流",
+            content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
+    public ResponseEntity<Resource> adminDownload(
+            @Parameter(description = "附件 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_ADMIN_DOWNLOAD, fieldId);
         return stream(fieldId, SysAttOperateType.DOWNLOAD, false);
     }

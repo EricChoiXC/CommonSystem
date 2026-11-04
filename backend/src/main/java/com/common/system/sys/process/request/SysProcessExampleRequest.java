@@ -1,6 +1,7 @@
 package com.common.system.sys.process.request;
 
 import com.common.system.common.base.model.BaseRequest;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * 流程实例列表查询请求
@@ -14,9 +15,13 @@ import com.common.system.common.base.model.BaseRequest;
 public class SysProcessExampleRequest extends BaseRequest<SysProcessExampleQuery> {
 
     /** 排序字段：仅 createTime */
+    @Schema(description = "排序字段：仅支持 createTime（创建时间），默认 createTime",
+            allowableValues = {"createTime"}, defaultValue = "createTime")
     private String sortField;
 
     /** 排序方向：asc / desc，默认 desc */
+    @Schema(description = "排序方向：asc / desc，默认 desc", allowableValues = {"asc", "desc"},
+            defaultValue = "desc")
     private String sortOrder;
 
     @Override

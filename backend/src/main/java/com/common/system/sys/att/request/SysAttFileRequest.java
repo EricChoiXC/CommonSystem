@@ -2,6 +2,7 @@ package com.common.system.sys.att.request;
 
 import com.common.system.common.base.model.BaseRequest;
 import com.common.system.sys.att.model.SysAttFile;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * 附件文件表请求对象
@@ -14,9 +15,13 @@ import com.common.system.sys.att.model.SysAttFile;
 public class SysAttFileRequest extends BaseRequest<SysAttFile> {
 
     /** 排序字段：createTime / fileSize（白名单，Service 层归一化） */
+    @Schema(description = "排序字段：createTime（创建时间）/ fileSize（文件大小）",
+            allowableValues = {"createTime", "fileSize"}, defaultValue = "createTime")
     private String sortField;
 
     /** 排序方向：asc / desc（白名单，Service 层归一化） */
+    @Schema(description = "排序方向：asc / desc，默认 desc", allowableValues = {"asc", "desc"},
+            defaultValue = "desc")
     private String sortOrder;
 
     @Override

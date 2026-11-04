@@ -77,9 +77,30 @@ public class SpaWebConfig implements WebMvcConfigurer {
             if (resourcePath.equals("backend") || resourcePath.startsWith("backend/")) {
                 return false;
             }
+            // 接口文档端点（OpenAPI JSON 与 Swagger UI 静态资源）保持原有处理路径，
+            // 未启用或路径不存在时返回 404，避免被回退成前端页面
+            if (matchesAny(resourcePath, "swagger-ui", "v3/api-docs", "webjars")) {
+                return false;
+            }
             // 带文件扩展名的路径（如 assets/xxx.js）资源不存在时返回 404，
             // 避免浏览器把 HTML 内容当作 JS/CSS 等资源解析
             return !resourcePath.matches(".*\\.[a-zA-Z0-9]{1,10}$");
+        }
+
+        /**
+         * 判断路径是否落在给定前缀集合下的任一路径段内（首段完全匹配，避免 /swagger-ui-x 之类误判）。
+         *
+         * @param resourcePath 相对 classpath:/static/ 的资源路径
+         * @param prefixes     需要排除的路径段
+         * @return 命中任一路径段时返回 true
+         */
+        private boolean matchesAny(String resourcePath, String... prefixes) {
+            for (String prefix : prefixes) {
+                if (resourcePath.equals(prefix) || resourcePath.startsWith(prefix + "/")) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

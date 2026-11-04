@@ -1,6 +1,7 @@
 package com.common.system.sys.task.request;
 
 import com.common.system.common.base.model.BaseRequest;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * 定时任务列表请求对象
@@ -13,9 +14,13 @@ import com.common.system.common.base.model.BaseRequest;
 public class SysTaskMainRequest extends BaseRequest<SysTaskMainQuery> {
 
     /** 排序字段：createTime（白名单，Service 层归一化） */
+    @Schema(description = "排序字段：createTime（创建时间），白名单校验", allowableValues = {"createTime"},
+            defaultValue = "createTime")
     private String sortField;
 
     /** 排序方向：asc / desc（白名单，Service 层归一化） */
+    @Schema(description = "排序方向：asc / desc，默认 desc", allowableValues = {"asc", "desc"},
+            defaultValue = "desc")
     private String sortOrder;
 
     @Override

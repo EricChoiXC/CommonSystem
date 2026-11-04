@@ -15,6 +15,10 @@ import com.common.system.sys.org.request.SysOrgUserRequest;
 import com.common.system.sys.org.resolver.UserResolver;
 import com.common.system.sys.org.response.SysOrgUserResponse;
 import com.common.system.sys.org.service.SysOrgUserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -38,10 +42,12 @@ import java.util.Map;
  * @author Eric
  * @date 2026/8/3
  * @description 请求进入后端后的入口：只负责接收请求、基础校验、调用 Service 并返回统一响应。
- *              每个接口在执行核心业务逻辑前先通过 UserResolver 完成最终鉴权。
+ *              每个接口在执行核心业务逻辑前先通过 UserResolver 完成最终鉴权，
+ *              登录/登出因登录前无身份或仅凭 token 注销，不经过 Resolver。
  */
 @RestController
 @RequestMapping("/backend/sys/org/user")
+@Tag(name = "组织架构-用户", description = "用户登录登出、增改查删与密码维护；查询类按当前用户可见性裁剪字段")
 public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgUserService, UserResolver> {
 
     private final LoginSessionService loginSessionService;
@@ -61,8 +67,16 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
      * 登录前无身份，不经过 resolver 鉴权；成功签发会话 token（metadata）并返回用户信息（不含密码）；
      * 成功/失败均记录登录日志（失败仅记登录名与原因，不记录密码等敏感信息）。
      * 登录成功时 metadata 中携带 forceChangePwd 标志，指示是否需要强制修改密码。
+     *
+     * @param request      登录请求，body 需含 fieldLoginName 与 fieldPassword
+     * @param httpRequest  原始请求，用于提取客户端 IP 与 User-Agent 记录登录日志
+     * @return 统一响应，data 为用户信息（不含密码），metadata 含 X-Login-Token 与 forceChangePwd；
+     *         登录名或密码为空返回 BAD_REQUEST
      */
     @PostMapping("/login")
+    @Operation(summary = "登录", description = "无需凭证；请求体 { body: { fieldLoginName, fieldPassword } }，"
+            + "成功后 metadata 返回 X-Login-Token 与 forceChangePwd，成功/失败均记录登录日志")
+    @SecurityRequirements
     public SysOrgUserResponse login(@RequestBody SysOrgLoginRequest request, HttpServletRequest httpRequest) {
         SysOrgUser body = null == request ? null : request.getBody();
         if (null == body || StringUtil.isEmpty(body.getFieldLoginName()) || StringUtil.isEmpty(body.getFieldPassword())) {
@@ -90,8 +104,14 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
     /**
      * 登出：POST /backend/sys/org/user/logout
      * 从请求头 X-Login-Token 取出凭证并注销会话，幂等；同时记录登出日志。
+     *
+     * @param request 原始请求，token 取自请求头 X-Login-Token
+     * @return 统一响应；凭证缺失或已失效时同样返回成功（幂等）
      */
     @PostMapping("/logout")
+    @Operation(summary = "登出", description = "从请求头 X-Login-Token 读取凭证并注销会话，幂等；"
+            + "同时记录登出日志")
+    @SecurityRequirements
     public SysOrgUserResponse logout(HttpServletRequest request) {
         logService.recordLogout(LogContextUtil.getClientIp(request), request.getHeader("User-Agent"));
         loginSessionService.remove(request.getHeader(CurrentUserFilter.LOGIN_TOKEN_HEADER));
@@ -100,8 +120,12 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
 
     /**
      * 新增：POST /backend/sys/org/user/save
+     *
+     * @param request 用户请求，body 为用户对象
+     * @return 统一响应，data 为保存后的用户
      */
     @PostMapping("/save")
+    @Operation(summary = "新增用户", description = "鉴权动作 sys.org.user.save；请求体 { body: 用户对象 }")
     public SysOrgUserResponse insert(@RequestBody SysOrgUserRequest request) {
         authorize(ACTION_SAVE, request.getBody());
         return SysOrgUserResponse.success(super.insert(request.getBody()));
@@ -110,8 +134,13 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
     /**
      * 编辑：PATCH /backend/sys/org/user/update
      * 密码不随本接口更新（仅通过 changePwd 接口修改），请求携带的密码会被忽略。
+     *
+     * @param request 用户请求，body 必须携带 fieldId
+     * @return 统一响应，data 为更新后的用户
      */
     @PatchMapping("/update")
+    @Operation(summary = "编辑用户", description = "鉴权动作 sys.org.user.update；请求体 { body: 用户对象 }，"
+            + "密码不随本接口更新，携带的密码会被忽略")
     public SysOrgUserResponse update(@RequestBody SysOrgUserRequest request) {
         authorize(ACTION_UPDATE, request.getBody());
         return SysOrgUserResponse.success(super.update(request.getBody()));
@@ -121,8 +150,14 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
      * 修改密码：PATCH /backend/sys/org/user/changePwd
      * 仅更新密码与最后修改密码时间，不影响用户其他字段；密码以 BCrypt 加密后入库。
      * 鉴权规则与编辑一致：SYS_ORG_ADMIN / SYS_ORG_USER_MANAGER / 用户本人。
+     *
+     * @param request 用户请求，body 需含 fieldId 与 fieldPassword
+     * @return 统一响应；缺 fieldId 或 fieldPassword 返回 BAD_REQUEST
      */
     @PatchMapping("/changePwd")
+    @Operation(summary = "修改密码", description = "鉴权动作 sys.org.user.changePwd（SYS_ORG_ADMIN / "
+            + "SYS_ORG_USER_MANAGER / 用户本人）；请求体 { body: { fieldId, fieldPassword } }，"
+            + "密码以 BCrypt 加密后入库，不修改其他字段")
     public SysOrgUserResponse changePwd(@RequestBody SysOrgUserRequest request) {
         SysOrgUser body = request.getBody();
         if (null == body || StringUtil.isEmpty(body.getFieldId()) || StringUtil.isEmpty(body.getFieldPassword())) {
@@ -137,8 +172,12 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
     /**
      * 检查当前用户是否需要强制修改密码：GET /backend/sys/org/user/checkPwdChange
      * 返回 metadata 中携带 forceChangePwd 布尔值。
+     *
+     * @return 统一响应，metadata.forceChangePwd 为是否需要强制改密；未登录返回 UNAUTHORIZED
      */
     @GetMapping("/checkPwdChange")
+    @Operation(summary = "检查是否需强制改密", description = "鉴权动作 sys.org.user.checkPwdChange；"
+            + "metadata.forceChangePwd 指示当前用户是否需要强制修改密码")
     public BaseResponse<Void> checkPwdChange() {
         String userId = com.common.system.common.utils.UserUtil.getCurrentUserId();
         if (StringUtil.isEmpty(userId)) {
@@ -152,9 +191,14 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
 
     /**
      * 删除：DELETE /backend/sys/org/user/delete?fieldId=${id}
+     *
+     * @param fieldId 用户 ID
+     * @return 统一响应
      */
     @DeleteMapping("/delete")
-    public SysOrgUserResponse delete(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "删除用户", description = "鉴权动作 sys.org.user.delete")
+    public SysOrgUserResponse delete(
+            @Parameter(description = "用户 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_DELETE, fieldId);
         super.deleteById(fieldId);
         return SysOrgUserResponse.success(null);
@@ -164,9 +208,15 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
      * 读取单条：GET /backend/sys/org/user/load?fieldId=${id}
      * 返回内容按当前用户可见性裁剪：管理员/人员维护者/本人返回完整信息，
      * 其余有读权用户仅返回普通信息字段，可见性说明在 metadata 中。
+     *
+     * @param fieldId 用户 ID
+     * @return 统一响应，data 为按可见性裁剪后的用户信息；不可见或不存在返回 E_NOT_FOUND
      */
     @GetMapping("/load")
-    public SysOrgUserResponse load(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "用户详情", description = "鉴权动作 sys.org.user.load；返回内容按当前用户可见性裁剪"
+            + "（管理员/人员维护者/本人返回完整信息，其余仅返回普通信息字段），可见性说明在 metadata 中")
+    public SysOrgUserResponse load(
+            @Parameter(description = "用户 ID", required = true) @RequestParam("fieldId") String fieldId) {
         AuthorizationContext context = new AuthorizationContext(ACTION_LOAD, fieldId);
         authorize(context);
         String visibleFields = getBaseResolver().loadVisibleResult(context);
@@ -178,8 +228,13 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
 
     /**
      * 列表查询：POST /backend/sys/org/user/list
+     *
+     * @param request 用户列表请求（body 为查询条件，pages 为分页）
+     * @return 统一响应，data 为按当前用户可见性裁剪字段后的用户列表
      */
     @PostMapping("/list")
+    @Operation(summary = "用户列表查询", description = "鉴权动作 sys.org.user.list；请求体 "
+            + "{ body: 查询条件, pages }，返回字段按当前用户可见性裁剪")
     public BaseResponse<List<SysOrgUser>> selectList(@RequestBody SysOrgUserRequest request) {
         SysOrgUser criteria = request.getBody();
         if (null == criteria) {

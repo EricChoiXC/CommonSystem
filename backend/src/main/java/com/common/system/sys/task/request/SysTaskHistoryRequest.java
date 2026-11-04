@@ -1,6 +1,7 @@
 package com.common.system.sys.task.request;
 
 import com.common.system.common.base.model.BaseRequest;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * 执行记录列表请求对象
@@ -13,9 +14,13 @@ import com.common.system.common.base.model.BaseRequest;
 public class SysTaskHistoryRequest extends BaseRequest<SysTaskHistoryQuery> {
 
     /** 排序字段：startTime / endTime（白名单，Service 层归一化） */
+    @Schema(description = "排序字段：startTime（执行开始时间）/ endTime（执行结束时间）",
+            allowableValues = {"startTime", "endTime"}, defaultValue = "startTime")
     private String sortField;
 
     /** 排序方向：asc / desc（白名单，Service 层归一化） */
+    @Schema(description = "排序方向：asc / desc，默认 desc", allowableValues = {"asc", "desc"},
+            defaultValue = "desc")
     private String sortOrder;
 
     @Override

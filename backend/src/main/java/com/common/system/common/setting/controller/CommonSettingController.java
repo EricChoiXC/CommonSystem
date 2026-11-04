@@ -5,6 +5,9 @@ import com.common.system.common.setting.service.CommonSettingService;
 import com.common.system.common.utils.RoleUtil;
 import com.common.system.common.utils.StringUtil;
 import com.common.system.common.utils.UserUtil;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,6 +32,7 @@ import static com.common.system.common.setting.properties.CommonSettingPropertie
  */
 @RestController
 @RequestMapping("/backend/common/setting")
+@Tag(name = "公共配置", description = "系统公共配置（common_setting）读取与更新；读取无需登录，更新仅 SYS_ADMIN")
 public class CommonSettingController {
 
     private final CommonSettingService commonSettingService;
@@ -42,8 +46,13 @@ public class CommonSettingController {
      * GET /backend/common/setting/load
      * <p>登录页需要据此显示邮箱/电话登录入口（登录前无身份），故本接口不做角色限制，
      * 与调用方共用同一份 system 配置读取逻辑。</p>
+     *
+     * @return 统一响应，data 为 fieldKey → fieldValue 的配置映射
      */
     @GetMapping("/load")
+    @Operation(summary = "读取系统配置", description = "返回所有 system 类型（SETTING.system.*）配置项，"
+            + "供登录页读取邮箱/电话登录开关等；不要求登录")
+    @SecurityRequirements
     public BaseResponse<Map<String, String>> load() {
         Map<String, String> values = commonSettingService.getValues(TYPE_SYSTEM);
         return BaseResponse.success(values, null);
@@ -54,8 +63,13 @@ public class CommonSettingController {
      * PATCH /backend/common/setting/update
      * 请求体：{ "fieldKey": "xxx", "fieldValue": "yyy" }
      * 仅 SYS_ADMIN 权限可执行。
+     *
+     * @param body 配置项键值对，fieldKey 与 fieldValue 均不能为空
+     * @return 统一响应；缺参返回 BAD_REQUEST，非系统管理员返回 FORBIDDEN
      */
     @PatchMapping("/update")
+    @Operation(summary = "更新单个配置项", description = "请求体 { fieldKey, fieldValue }，仅更新 system 类型的"
+            + "单个配置；仅 SYS_ADMIN 可执行，非管理员返回 FORBIDDEN")
     public BaseResponse<Void> update(@RequestBody Map<String, String> body) {
         // 鉴权：仅 SYS_ADMIN 可更新配置
         if (!isSysAdmin()) {

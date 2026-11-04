@@ -1,5 +1,7 @@
 package com.common.system.common.base.model;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.util.Map;
 import java.util.Objects;
 
@@ -11,14 +13,26 @@ import java.util.Objects;
  * @description 所有接口统一返回结构：code / message / data / metadata。
  *              设计为可继承的普通类，业务模块可派生专属 Response（如 SysOrgUserResponse）。
  */
+@Schema(description = "统一响应体：code / message / data / metadata")
 public class BaseResponse<T> {
 
+    /** 成功码：接口业务处理成功时固定返回，失败时返回错误码（如 UNAUTHORIZED、FORBIDDEN、BAD_REQUEST、E_NOT_FOUND） */
+    @Schema(description = "响应码：成功固定为 SUCCESS；失败为 UNAUTHORIZED / FORBIDDEN / BAD_REQUEST / "
+            + "E_NOT_FOUND / E_DUPLICATE 等错误码", example = "SUCCESS")
     private final String code;
 
+    /** 提示信息：成功为 success（或业务自定义文案），失败为可展示给用户的错误描述 */
+    @Schema(description = "提示信息：成功为 success 或业务自定义文案，失败为可展示给用户的错误描述",
+            example = "success")
     private final String message;
 
+    /** 业务数据：失败时为 null */
+    @Schema(description = "业务数据：失败时为 null")
     private final T data;
 
+    /** 附加信息：列表总数 total、登录 token、可见性说明、forceChangePwd 等非业务主体数据 */
+    @Schema(description = "附加信息：列表总数 total、登录 token（X-Login-Token）、可见性说明、"
+            + "forceChangePwd 等非业务主体数据")
     private final Map<String, Object> metadata;
 
     public BaseResponse(String code, String message, T data, Map<String, Object> metadata) {

@@ -13,6 +13,9 @@ import com.common.system.sys.org.response.AuthGroupVo;
 import com.common.system.sys.org.response.SysOrgRoleVo;
 import com.common.system.sys.org.service.SysOrgAuthService;
 import com.common.system.sys.org.service.SysOrgRoleService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,6 +40,7 @@ import static com.common.system.sys.org.properties.SysOrgRoleProperties.*;
  */
 @RestController
 @RequestMapping("/backend/sys/org/role")
+@Tag(name = "组织架构-角色", description = "角色管理页：角色增改查与权限可选项；需要 SYS_ORG_ROLE_ADMIN（SYS_ORG_ADMIN / SYS_ADMIN 自动放行）")
 public class SysOrgRoleController {
 
     private final SysOrgRoleService roleService;
@@ -57,8 +61,14 @@ public class SysOrgRoleController {
      * 请求体为 { body: { fieldName, fieldCode, enable }, pages: { pageNo, pageSize, needPage },
      *           sortField, sortOrder }，总数经 metadata.total 返回；列表仅返回基本字段，
      * 禁止批量操作由前端承担。
+     *
+     * @param request 列表请求（查询条件 + 分页 + 单条件排序）
+     * @return 统一响应，data 为角色列表，metadata.total 为满足条件的总数
      */
     @PostMapping("/list")
+    @Operation(summary = "角色列表查询", description = "鉴权动作 sys.org.role.list；请求体 "
+            + "{ body: { fieldName, fieldCode, enable }, pages, sortField, sortOrder }，"
+            + "总数经 metadata.total 返回")
     public BaseResponse<List<SysOrgRoleVo>> list(@RequestBody SysOrgRoleRequest request) {
         authorize(ACTION_LIST);
         SysOrgRoleQuery query = null == request ? null : request.getBody();
@@ -73,9 +83,15 @@ public class SysOrgRoleController {
     /**
      * 详情：GET /backend/sys/org/role/load?fieldId=${id}
      * 返回基本字段 + 关联组织架构（elementIds/elementNames）+ 已选权限（authIds），供编辑页回显。
+     *
+     * @param fieldId 角色 ID
+     * @return 统一响应，data 为角色详情；不存在时返回 E_NOT_FOUND
      */
     @GetMapping("/load")
-    public BaseResponse<SysOrgRoleVo> load(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "角色详情", description = "鉴权动作 sys.org.role.load；返回基本字段、关联组织架构"
+            + "（elementIds/elementNames）与已选权限（authIds），供编辑页回显")
+    public BaseResponse<SysOrgRoleVo> load(
+            @Parameter(description = "角色 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_LOAD, fieldId);
         SysOrgRoleVo vo = roleService.load(fieldId);
         if (null == vo) {
@@ -87,8 +103,13 @@ public class SysOrgRoleController {
     /**
      * 新增：POST /backend/sys/org/role/save
      * 请求体为角色对象（含 elementIds/authIds），关联表全量写入。
+     *
+     * @param body 角色对象，含关联组织架构 elementIds 与权限 authIds
+     * @return 统一响应，data 为保存后的角色（含回填的关联信息）
      */
     @PostMapping("/save")
+    @Operation(summary = "新增角色", description = "鉴权动作 sys.org.role.save；请求体为角色对象"
+            + "（含 elementIds / authIds），关联表全量写入")
     public BaseResponse<SysOrgRoleVo> save(@RequestBody SysOrgRoleVo body) {
         authorize(ACTION_SAVE);
         return BaseResponse.success(roleService.saveRole(body), null);
@@ -97,8 +118,13 @@ public class SysOrgRoleController {
     /**
      * 编辑：PATCH /backend/sys/org/role/update
      * 请求体为角色对象（必须携带 fieldId），关联表先删后插全量替换。
+     *
+     * @param body 角色对象，必须携带 fieldId
+     * @return 统一响应，data 为更新后的角色；缺 fieldId 返回 BAD_REQUEST
      */
     @PatchMapping("/update")
+    @Operation(summary = "编辑角色", description = "鉴权动作 sys.org.role.update；请求体为角色对象"
+            + "（必须携带 fieldId），关联表先删后插全量替换")
     public BaseResponse<SysOrgRoleVo> update(@RequestBody SysOrgRoleVo body) {
         if (null == body || StringUtil.isEmpty(body.getFieldId())) {
             return BaseResponse.failure("BAD_REQUEST", "fieldId is required");
@@ -110,8 +136,12 @@ public class SysOrgRoleController {
     /**
      * 权限可选项：GET /backend/sys/org/role/authOptions
      * 按 sys_org_auth.field_model 分组返回全部权限，分组标题优先取 application.yml 的 MODEL_NAME。
+     *
+     * @return 统一响应，data 为按模块分组的权限列表
      */
     @GetMapping("/authOptions")
+    @Operation(summary = "权限可选项", description = "鉴权动作 sys.org.role.authOptions；按 "
+            + "sys_org_auth.field_model 分组返回全部权限，分组标题优先取 application.yml 的 MODEL_NAME")
     public BaseResponse<List<AuthGroupVo>> authOptions() {
         authorize(ACTION_AUTH_OPTIONS);
         return BaseResponse.success(authService.listAuthOptions(), null);

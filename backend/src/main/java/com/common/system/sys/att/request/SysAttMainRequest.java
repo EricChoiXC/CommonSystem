@@ -2,6 +2,7 @@ package com.common.system.sys.att.request;
 
 import com.common.system.common.base.model.BaseRequest;
 import com.common.system.sys.att.model.SysAttMain;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * 附件主表请求对象
@@ -14,9 +15,13 @@ import com.common.system.sys.att.model.SysAttMain;
 public class SysAttMainRequest extends BaseRequest<SysAttMain> {
 
     /** 排序字段：createTime / download / view（白名单，Service 层归一化） */
+    @Schema(description = "排序字段：createTime（创建时间）/ download（下载次数）/ view（预览次数）",
+            allowableValues = {"createTime", "download", "view"}, defaultValue = "createTime")
     private String sortField;
 
     /** 排序方向：asc / desc（白名单，Service 层归一化） */
+    @Schema(description = "排序方向：asc / desc，默认 desc", allowableValues = {"asc", "desc"},
+            defaultValue = "desc")
     private String sortOrder;
 
     @Override

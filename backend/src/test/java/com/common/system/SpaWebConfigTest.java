@@ -86,4 +86,20 @@ class SpaWebConfigTest {
         mockMvc.perform(get("/assets/__missing__.js"))
                 .andExpect(content().string(not(containsString(APP_ROOT_MARK))));
     }
+
+    @Test
+    void apiDocsEndpointIsNotRoutedToFrontend() throws Exception {
+        // OpenAPI 文档端点不参与 SPA 回退：启用时返回 JSON，关闭时返回 404，都不会是前端页面
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(content().string(not(containsString(APP_ROOT_MARK))));
+    }
+
+    @Test
+    void swaggerUiPathIsNotRoutedToFrontend() throws Exception {
+        // Swagger UI 静态资源路径同样不参与 SPA 回退，避免文档页面被前端路由接管
+        mockMvc.perform(get("/swagger-ui/__missing__.css"))
+                .andExpect(content().string(not(containsString(APP_ROOT_MARK))));
+        mockMvc.perform(get("/swagger-ui-x"))
+                .andExpect(content().string(not(containsString(APP_ROOT_MARK))));
+    }
 }
