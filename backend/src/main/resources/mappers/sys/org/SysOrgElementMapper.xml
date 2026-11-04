@@ -337,4 +337,23 @@
         ORDER BY field_create_time ASC
     </select>
 
+    <!--
+        角色镜像行同步更新（sys_org_role → sys_org_element 同事务双写，field_org_type = 5）：
+        仅更新 field_name / field_code / field_enable 与修改人/修改时间，
+        不触碰 field_level / field_org_type / field_is_virtual
+        （通用 update 对这三项无条件赋值，禁止用于镜像行更新）；
+        field_code 为 null 时同步清空镜像行编码；返回 0 行表示镜像行缺失，由调用方补插入自愈。
+    -->
+    <update id="updateRoleMirror">
+        UPDATE sys_org_element
+        <set>
+            field_name = #{name},
+            field_code = #{code},
+            field_enable = #{enable},
+            field_updater_id = #{updaterId},
+            field_update_time = #{updateTime},
+        </set>
+        WHERE field_id = #{fieldId}
+    </update>
+
 </mapper>

@@ -92,4 +92,19 @@ public interface SysOrgElementMapper extends IBaseMapper<SysOrgElement> {
      * 按上级组织查询其直接关联的虚拟组织架构（权限预览用，仅返回启用节点）。
      */
     List<SysOrgElement> selectVirtualsByParentId(@Param("parentId") String parentId);
+
+    /* ==================== 角色镜像行维护（sys.org.role → sys_org_element 同事务双写） ==================== */
+
+    /**
+     * 角色镜像行同步更新：仅更新 field_name / field_code / field_enable 与修改人/修改时间，
+     * 不触碰 field_level / field_org_type / field_is_virtual 等固定字段
+     * （通用 update 对这三项无条件赋值，禁止用于镜像行更新，见 01-角色纳入组织架构分析.md 3.1）；
+     * code 为 null 时同步清空镜像行编码。返回 0 行表示镜像行缺失，由调用方补插入自愈。
+     */
+    int updateRoleMirror(@Param("fieldId") String fieldId,
+                         @Param("name") String name,
+                         @Param("code") String code,
+                         @Param("enable") Boolean enable,
+                         @Param("updaterId") String updaterId,
+                         @Param("updateTime") Date updateTime);
 }

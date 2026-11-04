@@ -33,8 +33,8 @@
         <el-button type="primary" @click="handleSearch">查询</el-button>
       </div>
 
-      <!-- 中层：两个页签（组织架构树 / 查询），数据均受 orgType 过滤 -->
-      <el-tabs v-model="activeTab" class="ab-tabs">
+      <!-- 中层：页签（组织架构树 / 查询，showRole 时附角色页签），数据均受 orgType 过滤 -->
+      <el-tabs v-model="activeTab" class="ab-tabs" @tab-change="handleTabChange">
         <!-- 页签一：组织架构树，左侧树导航 + 右侧列表选中 -->
         <el-tab-pane label="组织架构树" name="tree">
           <div class="ab-tree-panel">
@@ -101,6 +101,43 @@
             @size-change="loadQueryList"
           />
         </el-tab-pane>
+
+        <!-- 页签三：角色，仅 showRole 时渲染；角色无层级，无左侧树，仅一张分页表格 -->
+        <el-tab-pane v-if="showRole" label="角色" name="role">
+          <div class="ab-role-toolbar">
+            <el-button @click="handleRoleRefresh">刷新</el-button>
+          </div>
+          <el-table
+            ref="roleTableRef"
+            :data="roleList"
+            v-loading="roleLoading"
+            height="320"
+            row-key="fieldId"
+            :row-class-name="rowClassName"
+            @row-click="handleRowClick"
+            @selection-change="handleRoleSelectionChange"
+          >
+            <el-table-column v-if="multi" type="selection" width="45" />
+            <el-table-column prop="fieldName" label="名称" min-width="150" show-overflow-tooltip />
+            <el-table-column prop="fieldCode" label="编码" min-width="120" show-overflow-tooltip />
+            <el-table-column label="是否启用" width="90">
+              <template #default="{ row }">
+                <el-tag :type="row.fieldEnable ? 'success' : 'danger'" size="small">
+                  {{ row.fieldEnable ? '启用' : '停用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-pagination
+            v-model:current-page="rolePage"
+            v-model:page-size="rolePageSize"
+            :total="roleTotal"
+            layout="total, prev, pager, next, sizes"
+            :page-sizes="[10, 20, 50, 100]"
+            @current-change="loadRoleList"
+            @size-change="loadRoleList"
+          />
+        </el-tab-pane>
       </el-tabs>
 
       <!-- 下层：已选项展示 + 确认 / 取消 -->
@@ -134,9 +171,10 @@ import { getDictTextMap } from '@/utils/dict'
 
 /**
  * 地址本组件：提供组织架构选择的弹窗
- * 弹窗分上中下三层：上层关键字查询、中层组织架构树/查询两个页签、下层已选项与确认取消。
- * 两个页签均显示：查询页签与树页签右侧可选列表受 orgType / limitRange 过滤；
- * 左侧树仅作导航，固定展示机构/部门/岗位（不含人员），与当前可选类型无关。
+ * 弹窗分上中下三层：上层关键字查询、中层组织架构树/查询（可选角色）页签、下层已选项与确认取消。
+ * 查询页签与树页签右侧可选列表受 orgType / limitRange 过滤；
+ * 左侧树仅作导航，固定展示机构/部门/岗位（不含人员），与当前可选类型无关；
+ * 「角色」页签仅 showRole 时渲染（角色无层级，无左侧树，仅一张分页表格）。
  */
 const props = defineProps({
   /** 关联的 id 值字段，必填 */
@@ -158,7 +196,9 @@ const props = defineProps({
   /** 确认选择后的回调函数 callback(fieldId, fieldName, selectedList) */
   callback: { type: Function, default: null },
   /** 是否禁用（只读展示不可打开选择弹窗），默认 false */
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  /** 是否显示「角色」页签（角色单选/多选，结果为角色 fieldId / 名称），默认 false */
+  showRole: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:fieldId', 'update:fieldName'])
 
@@ -181,9 +221,10 @@ const orgTypes = computed(() => resolveOrgTypes(props.orgType))
  */
 const TREE_ORG_TYPES = [1, 2, 4]
 
-// 两个页签表格实例：多选时按 fieldId 恢复/保留勾选（配合 row-key）
+// 各页签表格实例：多选时按 fieldId 恢复/保留勾选（配合 row-key）
 const treeTableRef = ref(null)
 const queryTableRef = ref(null)
+const roleTableRef = ref(null)
 
 // 树页签：左侧树 + 右侧下级列表
 const rightList = ref([])
@@ -196,17 +237,39 @@ const queryPage = ref(1)
 const queryPageSize = ref(20)
 const queryTotal = ref(0)
 
+// 角色页签（showRole 时）：固定 orgTypes=[5] 的分页列表
+const roleList = ref([])
+const roleLoading = ref(false)
+const rolePage = ref(1)
+const rolePageSize = ref(20)
+const roleTotal = ref(0)
+/** 角色页签是否已加载过：首次切到该页签时才加载，避免打开弹窗即请求角色数据 */
+const roleLoaded = ref(false)
+/** 角色页签固定查询的组织架构类型：5 = 角色 */
+const ROLE_ORG_TYPES = [5]
+
 // 已选项（下层展示）
 const selected = ref([])
 const selectedBackup = ref([])
 
 /**
- * 多选模式下两个页签（组织架构树/查询）各自维护勾选行；
+ * 多选模式下各页签（组织架构树/查询/角色）各自维护勾选行；
  * 单独记录每个页签的勾选，再按 fieldId 合并到 selected，
- * 避免跨页签勾选互相覆盖（先勾树侧再勾查询侧不丢前选）。
+ * 避免跨页签勾选互相覆盖（先勾树侧再勾查询/角色侧不丢前选）。
  */
 const treeSelectedRows = ref([])
 const querySelectedRows = ref([])
+const roleSelectedRows = ref([])
+
+/**
+ * 各页签表格实例 → 勾选行记录的映射表：restoreTableSelection 恢复勾选后
+ * 按 tableRef 找到对应页签的勾选行记录进行同步，避免多表格分支写错串扰。
+ */
+const TABLE_SELECTION_REFS = new Map([
+  [treeTableRef, treeSelectedRows],
+  [queryTableRef, querySelectedRows],
+  [roleTableRef, roleSelectedRows]
+])
 
 /**
  * 表格勾选恢复保护标志：loadRightList/loadQueryList 刷新数据后按已选项恢复勾选期间，
@@ -251,10 +314,15 @@ function openDialog() {
   selectedBackup.value = selected.value.map((item) => ({ ...item }))
   treeSelectedRows.value = []
   querySelectedRows.value = []
+  roleSelectedRows.value = []
+  // 重置角色页签加载标记：每次打开弹窗后首次切到角色页签都重新加载，避免展示上次会话的旧数据
+  roleLoaded.value = false
   dialogVisible.value = true
   loadRightList(null)
   if (activeTab.value === 'query') {
     loadQueryList()
+  } else if (activeTab.value === 'role') {
+    loadRoleList()
   }
 }
 
@@ -338,6 +406,47 @@ async function loadQueryList() {
   }
 }
 
+/** 角色页签：固定 orgTypes=[5] 按当前关键字分页查询（复用地址本通用列表接口，方案 A） */
+async function loadRoleList() {
+  roleLoading.value = true
+  try {
+    const res = await queryAddressBookList({
+      body: {
+        keyword: keyword.value,
+        orgTypes: ROLE_ORG_TYPES,
+        limitRange: props.limitRange
+      },
+      pages: {
+        pageNo: rolePage.value,
+        pageSize: rolePageSize.value,
+        needPage: true
+      }
+    })
+    roleList.value = res.data || []
+    // 后端未返回 total 时以当前页条数兜底
+    roleTotal.value = (res.metadata && res.metadata.total) || roleList.value.length
+    roleLoaded.value = true
+  } catch (error) {
+    ElMessage.error(error.message || '角色列表加载失败')
+  } finally {
+    roleLoading.value = false
+    restoreTableSelection(roleTableRef, roleList.value)
+  }
+}
+
+/** 角色页签独立刷新：回第 1 页按当前关键字重新加载（不改上层 handleSearch 的页签切换语义） */
+function handleRoleRefresh() {
+  rolePage.value = 1
+  loadRoleList()
+}
+
+/** 页签切换：首次进入角色页签时才加载角色数据（tab-change 参数为页签 name） */
+function handleTabChange(name) {
+  if (name === 'role' && !roleLoaded.value) {
+    loadRoleList()
+  }
+}
+
 /** 单选：点击行选中；多选：走 checkbox 勾选 */
 function handleRowClick(row) {
   if (props.multi) {
@@ -386,7 +495,25 @@ function handleQuerySelectionChange(rows) {
 }
 
 /**
- * 合并两个页签的勾选到已选项：以现有 selected 为基础并入页签勾选（只增不减）。
+ * 多选：角色页签勾选变化（用户操作时），逻辑同树/查询页签。
+ */
+function handleRoleSelectionChange(rows) {
+  if (!props.multi || restoring) {
+    return
+  }
+  const picked = rows.map((row) => pick(row))
+  const nowIds = new Set(picked.map((r) => r.fieldId))
+  const removed = roleSelectedRows.value.filter((r) => !nowIds.has(r.fieldId))
+  roleSelectedRows.value = picked
+  if (removed.length) {
+    const removedIds = new Set(removed.map((r) => r.fieldId))
+    selected.value = selected.value.filter((s) => !removedIds.has(s.fieldId))
+  }
+  mergeSelection()
+}
+
+/**
+ * 合并各页签（组织架构树/查询/角色）的勾选到已选项：以现有 selected 为基础并入页签勾选（只增不减）。
  * 已选项一旦选中，不因表格数据刷新（切树节点/翻页/重新查询）丢失；
  * 用户主动取消勾选的行由 selection-change 处理器先移出 selected 再合并。
  */
@@ -395,7 +522,7 @@ function mergeSelection() {
   for (const item of selected.value) {
     merged.set(item.fieldId, item)
   }
-  for (const item of [...treeSelectedRows.value, ...querySelectedRows.value]) {
+  for (const item of [...treeSelectedRows.value, ...querySelectedRows.value, ...roleSelectedRows.value]) {
     merged.set(item.fieldId, item)
   }
   selected.value = [...merged.values()]
@@ -406,7 +533,7 @@ function mergeSelection() {
  * 在数据刷新后的同步阶段即进入恢复保护（restoring）：el-table 渲染新数据时会自动清理
  * 已失效的勾选行并触发 selection-change，该窗口必须忽略，否则会把已选项误判为用户取消勾选；
  * 恢复时机延迟到数据渲染完成（nextTick），保证 toggleRowSelection 对更新后的行数据生效。
- * 恢复完成后将该页签勾选行记录同步为当前数据中仍存在的已选项，并解除保护。
+ * 恢复完成后按映射表（tableRef → 勾选行记录）将该页签勾选行记录同步为当前数据中仍存在的已选项，并解除保护。
  */
 function restoreTableSelection(tableRef, rows) {
   if (!props.multi) {
@@ -422,12 +549,11 @@ function restoreTableSelection(tableRef, rows) {
           tableRef.value.toggleRowSelection(row, true)
         }
       })
-      // 同步该页签当前表格勾选行记录（仅当前数据中存在的已选项）
+      // 按映射表找到该页签的勾选行记录，同步为当前数据中存在的已选项（避免多表格分支写错串扰）
+      const selectedRowsRef = TABLE_SELECTION_REFS.get(tableRef)
       const current = (rows || []).filter((row) => selectedIds.has(row.fieldId)).map(pick)
-      if (tableRef === treeTableRef) {
-        treeSelectedRows.value = current
-      } else {
-        querySelectedRows.value = current
+      if (selectedRowsRef) {
+        selectedRowsRef.value = current
       }
     }
     restoring = false
@@ -465,6 +591,7 @@ function removeSelected(item) {
   }
   uncheck(treeTableRef, rightList.value)
   uncheck(queryTableRef, queryList.value)
+  uncheck(roleTableRef, roleList.value)
 }
 
 /** 确认：回写 fieldId / fieldName 并触发回调 */
@@ -524,6 +651,13 @@ function handleClear() {
 .ab-tree-right {
   flex: 1;
   min-width: 0;
+}
+
+/* 角色页签工具条：独立「刷新」按钮（不改上层 handleSearch 切查询页签的语义） */
+.ab-role-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 
 .ab-bottom {

@@ -1,11 +1,13 @@
 package com.common.system.sys.org.service;
 
 import com.common.system.common.base.model.Pages;
+import com.common.system.common.properties.CommonProperties;
 import com.common.system.sys.org.dao.SysOrgElementDao;
 import com.common.system.sys.org.dao.SysOrgRoleDao;
 import com.common.system.sys.org.model.SysOrgAuth;
 import com.common.system.sys.org.model.SysOrgElement;
 import com.common.system.sys.org.model.SysOrgRole;
+import com.common.system.sys.org.properties.SysOrgElementProperties;
 import com.common.system.sys.org.request.SysOrgRoleQuery;
 import com.common.system.sys.org.response.SysOrgRoleVo;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +25,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -34,7 +37,8 @@ import static org.mockito.Mockito.when;
  * @author Eric
  * @date 2026/8/7
  * @description 覆盖第三个启动任务（系统管理员角色初始化）与角色管理业务
- *              （列表/详情/新建/编辑及 sys_org_role_element / sys_org_role_auth 关联表全量替换）。
+ *              （列表/详情/新建/编辑及 sys_org_role_element / sys_org_role_auth 关联表全量替换），
+ *              以及角色主表写入时同事务维护 sys_org_element 镜像行（field_org_type = 5）的同步逻辑。
  *              注意：BaseModel.setFieldId 仅接受 32 位 ID，测试中的模型 ID 一律使用 32 位常量。
  */
 class SysOrgRoleServiceTest {
@@ -335,5 +339,172 @@ class SysOrgRoleServiceTest {
         // 编码被置为 null 并随 update 提交（Mapper 侧无条件赋值 field_code）
         verify(roleDao).update(argThat(role ->
                 "新角色名".equals(role.getFieldName()) && role.getFieldCode() == null));
+    }
+
+    /* ==================== 角色镜像行（sys_org_element 同事务双写，field_org_type = 5） ==================== */
+
+    @Test
+    void saveRoleInsertsRoleMirrorWithFixedTreeFields() {
+        SysOrgRoleVo vo = new SysOrgRoleVo();
+        vo.setFieldId(ROLE_ID_2);
+        vo.setFieldName("镜像角色");
+        vo.setFieldCode("MIRROR_ROLE");
+        vo.setFieldEnable(false);
+        when(roleDao.insert(any(SysOrgRole.class))).thenReturn(1);
+        when(roleDao.selectById(anyString())).thenReturn(null); // load 回查不存在（仅验证保存链路）
+
+        service.saveRole(vo);
+
+        // 镜像行缺失时走插入：orgType=5、level=1、parentId/hierarchy 为 null、isVirtual=false、名称/编码/启用同步
+        verify(elementDao).insert(argThat(mirror ->
+                ROLE_ID_2.equals(mirror.getFieldId())
+                        && "镜像角色".equals(mirror.getFieldName())
+                        && "MIRROR_ROLE".equals(mirror.getFieldCode())
+                        && Boolean.FALSE.equals(mirror.getFieldEnable())
+                        && SysOrgElementProperties.ORG_TYPE_ROLE == mirror.getFieldOrgType()
+                        && 1 == mirror.getFieldLevel()
+                        && null == mirror.getFieldParentId()
+                        && null == mirror.getFieldHierarchy()
+                        && !mirror.isFieldIsVirtual()
+                        && null != mirror.getFieldCreateTime()
+                        && null != mirror.getFieldUpdateTime()));
+        verify(elementDao, never()).updateRoleMirror(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void updateRoleSyncsMirrorByNameCodeEnable() {
+        SysOrgRole exist = new SysOrgRole();
+        exist.setFieldId(ROLE_ID);
+        exist.setFieldName("旧角色名");
+        exist.setFieldCode("OLD_CODE");
+        exist.setFieldEnable(true);
+        when(roleDao.selectById(ROLE_ID)).thenReturn(exist);
+        when(roleDao.update(any(SysOrgRole.class))).thenReturn(1);
+        when(elementDao.selectById(ROLE_ID)).thenReturn(new SysOrgElement()); // 镜像行已存在
+        when(elementDao.updateRoleMirror(any(), any(), any(), any(), any(), any())).thenReturn(1);
+
+        SysOrgRoleVo vo = new SysOrgRoleVo();
+        vo.setFieldId(ROLE_ID);
+        vo.setFieldName("新角色名");
+        vo.setFieldCode("NEW_CODE");
+        vo.setFieldEnable(false);
+
+        service.updateRole(vo);
+
+        verify(elementDao).updateRoleMirror(eq(ROLE_ID), eq("新角色名"), eq("NEW_CODE"), eq(false), any(), any());
+        verify(elementDao, never()).insert(any(SysOrgElement.class));
+    }
+
+    @Test
+    void updateRoleSyncsMirrorCodeClearedToNull() {
+        SysOrgRole exist = new SysOrgRole();
+        exist.setFieldId(ROLE_ID);
+        exist.setFieldName("旧角色名");
+        exist.setFieldCode("OLD_CODE");
+        exist.setFieldEnable(true);
+        when(roleDao.selectById(ROLE_ID)).thenReturn(exist);
+        when(roleDao.update(any(SysOrgRole.class))).thenReturn(1);
+        when(elementDao.selectById(ROLE_ID)).thenReturn(new SysOrgElement()); // 镜像行已存在
+        when(elementDao.updateRoleMirror(any(), any(), any(), any(), any(), any())).thenReturn(1);
+
+        SysOrgRoleVo vo = new SysOrgRoleVo();
+        vo.setFieldId(ROLE_ID);
+        vo.setFieldName("新角色名");
+        vo.setFieldCode("  "); // 清空编码
+        vo.setFieldEnable(true);
+
+        service.updateRole(vo);
+
+        // 镜像行编码同步清空（updateRoleMirror 对 field_code 无条件赋值）
+        verify(elementDao).updateRoleMirror(eq(ROLE_ID), eq("新角色名"), isNull(), eq(true), any(), any());
+    }
+
+    @Test
+    void updateRoleHealsMirrorWhenSyncUpdateReturnsZero() {
+        SysOrgRole exist = new SysOrgRole();
+        exist.setFieldId(ROLE_ID);
+        exist.setFieldName("新角色名");
+        exist.setFieldEnable(true);
+        when(roleDao.selectById(ROLE_ID)).thenReturn(exist);
+        when(roleDao.update(any(SysOrgRole.class))).thenReturn(1);
+        when(elementDao.selectById(ROLE_ID)).thenReturn(new SysOrgElement()); // 查时存在…
+        when(elementDao.updateRoleMirror(any(), any(), any(), any(), any(), any())).thenReturn(0); // …更新时 0 行（孤儿）
+
+        SysOrgRoleVo vo = new SysOrgRoleVo();
+        vo.setFieldId(ROLE_ID);
+        vo.setFieldName("新角色名");
+        vo.setFieldEnable(true);
+
+        service.updateRole(vo);
+
+        // 自愈：updateRoleMirror 返回 0 行时补插入镜像行，保持幂等
+        verify(elementDao).updateRoleMirror(eq(ROLE_ID), eq("新角色名"), isNull(), eq(true), any(), any());
+        verify(elementDao).insert(argThat(mirror ->
+                ROLE_ID.equals(mirror.getFieldId())
+                        && SysOrgElementProperties.ORG_TYPE_ROLE == mirror.getFieldOrgType()
+                        && 1 == mirror.getFieldLevel()
+                        && Boolean.TRUE.equals(mirror.getFieldEnable())));
+    }
+
+    @Test
+    void ensureSystemAdminRoleSyncsExistingMirrorWithoutDuplicateInsert() {
+        SysOrgRole role = new SysOrgRole();
+        role.setFieldId(ADMIN_USER_ID);
+        // 已存在分支：角色行来自库，名称/编码/启用为实际值，镜像行随其同步
+        role.setFieldName("系统管理员");
+        role.setFieldCode(CommonProperties.ROLE_ADMIN);
+        role.setFieldEnable(true);
+        when(roleDao.selectById(ADMIN_USER_ID)).thenReturn(role);
+        when(authService.ensureAuth(anyString(), anyString(), anyString())).thenReturn(new SysOrgAuth());
+        when(roleDao.countRoleAuth(anyString(), anyString())).thenReturn(1);
+        when(roleDao.countRoleElement(anyString(), anyString())).thenReturn(1);
+        when(elementDao.selectById(ADMIN_USER_ID)).thenReturn(new SysOrgElement()); // 镜像行已存在
+        when(elementDao.updateRoleMirror(any(), any(), any(), any(), any(), any())).thenReturn(1);
+
+        service.ensureSystemAdminRole(ADMIN_USER_ID);
+
+        // 幂等：镜像行已存在时仅同步名称/编码/启用，不重复插入
+        verify(elementDao).updateRoleMirror(eq(ADMIN_USER_ID), eq("系统管理员"), eq("SYS_ADMIN"), eq(true), any(), any());
+        verify(elementDao, never()).insert(any(SysOrgElement.class));
+    }
+
+    @Test
+    void ensureSystemAdminRoleInsertsMirrorWhenCreated() {
+        when(roleDao.selectById(ADMIN_USER_ID)).thenReturn(null);
+        when(roleDao.insert(any(SysOrgRole.class))).thenReturn(1);
+        when(authService.ensureAuth(anyString(), anyString(), anyString())).thenReturn(new SysOrgAuth());
+        when(roleDao.countRoleAuth(anyString(), anyString())).thenReturn(1);
+        when(roleDao.countRoleElement(anyString(), anyString())).thenReturn(1);
+
+        service.ensureSystemAdminRole(ADMIN_USER_ID);
+
+        // 新建分支：角色插入后镜像行同步插入，固定树字段就位
+        verify(elementDao).insert(argThat(mirror ->
+                ADMIN_USER_ID.equals(mirror.getFieldId())
+                        && "系统管理员".equals(mirror.getFieldName())
+                        && "SYS_ADMIN".equals(mirror.getFieldCode())
+                        && SysOrgElementProperties.ORG_TYPE_ROLE == mirror.getFieldOrgType()
+                        && 1 == mirror.getFieldLevel()
+                        && null == mirror.getFieldParentId()
+                        && null == mirror.getFieldHierarchy()
+                        && Boolean.TRUE.equals(mirror.getFieldEnable())
+                        && null != mirror.getFieldUpdateTime()));
+    }
+
+    @Test
+    void saveRolePropagatesMirrorInsertFailure() {
+        SysOrgRoleVo vo = new SysOrgRoleVo();
+        vo.setFieldId(ROLE_ID_2);
+        vo.setFieldName("异常角色");
+        when(roleDao.insert(any(SysOrgRole.class))).thenReturn(1);
+        when(roleDao.selectById(anyString())).thenReturn(null);
+        when(elementDao.insert(any(SysOrgElement.class))).thenThrow(new RuntimeException("mirror insert failed"));
+
+        // 镜像行插入异常不捕获吞掉，向上传播（回滚语义由 @Transactional 保证）
+        RuntimeException thrown = assertThrows(RuntimeException.class, () -> service.saveRole(vo));
+        assertEquals("mirror insert failed", thrown.getMessage());
+        // 角色插入已发生，但异常向上传播，由 Spring 事务统一回滚
+        verify(roleDao).insert(any(SysOrgRole.class));
+        verify(elementDao).insert(any(SysOrgElement.class));
     }
 }

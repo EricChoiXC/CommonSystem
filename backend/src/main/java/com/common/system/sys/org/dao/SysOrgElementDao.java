@@ -104,4 +104,16 @@ public class SysOrgElementDao extends BaseDao<SysOrgElement, SysOrgElementMapper
     public List<SysOrgElement> selectVirtualsByParentId(String parentId) {
         return getBaseMapper().selectVirtualsByParentId(parentId);
     }
+
+    /* ==================== 角色镜像行维护（sys.org.role → sys_org_element 同事务双写） ==================== */
+
+    /**
+     * 角色镜像行同步更新：仅更新 field_name / field_code / field_enable 与修改人/修改时间，
+     * 不触碰 field_level / field_org_type / field_is_virtual 等固定字段；
+     * code 为 null 时同步清空镜像行编码。返回 0 行表示镜像行缺失，由调用方补插入自愈。
+     */
+    public int updateRoleMirror(String fieldId, String name, String code, Boolean enable,
+                                String updaterId, Date updateTime) {
+        return getBaseMapper().updateRoleMirror(fieldId, name, code, enable, updaterId, updateTime);
+    }
 }

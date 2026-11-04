@@ -11,6 +11,7 @@ import com.common.system.sys.org.model.SysOrgAuth;
 import com.common.system.sys.org.model.SysOrgElement;
 import com.common.system.sys.org.model.SysOrgRole;
 import com.common.system.sys.org.model.SysOrgUser;
+import com.common.system.sys.org.properties.SysOrgElementProperties;
 import com.common.system.sys.org.request.SysOrgRoleQuery;
 import com.common.system.sys.org.response.SysOrgRoleVo;
 import org.slf4j.Logger;
@@ -118,6 +119,8 @@ public class SysOrgRoleService extends BaseService<SysOrgRole, SysOrgRoleDao> {
         insert(role);
         replaceElements(role.getFieldId(), vo.getElementIds());
         replaceAuths(role.getFieldId(), vo.getAuthIds());
+        // 同事务维护组织架构镜像行（field_org_type = 5），失败时随事务回滚
+        syncElementMirror(role);
         log.info("role saved: id={}, name={}, code={}", role.getFieldId(), role.getFieldName(), role.getFieldCode());
         return load(role.getFieldId());
     }
@@ -147,6 +150,8 @@ public class SysOrgRoleService extends BaseService<SysOrgRole, SysOrgRoleDao> {
         update(exist);
         replaceElements(exist.getFieldId(), vo.getElementIds());
         replaceAuths(exist.getFieldId(), vo.getAuthIds());
+        // 同事务维护组织架构镜像行（field_org_type = 5），名称/编码（含清空）/启用/审计随 exist 同步
+        syncElementMirror(exist);
         log.info("role updated: id={}, name={}, code={}", exist.getFieldId(), exist.getFieldName(), exist.getFieldCode());
         return load(exist.getFieldId());
     }
@@ -271,6 +276,50 @@ public class SysOrgRoleService extends BaseService<SysOrgRole, SysOrgRoleDao> {
                 .toList();
     }
 
+    /**
+     * 同事务维护角色在 sys_org_element 的镜像行（field_org_type = 5，field_id 与角色一致）：
+     * 缺失时按角色全字段插入（树字段固定：parentId/hierarchy 为 null、level = 1、isVirtual = false）；
+     * 已存在时经专用 updateRoleMirror 仅同步名称/编码/启用与审计字段
+     * （通用 update 对 field_level / field_org_type / field_is_virtual 无条件赋值，禁止用于镜像行更新）；
+     * 更新返回 0 行视为镜像行缺失（自愈孤儿场景），补插入保持幂等；
+     * 异常不捕获吞掉，交由 @Transactional 回滚角色与镜像行。
+     */
+    private void syncElementMirror(SysOrgRole role) {
+        // 审计兜底：角色 updaterId/updateTime 为空（如启动任务新建）时取当前用户与当前时间
+        String updaterId = null == role.getFieldUpdaterId() ? UserUtil.getCurrentUserId() : role.getFieldUpdaterId();
+        Date updateTime = null == role.getFieldUpdateTime() ? new Date() : role.getFieldUpdateTime();
+        if (null == sysOrgElementDao.selectById(role.getFieldId())) {
+            sysOrgElementDao.insert(buildRoleMirror(role, updaterId, updateTime));
+            return;
+        }
+        if (sysOrgElementDao.updateRoleMirror(role.getFieldId(), role.getFieldName(), role.getFieldCode(),
+                role.getFieldEnable(), updaterId, updateTime) == 0) {
+            sysOrgElementDao.insert(buildRoleMirror(role, updaterId, updateTime));
+        }
+    }
+
+    /**
+     * 构造角色镜像行：公共字段取自角色（编码可为 null，镜像行同步为 null），
+     * 树字段固定为根级平铺（field_org_type = 5，不参与树），启用状态与角色一致。
+     */
+    private static SysOrgElement buildRoleMirror(SysOrgRole role, String updaterId, Date updateTime) {
+        SysOrgElement mirror = new SysOrgElement();
+        mirror.setFieldId(role.getFieldId());
+        mirror.setFieldName(role.getFieldName());
+        mirror.setFieldCode(role.getFieldCode());
+        mirror.setFieldOrgType(SysOrgElementProperties.ORG_TYPE_ROLE);
+        mirror.setFieldParentId(null);
+        mirror.setFieldHierarchy(null);
+        mirror.setFieldLevel(1);
+        mirror.setFieldIsVirtual(false);
+        mirror.setFieldEnable(role.getFieldEnable());
+        mirror.setFieldCreatorId(role.getFieldCreatorId());
+        mirror.setFieldCreateTime(role.getFieldCreateTime());
+        mirror.setFieldUpdaterId(updaterId);
+        mirror.setFieldUpdateTime(updateTime);
+        return mirror;
+    }
+
     /* ==================== 启动任务（系统管理员角色初始化） ==================== */
 
     /**
@@ -289,10 +338,14 @@ public class SysOrgRoleService extends BaseService<SysOrgRole, SysOrgRoleDao> {
             role.setFieldCode(CommonProperties.ROLE_ADMIN);
             role.setFieldEnable(true);
             role.setFieldCreateTime(new Date());
+            // 启动任务无登录上下文，updaterId 置空由 syncElementMirror 兜底；updateTime 与 createTime 保持一致
+            role.setFieldUpdateTime(role.getFieldCreateTime());
             insert(role);
             log.info("system admin role created: id={}, code={}, name={}",
                     SYSTEM_ADMIN_ROLE_ID, CommonProperties.ROLE_ADMIN, role.getFieldName());
         }
+        // 同事务维护组织架构镜像行（field_org_type = 5）：新建与已存在分支都调用，天然幂等
+        syncElementMirror(role);
 
         // 默认添加 SYS_ADMIN 权限（幂等），并挂载到系统管理员角色
         SysOrgAuth auth = sysOrgAuthService.ensureAuth(CommonProperties.ROLE_ADMIN, "系统管理员", AUTH_MODEL_SYS_ADMIN);

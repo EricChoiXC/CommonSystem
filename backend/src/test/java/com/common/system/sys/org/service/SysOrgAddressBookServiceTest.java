@@ -101,6 +101,29 @@ class SysOrgAddressBookServiceTest {
     }
 
     @Test
+    void queryListAndCountListPassRoleOrgTypesToDao() {
+        // 角色页签（ORG1-BE-004）：orgTypes=[5] 必须原样透传，且 queryList 与 countList
+        // 使用同一 query 对象，保证 metadata.total 与列表同口径
+        SysOrgAddressBookQuery query = new SysOrgAddressBookQuery();
+        query.setOrgTypes(List.of(5));
+        Pages pages = new Pages();
+        pages.setNeedPage(true);
+        pages.setPageNo(1);
+        pages.setPageSize(20);
+        when(dao.selectList(isNull(), eq(List.of(5)), isNull(), any(Pages.class))).thenReturn(List.of());
+        when(dao.countList(isNull(), eq(List.of(5)), isNull())).thenReturn(3L);
+
+        List<SysOrgElement> result = service.queryList(query, pages);
+        long total = service.countList(query);
+
+        assertEquals(List.of(), result);
+        assertEquals(3L, total);
+        verify(dao).selectList(isNull(), eq(List.of(5)), isNull(), argThat(p ->
+                p.isNeedPage() && p.getPageNo() == 1 && p.getPageSize() == 20));
+        verify(dao).countList(isNull(), eq(List.of(5)), isNull());
+    }
+
+    @Test
     void countListReturnsZeroForNullQuery() {
         assertEquals(0, service.countList(null));
         verify(dao, never()).countList(anyString(), anyList(), anyList());
