@@ -1,0 +1,12 @@
+# =====================================================================
+# 码值模块系统码值配置：启动时增量导入 sys_dict_type / sys_dict_item（field_system = true）
+# 统一填写格式（依据 artificial/docs/设计文档/sys/dict/码值功能核心业务.md）：
+#   dict:
+#     ${type.field_code}:
+#       name: ${type.field_name}
+#       desc: ${type.field_desc}
+#       ${item.field_value}: ${item.field_name}
+# 说明：码值模块自身暂无系统码值（示例 yes_no 已移交公共模块 common/dict.yml 管理）；
+#       其他模块的系统码值见各模块目录下的 dict.yml。
+# =====================================================================
+dict:

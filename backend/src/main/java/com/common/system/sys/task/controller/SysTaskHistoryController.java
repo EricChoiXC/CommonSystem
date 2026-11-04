@@ -1,0 +1,76 @@
+package com.common.system.sys.task.controller;
+
+import com.common.system.common.base.controller.BaseCrudController;
+import com.common.system.common.base.model.BaseResponse;
+import com.common.system.common.base.model.Pages;
+import com.common.system.common.resolver.AuthorizationContext;
+import com.common.system.sys.task.model.SysTaskHistory;
+import com.common.system.sys.task.request.SysTaskHistoryQuery;
+import com.common.system.sys.task.request.SysTaskHistoryRequest;
+import com.common.system.sys.task.resolver.TaskResolver;
+import com.common.system.sys.task.response.SysTaskHistoryVo;
+import com.common.system.sys.task.service.SysTaskHistoryService;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
+
+import static com.common.system.sys.task.properties.SysTaskConstants.ACTION_HISTORY_LIST;
+import static com.common.system.sys.task.properties.SysTaskConstants.ACTION_HISTORY_LOAD;
+
+/**
+ * 任务执行记录接口
+ *
+ * @author Eric
+ * @date 2026/8/15
+ * @description 后台管理-执行记录（仅 SYS_TASK_ADMIN）：执行记录分页查询与详情，只读。
+ *              列表接口以权限动作鉴权，详情接口以目标记录 ID 为文档 ID 完成最终鉴权。
+ */
+@RestController
+@RequestMapping("/backend/sys/task/history")
+public class SysTaskHistoryController extends BaseCrudController<SysTaskHistory, SysTaskHistoryService, TaskResolver> {
+
+    public SysTaskHistoryController(SysTaskHistoryService baseService, TaskResolver baseResolver,
+                                    ApplicationEventPublisher eventPublisher) {
+        super(baseService, baseResolver, eventPublisher);
+    }
+
+    /**
+     * 执行记录列表：POST /backend/sys/task/history/list
+     * 请求体 { body: { fieldTaskName, fieldResult, fieldStartTimeStart, fieldStartTimeEnd,
+     *                  fieldEndTimeStart, fieldEndTimeEnd },
+     *           pages: { pageNo, pageSize, needPage }, sortField, sortOrder }；
+     * 排序字段 startTime / endTime（默认开始时间降序），总数经 metadata.total 返回。
+     */
+    @PostMapping("/list")
+    public BaseResponse<List<SysTaskHistoryVo>> list(@RequestBody SysTaskHistoryRequest request) {
+        authorize(new AuthorizationContext(ACTION_HISTORY_LIST));
+        SysTaskHistoryQuery query = null == request ? null : request.getBody();
+        Pages pages = null == request ? null : request.getPages();
+        List<SysTaskHistoryVo> list = getBaseService().listHistory(query, pages,
+                null == request ? null : request.getSortField(),
+                null == request ? null : request.getSortOrder());
+        long total = getBaseService().countHistory(query);
+        return BaseResponse.success(list, Map.of("total", total));
+    }
+
+    /**
+     * 执行记录详情：GET /backend/sys/task/history/load?fieldId=${id}
+     * 以目标记录 ID 为文档 ID 完成最终鉴权；返回任务名、结果、起止时间、执行组、参数与日志。
+     */
+    @GetMapping("/load")
+    public BaseResponse<SysTaskHistoryVo> load(@RequestParam("fieldId") String fieldId) {
+        authorize(ACTION_HISTORY_LOAD, fieldId);
+        SysTaskHistoryVo detail = getBaseService().detail(fieldId);
+        if (null == detail) {
+            return BaseResponse.failure("E_NOT_FOUND", "未找到该执行记录");
+        }
+        return BaseResponse.success(detail, null);
+    }
+}

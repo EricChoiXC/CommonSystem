@@ -1,0 +1,5 @@
+ROLE_LIST: ["SYS_CALENDAR_SENDLEADER"]
+ROLE_MAP:
+  SYS_CALENDAR_SENDLEADER:
+    NAME: "日程选择上级"
+    DESC: "创建团队日程可选中上级人员"

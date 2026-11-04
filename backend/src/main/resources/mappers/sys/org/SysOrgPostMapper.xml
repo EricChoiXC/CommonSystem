@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.org.mapper.SysOrgPostMapper">
+
+    <!--
+        岗位扩展表(sys_org_post)映射
+        本表仅承载岗位扩展字段，公共字段与层级字段存储在 sys_org_element 主表中
+        (field_org_type = 4)，通过 field_id 一对一关联，由 Service 层组装；
+        SysOrgPost.fieldLeaderId 关联 sys_org_user.field_id，本表不做 JOIN，由 Service 层组装。
+        岗位人员关系由 sys_org_post_user 表承载，由 Service 层组装。
+        列清单与 artificial/docs/设计文档/sys/org/组织架构表结构.md 保持一致。
+    -->
+
+    <resultMap id="SysOrgPostResultMap" type="com.common.system.sys.org.model.SysOrgPost">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_leader_id" property="fieldLeaderId"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_leader_id
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgPost">
+        INSERT INTO sys_org_post (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldLeaderId}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgPost">
+        UPDATE sys_org_post
+        <set>
+            <if test="model.fieldLeaderId != null">field_leader_id = #{model.fieldLeaderId},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_org_post
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysOrgPostResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_post
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysOrgPostResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_post
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldLeaderId != null and model.fieldLeaderId != ''">AND field_leader_id = #{model.fieldLeaderId}</if>
+        </where>
+        ORDER BY field_id
+        <if test="pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!--
+        轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用；
+        field_name 不在本扩展表，JOIN sys_org_element 主表获取
+    -->
+    <resultMap id="SysOrgPostLoadResultMap" type="com.common.system.sys.org.model.SysOrgPost">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysOrgPostLoadResultMap">
+        SELECT e.field_id, e.field_name
+        FROM sys_org_post p
+        INNER JOIN sys_org_element e ON e.field_id = p.field_id
+        WHERE p.field_id = #{fieldId}
+    </select>
+
+    <!--
+        轻量查询：按用户查询其岗位，仅返回 field_id 与 field_name（登录等场景组装用）；
+        岗位人员关系由 sys_org_post_user 表承载，名称取自 sys_org_element 主表。
+    -->
+    <resultMap id="SysOrgPostIdNameResultMap" type="com.common.system.sys.org.model.SysOrgPost">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="selectIdNameListByUserId" parameterType="string" resultMap="SysOrgPostIdNameResultMap">
+        SELECT e.field_id, e.field_name
+        FROM sys_org_post_user pu
+        INNER JOIN sys_org_element e ON e.field_id = pu.field_post_id
+        WHERE pu.field_user_id = #{userId}
+          AND e.field_org_type = 4
+        ORDER BY e.field_create_time DESC
+    </select>
+
+</mapper>

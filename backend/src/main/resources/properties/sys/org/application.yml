@@ -1,0 +1,21 @@
+MODEL_KEY: "SYS-ORG"
+MODEL_NAME: "组织架构和权限模块"
+version: "1.0.0"
+# 流程分类配置（process_template，由本模块自行维护）：
+# 二级配置项 key 即 sys_process_template.field_model_name 值；
+# name 为模板管理页分类显示名，class 为该分类流程对应的文档实体类，
+# ops 为该分类可配置的「操作标识」字典（key=操作标识，value=中文描述，节点配置按 key 开关），
+# fields 为该分类文档实体字段字典（key=实体字段属性名，value=中文描述），
+# 供节点「审批来源=表单字段」选择审批人字段。
+# 依据 docs/设计文档/sys/process/流程核心业务.md「process_template 配置项 和 field_model_name 取值」。
+process_template:
+  sys_org:
+    name: "组织架构"
+    class: "com.common.system.sys.org.model.SysOrgElement"
+    desc: "组织架构模块-组织架构调整流程（公共系统默认分类，接入业务系统可按需修改或扩展分类）"
+    ops:
+      attachment: "允许修改附件"
+    fields: # 文档实体字段（组织架构字段）
+      fieldManagerId: "负责人"
+      fieldCreatorId: "创建人"
+      fieldUpdaterId: "更新人"

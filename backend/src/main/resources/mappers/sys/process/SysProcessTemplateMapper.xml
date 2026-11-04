@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.process.mapper.SysProcessTemplateMapper">
+
+    <!--
+        流程模板表(sys_process_template)映射
+        字段命名遵循公共字段规范(field_ 前缀)，field_model_name 为所属模块
+        （sys/process/application.yml 中 template_model 的二级配置项），
+        列表查询时作为左侧分类的固定过滤条件。
+    -->
+
+    <resultMap id="SysProcessTemplateResultMap" type="com.common.system.sys.process.model.SysProcessTemplate">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_model_name" property="fieldModelName"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_version" property="fieldVersion"/>
+        <result column="field_remark" property="fieldRemark"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_enable" property="fieldEnable"/>
+        <result column="field_default" property="fieldDefault"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_name, field_model_name, field_code, field_version, field_remark,
+        field_creator_id, field_create_time, field_updater_id, field_update_time, field_enable, field_default
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.process.model.SysProcessTemplate">
+        INSERT INTO sys_process_template (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldName}, #{model.fieldModelName}, #{model.fieldCode}, #{model.fieldVersion}, #{model.fieldRemark},
+        #{model.fieldCreatorId}, #{model.fieldCreateTime}, #{model.fieldUpdaterId}, #{model.fieldUpdateTime}, #{model.fieldEnable}, #{model.fieldDefault}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.process.model.SysProcessTemplate">
+        UPDATE sys_process_template
+        <set>
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldModelName != null">field_model_name = #{model.fieldModelName},</if>
+            <if test="model.fieldCode != null">field_code = #{model.fieldCode},</if>
+            <if test="model.fieldVersion != null">field_version = #{model.fieldVersion},</if>
+            <if test="model.fieldRemark != null">field_remark = #{model.fieldRemark},</if>
+            <if test="model.fieldCreatorId != null">field_creator_id = #{model.fieldCreatorId},</if>
+            <if test="model.fieldCreateTime != null">field_create_time = #{model.fieldCreateTime},</if>
+            <if test="model.fieldUpdaterId != null">field_updater_id = #{model.fieldUpdaterId},</if>
+            <if test="model.fieldUpdateTime != null">field_update_time = #{model.fieldUpdateTime},</if>
+            <if test="model.fieldEnable != null">field_enable = #{model.fieldEnable},</if>
+            <if test="model.fieldDefault != null">field_default = #{model.fieldDefault},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <!-- 取消指定分类下所有默认模板（置为默认=替换语义：先清旧再设新，事务内保证唯一） -->
+    <update id="clearDefaultByModelName" parameterType="string">
+        UPDATE sys_process_template
+        SET field_default = 0
+        WHERE field_model_name = #{modelName} AND field_default = 1
+    </update>
+
+    <!-- 取指定分类的默认启用模板（流程启动未指定模板时使用；无默认时返回 null） -->
+    <select id="selectDefaultByModelName" parameterType="string" resultMap="SysProcessTemplateResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_template
+        WHERE field_model_name = #{modelName} AND field_default = 1 AND field_enable = 1
+        LIMIT 1
+    </select>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_process_template
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysProcessTemplateResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_template
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysProcessTemplateResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_template
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldModelName != null and model.fieldModelName != ''">AND field_model_name = #{model.fieldModelName}</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+        </where>
+        ORDER BY field_create_time DESC
+        <if test="pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
+    <resultMap id="SysProcessTemplateLoadResultMap" type="com.common.system.sys.process.model.SysProcessTemplate">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysProcessTemplateLoadResultMap">
+        SELECT field_id, field_name
+        FROM sys_process_template
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 模板列表总数（与 selectListSorted 过滤条件一致，供分页 metadata.total 使用） -->
+    <select id="selectCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_process_template
+        <where>
+            <if test="model.fieldModelName != null and model.fieldModelName != ''">AND field_model_name = #{model.fieldModelName}</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+        </where>
+    </select>
+
+    <!--
+        模板列表分页查询（单条件排序版）：过滤条件与 selectList 一致，
+        field_model_name 为左侧分类固定条件。排序字段/方向经 <choose> 白名单映射，
+        杜绝 SQL 注入；默认创建时间降序。
+    -->
+    <select id="selectListSorted" resultMap="SysProcessTemplateResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_template
+        <where>
+            <if test="model.fieldModelName != null and model.fieldModelName != ''">AND field_model_name = #{model.fieldModelName}</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+        </where>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'updateTime'">field_update_time</when>
+            <otherwise>field_create_time</otherwise>
+        </choose>
+        <choose>
+            <when test="sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+</mapper>

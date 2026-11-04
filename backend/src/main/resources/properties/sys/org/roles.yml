@@ -1,0 +1,20 @@
+ROLE_LIST: ["SYS_ORG_ADMIN", "SYS_ORG_ELEMENT_ADMIN", "SYS_ORG_ELEMENT_ADD", "SYS_ORG_ELEMENT_EDIT", "SYS_ORG_ROLE_ADMIN", "SYS_ORG_USER_MANAGER"]
+ROLE_MAP:
+  SYS_ORG_ADMIN:
+    NAME: "组织架构模块管理员"
+    DESC: "组织架构模块管理员，拥有该模块下所有权限"
+  SYS_ORG_ELEMENT_ADMIN:
+    NAME: "组织架构管理员"
+    DESC: "拥有所有 `SYS_ORG_ELEMENT_*` 权限"
+  SYS_ORG_ELEMENT_ADD:
+    NAME: "组织架构添加权限"
+    DESC: "添加组织架构元素"
+  SYS_ORG_ELEMENT_EDIT:
+    NAME: "组织架构编辑权限"
+    DESC: "修改组织架构元素"
+  SYS_ORG_ROLE_ADMIN:
+    NAME: "权限管理员"
+    DESC: "拥有权限、角色管理权限"
+  SYS_ORG_USER_MANAGER:
+    NAME: "人员维护者"
+    DESC: "人员维护者，可维护人员信息与修改密码"

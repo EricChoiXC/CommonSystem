@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.org.mapper.SysOrgRoleMapper">
+
+    <!--
+        角色表(sys_org_role)映射
+        字段命名遵循公共字段规范(field_ 前缀)，修改人列使用 field_updater_id，
+        与 Java 属性 fieldUpdaterId 直接 camel-case 对应。
+        用户与角色不直接关联，通过 角色-组织元素(sys_org_role_element) 间接承载：
+        selectListByUserId 按权限计算模型查询用户自身组织元素、所属岗位、所属虚拟组织
+        及直属组织链路上的机构/部门所拥有的角色，见 artificial/docs/设计文档/sys/org/组织架构核心业务设计.md。
+    -->
+
+    <resultMap id="SysOrgRoleResultMap" type="com.common.system.sys.org.model.SysOrgRole">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_enable" property="fieldEnable"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_code, field_name, field_creator_id, field_create_time,
+        field_updater_id, field_update_time, field_enable
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgRole">
+        INSERT INTO sys_org_role (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldCode}, #{model.fieldName}, #{model.fieldCreatorId}, #{model.fieldCreateTime},
+        #{model.fieldUpdaterId}, #{model.fieldUpdateTime}, #{model.fieldEnable}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgRole">
+        UPDATE sys_org_role
+        <set>
+            <!-- field_code 无条件赋值：角色编辑允许清空编码（置 NULL），不能因 <if> 语义保留旧值 -->
+            field_code = #{model.fieldCode},
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldCreatorId != null">field_creator_id = #{model.fieldCreatorId},</if>
+            <if test="model.fieldCreateTime != null">field_create_time = #{model.fieldCreateTime},</if>
+            <if test="model.fieldUpdaterId != null">field_updater_id = #{model.fieldUpdaterId},</if>
+            <if test="model.fieldUpdateTime != null">field_update_time = #{model.fieldUpdateTime},</if>
+            <if test="model.fieldEnable != null">field_enable = #{model.fieldEnable},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_org_role
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysOrgRoleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_role
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysOrgRoleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_role
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+        </where>
+        ORDER BY field_create_time DESC
+        <if test="pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="selectListByUserId" parameterType="string" resultMap="SysOrgRoleResultMap">
+        SELECT DISTINCT r.field_id, r.field_code, r.field_name, r.field_creator_id, r.field_create_time,
+               r.field_updater_id, r.field_update_time, r.field_enable
+        FROM sys_org_role r
+        INNER JOIN sys_org_role_element re ON r.field_id = re.field_role_id
+        WHERE re.field_element_id IN (
+            -- 用户自身组织元素
+            SELECT e.field_id FROM sys_org_element e
+            WHERE e.field_id = #{userId} AND e.field_org_type = 3
+            UNION
+            -- 用户所属岗位
+            SELECT pu.field_post_id FROM sys_org_post_user pu
+            WHERE pu.field_user_id = #{userId}
+            UNION
+            -- 用户所属虚拟组织
+            SELECT vu.field_virtual_id FROM sys_org_virtual_user vu
+            WHERE vu.field_user_id = #{userId}
+            UNION
+            -- 用户直属组织链路上的机构/部门
+            SELECT anc.field_id FROM sys_org_element anc
+            INNER JOIN sys_org_element u ON u.field_id = #{userId} AND u.field_org_type = 3
+            WHERE anc.field_org_type IN (1, 2)
+              AND u.field_hierarchy IS NOT NULL
+              AND u.field_hierarchy LIKE CONCAT('%/', anc.field_id, '/%')
+        )
+        ORDER BY r.field_create_time DESC
+    </select>
+
+    <!--
+        轻量查询：按用户查询其角色，仅返回 field_id 与 field_name（登录等场景组装用）；
+        角色计算模型与 selectListByUserId 完全一致。
+    -->
+    <resultMap id="SysOrgRoleIdNameResultMap" type="com.common.system.sys.org.model.SysOrgRole">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="selectIdNameListByUserId" parameterType="string" resultMap="SysOrgRoleIdNameResultMap">
+        SELECT DISTINCT r.field_id, r.field_name
+        FROM sys_org_role r
+        INNER JOIN sys_org_role_element re ON r.field_id = re.field_role_id
+        WHERE re.field_element_id IN (
+            -- 用户自身组织元素
+            SELECT e.field_id FROM sys_org_element e
+            WHERE e.field_id = #{userId} AND e.field_org_type = 3
+            UNION
+            -- 用户所属岗位
+            SELECT pu.field_post_id FROM sys_org_post_user pu
+            WHERE pu.field_user_id = #{userId}
+            UNION
+            -- 用户所属虚拟组织
+            SELECT vu.field_virtual_id FROM sys_org_virtual_user vu
+            WHERE vu.field_user_id = #{userId}
+            UNION
+            -- 用户直属组织链路上的机构/部门
+            SELECT anc.field_id FROM sys_org_element anc
+            INNER JOIN sys_org_element u ON u.field_id = #{userId} AND u.field_org_type = 3
+            WHERE anc.field_org_type IN (1, 2)
+              AND u.field_hierarchy IS NOT NULL
+              AND u.field_hierarchy LIKE CONCAT('%/', anc.field_id, '/%')
+        )
+        ORDER BY r.field_name
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
+    <resultMap id="SysOrgRoleLoadResultMap" type="com.common.system.sys.org.model.SysOrgRole">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysOrgRoleLoadResultMap">
+        SELECT field_id, field_name
+        FROM sys_org_role
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 角色-权限关联(sys_org_role_auth)：启动任务幂等初始化使用 -->
+    <select id="countRoleAuth" resultType="int">
+        SELECT COUNT(1)
+        FROM sys_org_role_auth
+        WHERE field_auth_id = #{authId} AND field_role_id = #{roleId}
+    </select>
+
+    <insert id="insertRoleAuth">
+        INSERT INTO sys_org_role_auth (field_auth_id, field_role_id)
+        VALUES (#{authId}, #{roleId})
+    </insert>
+
+    <!-- 角色-组织元素关联(sys_org_role_element)：启动任务幂等初始化使用 -->
+    <select id="countRoleElement" resultType="int">
+        SELECT COUNT(1)
+        FROM sys_org_role_element
+        WHERE field_element_id = #{elementId} AND field_role_id = #{roleId}
+    </select>
+
+    <insert id="insertRoleElement">
+        INSERT INTO sys_org_role_element (field_element_id, field_role_id)
+        VALUES (#{elementId}, #{roleId})
+    </insert>
+
+    <!-- ==================== 角色管理 / 权限预览（sys.org.role / sys.org.preview） ==================== -->
+
+    <!-- 按角色查询其关联的组织元素 ID 列表（编辑回显用） -->
+    <select id="selectElementIdsByRoleId" parameterType="string" resultType="string">
+        SELECT field_element_id
+        FROM sys_org_role_element
+        WHERE field_role_id = #{roleId}
+        ORDER BY field_element_id
+    </select>
+
+    <!-- 按角色查询其关联的权限 ID 列表（编辑回显用） -->
+    <select id="selectAuthIdsByRoleId" parameterType="string" resultType="string">
+        SELECT field_auth_id
+        FROM sys_org_role_auth
+        WHERE field_role_id = #{roleId}
+        ORDER BY field_auth_id
+    </select>
+
+    <!-- 删除角色-组织元素关联（编辑时全量替换前清空） -->
+    <delete id="deleteRoleElements" parameterType="string">
+        DELETE FROM sys_org_role_element
+        WHERE field_role_id = #{roleId}
+    </delete>
+
+    <!-- 删除角色-权限关联（编辑时全量替换前清空） -->
+    <delete id="deleteRoleAuths" parameterType="string">
+        DELETE FROM sys_org_role_auth
+        WHERE field_role_id = #{roleId}
+    </delete>
+
+    <!-- 批量插入角色-组织元素关联 -->
+    <insert id="insertRoleElements">
+        INSERT INTO sys_org_role_element (field_element_id, field_role_id)
+        VALUES
+        <foreach collection="elementIds" item="elementId" separator=",">
+            (#{elementId}, #{roleId})
+        </foreach>
+    </insert>
+
+    <!-- 批量插入角色-权限关联 -->
+    <insert id="insertRoleAuths">
+        INSERT INTO sys_org_role_auth (field_auth_id, field_role_id)
+        VALUES
+        <foreach collection="authIds" item="authId" separator=",">
+            (#{authId}, #{roleId})
+        </foreach>
+    </insert>
+
+    <!-- 按组织元素查询其直接关联的角色列表（权限预览用，含完整字段） -->
+    <select id="selectListByElementId" parameterType="string" resultMap="SysOrgRoleResultMap">
+        SELECT r.field_id, r.field_code, r.field_name, r.field_creator_id, r.field_create_time,
+               r.field_updater_id, r.field_update_time, r.field_enable
+        FROM sys_org_role r
+        INNER JOIN sys_org_role_element re ON r.field_id = re.field_role_id
+        WHERE re.field_element_id = #{elementId}
+        ORDER BY r.field_create_time DESC
+    </select>
+
+    <!-- 角色列表总数（与 selectList 过滤条件一致，供分页 metadata.total 使用） -->
+    <select id="selectCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_org_role
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+        </where>
+    </select>
+
+    <!--
+        角色列表分页查询（单条件排序版）：过滤条件与 selectList 一致。
+        排序字段/方向经 <choose> 白名单映射，杜绝 SQL 注入；默认创建时间降序。
+    -->
+    <select id="selectListSorted" resultMap="SysOrgRoleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_role
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+        </where>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'updateTime'">field_update_time</when>
+            <when test="sortField == 'code'">field_code</when>
+            <otherwise>field_create_time</otherwise>
+        </choose>
+        <choose>
+            <when test="sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+</mapper>

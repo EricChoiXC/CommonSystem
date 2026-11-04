@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.process.mapper.SysProcessExampleNodeMapper">
+
+    <!--
+        流程实例节点表(sys_process_example_node)映射
+        field_node_type 枚举: START/END/DRAFT/APPROVE/ROBORT；
+        field_status 枚举: WAITING/PROCESSING/FINISH/PASS/REJECT；
+        field_node_config 为模板节点配置快照（JSON 字符串）。
+    -->
+
+    <resultMap id="SysProcessExampleNodeResultMap" type="com.common.system.sys.process.model.SysProcessExampleNode">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_example_id" property="fieldExampleId"/>
+        <result column="field_node_no" property="fieldNodeNo"/>
+        <result column="field_node_name" property="fieldNodeName"/>
+        <result column="field_node_type" property="fieldNodeType"/>
+        <result column="field_node_config" property="fieldNodeConfig"/>
+        <result column="field_status" property="fieldStatus"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_example_id, field_node_no, field_node_name, field_node_type, field_node_config, field_status
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.process.model.SysProcessExampleNode">
+        INSERT INTO sys_process_example_node (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldExampleId}, #{model.fieldNodeNo}, #{model.fieldNodeName}, #{model.fieldNodeType}, #{model.fieldNodeConfig}, #{model.fieldStatus}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.process.model.SysProcessExampleNode">
+        UPDATE sys_process_example_node
+        <set>
+            <if test="model.fieldExampleId != null">field_example_id = #{model.fieldExampleId},</if>
+            <if test="model.fieldNodeNo != null">field_node_no = #{model.fieldNodeNo},</if>
+            <if test="model.fieldNodeName != null">field_node_name = #{model.fieldNodeName},</if>
+            <if test="model.fieldNodeType != null">field_node_type = #{model.fieldNodeType},</if>
+            <if test="model.fieldNodeConfig != null">field_node_config = #{model.fieldNodeConfig},</if>
+            <if test="model.fieldStatus != null">field_status = #{model.fieldStatus},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_process_example_node
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysProcessExampleNodeResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_node
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysProcessExampleNodeResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_node
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldExampleId != null and model.fieldExampleId != ''">AND field_example_id = #{model.fieldExampleId}</if>
+            <if test="model.fieldNodeNo != null">AND field_node_no = #{model.fieldNodeNo}</if>
+            <if test="model.fieldNodeType != null and model.fieldNodeType != ''">AND field_node_type = #{model.fieldNodeType}</if>
+            <if test="model.fieldStatus != null and model.fieldStatus != ''">AND field_status = #{model.fieldStatus}</if>
+        </where>
+        ORDER BY field_node_no ASC
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_node_name，供关联对象赋值使用 -->
+    <resultMap id="SysProcessExampleNodeLoadResultMap" type="com.common.system.sys.process.model.SysProcessExampleNode">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_node_name" property="fieldNodeName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysProcessExampleNodeLoadResultMap">
+        SELECT field_id, field_node_name AS field_name
+        FROM sys_process_example_node
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 按实例查询全部节点（按节点编号升序） -->
+    <select id="selectListByExampleId" parameterType="string" resultMap="SysProcessExampleNodeResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_node
+        WHERE field_example_id = #{exampleId}
+        ORDER BY field_node_no ASC
+    </select>
+
+    <!-- 按实例 + 节点编号查询 -->
+    <select id="selectByExampleAndNo" resultMap="SysProcessExampleNodeResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_node
+        WHERE field_example_id = #{exampleId} AND field_node_no = #{nodeNo}
+        LIMIT 1
+    </select>
+
+    <!-- 按实例 + 节点状态查询（如当前处理中的节点） -->
+    <select id="selectByExampleAndStatus" resultMap="SysProcessExampleNodeResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_node
+        WHERE field_example_id = #{exampleId} AND field_status = #{status}
+        ORDER BY field_node_no ASC
+    </select>
+
+    <!-- 按实例 + 节点类型查询（如草稿节点 / 结束节点） -->
+    <select id="selectByExampleAndType" resultMap="SysProcessExampleNodeResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_node
+        WHERE field_example_id = #{exampleId} AND field_node_type = #{nodeType}
+        ORDER BY field_node_no ASC
+        LIMIT 1
+    </select>
+
+    <!-- 批量插入实例节点（创建实例时从模板节点快照） -->
+    <insert id="insertBatch">
+        INSERT INTO sys_process_example_node (
+        <include refid="BaseColumns"/>
+        ) VALUES
+        <foreach collection="nodes" item="node" separator=",">
+            (#{node.fieldId}, #{exampleId}, #{node.fieldNodeNo}, #{node.fieldNodeName}, #{node.fieldNodeType}, #{node.fieldNodeConfig}, #{node.fieldStatus})
+        </foreach>
+    </insert>
+
+</mapper>

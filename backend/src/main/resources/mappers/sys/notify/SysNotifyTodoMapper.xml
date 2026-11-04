@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.notify.mapper.SysNotifyTodoMapper">
+
+    <!--
+        待办主表(sys_notify_todo)映射
+        字段命名遵循公共字段规范(field_ 前缀)，与 Java 属性直接 camel-case 对应；
+        后台待办列表 JOIN sys_notify_todo_target 汇总接收人数与已办人数。
+        列清单与 artificial/docs/设计文档/sys/notify/通知待办表结构.md 保持一致。
+    -->
+
+    <resultMap id="SysNotifyTodoResultMap" type="com.common.system.sys.notify.model.SysNotifyTodo">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_model_name" property="fieldModelName"/>
+        <result column="field_model_id" property="fieldModelId"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_notify_type" property="fieldNotifyType"/>
+        <result column="field_url" property="fieldUrl"/>
+        <result column="field_content" property="fieldContent"/>
+    </resultMap>
+
+    <resultMap id="SysNotifyAdminTodoVoResultMap" type="com.common.system.sys.notify.response.SysNotifyAdminTodoVo">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_model_name" property="fieldModelName"/>
+        <result column="field_notify_type" property="fieldNotifyType"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_receive_count" property="fieldReceiveCount"/>
+        <result column="field_done_count" property="fieldDoneCount"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_name, field_model_name, field_model_id, field_creator_id,
+        field_create_time, field_notify_type, field_url, field_content
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.notify.model.SysNotifyTodo">
+        INSERT INTO sys_notify_todo (
+        field_id, field_name, field_model_name, field_model_id, field_creator_id,
+        field_create_time, field_notify_type, field_url, field_content
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldName}, #{model.fieldModelName}, #{model.fieldModelId}, #{model.fieldCreatorId},
+        #{model.fieldCreateTime}, #{model.fieldNotifyType}, #{model.fieldUrl}, #{model.fieldContent}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.notify.model.SysNotifyTodo">
+        UPDATE sys_notify_todo
+        <set>
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldModelName != null">field_model_name = #{model.fieldModelName},</if>
+            <if test="model.fieldModelId != null">field_model_id = #{model.fieldModelId},</if>
+            <if test="model.fieldNotifyType != null">field_notify_type = #{model.fieldNotifyType},</if>
+            <if test="model.fieldUrl != null">field_url = #{model.fieldUrl},</if>
+            <if test="model.fieldContent != null">field_content = #{model.fieldContent},</if>
+            <if test="model.fieldCreatorId != null">field_creator_id = #{model.fieldCreatorId},</if>
+            <if test="model.fieldCreateTime != null">field_create_time = #{model.fieldCreateTime},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_notify_todo
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysNotifyTodoResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_notify_todo
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysNotifyTodoResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_notify_todo
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldModelName != null and model.fieldModelName != ''">AND field_model_name LIKE CONCAT('%', #{model.fieldModelName}, '%')</if>
+            <if test="model.fieldModelId != null and model.fieldModelId != ''">AND field_model_id = #{model.fieldModelId}</if>
+            <if test="model.fieldNotifyType != null and model.fieldNotifyType != ''">AND field_notify_type = #{model.fieldNotifyType}</if>
+        </where>
+        ORDER BY field_create_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!--
+        后台待办列表（按 sys_notify_todo 可见所有待办）：
+        LEFT JOIN 接收人表按 field_todo_id 汇总接收人数与已办人数；
+        排序字段/方向经 <choose> 白名单映射，杜绝 SQL 注入；默认创建时间降序。
+    -->
+    <select id="selectAdminList" resultMap="SysNotifyAdminTodoVoResultMap">
+        SELECT
+            m.field_id, m.field_name, m.field_model_name, m.field_notify_type, m.field_create_time,
+            IFNULL(t.receive_count, 0) AS field_receive_count,
+            IFNULL(t.done_count, 0) AS field_done_count
+        FROM sys_notify_todo m
+        LEFT JOIN (
+            SELECT field_todo_id,
+                   COUNT(*) AS receive_count,
+                   SUM(CASE WHEN field_is_done = 1 THEN 1 ELSE 0 END) AS done_count
+            FROM sys_notify_todo_target
+            GROUP BY field_todo_id
+        ) t ON t.field_todo_id = m.field_id
+        <where>
+            <if test="model.fieldNotifyType != null and model.fieldNotifyType != ''">AND m.field_notify_type = #{model.fieldNotifyType}</if>
+            <if test="model.fieldModelName != null and model.fieldModelName != ''">AND m.field_model_name = #{model.fieldModelName}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND m.field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldCreateTimeStart != null">AND m.field_create_time &gt;= #{model.fieldCreateTimeStart}</if>
+            <if test="model.fieldCreateTimeEnd != null">AND m.field_create_time &lt;= #{model.fieldCreateTimeEnd}</if>
+        </where>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'createTime'">m.field_create_time</when>
+            <otherwise>m.field_create_time</otherwise>
+        </choose>
+        <choose>
+            <when test="sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 后台待办列表总数（与 selectAdminList 过滤条件一致，供分页 metadata.total 使用） -->
+    <select id="selectAdminCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_notify_todo m
+        <where>
+            <if test="model.fieldNotifyType != null and model.fieldNotifyType != ''">AND m.field_notify_type = #{model.fieldNotifyType}</if>
+            <if test="model.fieldModelName != null and model.fieldModelName != ''">AND m.field_model_name = #{model.fieldModelName}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND m.field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldCreateTimeStart != null">AND m.field_create_time &gt;= #{model.fieldCreateTimeStart}</if>
+            <if test="model.fieldCreateTimeEnd != null">AND m.field_create_time &lt;= #{model.fieldCreateTimeEnd}</if>
+        </where>
+    </select>
+
+    <!-- 按来源模块 + 文档id 查询待办（后端内部「自动转已办」服务使用） -->
+    <select id="selectByModel" resultMap="SysNotifyTodoResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_notify_todo
+        WHERE field_model_name = #{modelName} AND field_model_id = #{modelId}
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
+    <resultMap id="SysNotifyTodoLoadResultMap" type="com.common.system.sys.notify.model.SysNotifyTodo">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysNotifyTodoLoadResultMap">
+        SELECT field_id, field_name
+        FROM sys_notify_todo
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

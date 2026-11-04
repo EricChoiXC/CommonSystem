@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.notify.mapper.SysNotifyTodoTargetMapper">
+
+    <!--
+        待办接收人表(sys_notify_todo_target)映射
+        字段命名遵循公共字段规范(field_ 前缀)，与 Java 属性直接 camel-case 对应；
+        我的待办列表 JOIN sys_notify_todo 组装标题/来源模块/通知类型/链接；
+        所有「本人操作」类更新均带 field_user_id 条件，防止越权操作他人待办。
+        列清单与 artificial/docs/设计文档/sys/notify/通知待办表结构.md 保持一致。
+    -->
+
+    <resultMap id="SysNotifyTodoTargetResultMap" type="com.common.system.sys.notify.model.SysNotifyTodoTarget">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_todo_id" property="fieldTodoId"/>
+        <result column="field_user_id" property="fieldUserId"/>
+        <result column="field_is_done" property="fieldIsDone"/>
+        <result column="field_is_star" property="fieldIsStar"/>
+        <result column="field_is_del" property="fieldIsDel"/>
+        <result column="field_receive_time" property="fieldReceiveTime"/>
+        <result column="field_done_time" property="fieldDoneTime"/>
+        <result column="field_star_time" property="fieldStarTime"/>
+        <result column="field_del_time" property="fieldDelTime"/>
+    </resultMap>
+
+    <resultMap id="SysNotifyTodoVoResultMap" type="com.common.system.sys.notify.response.SysNotifyTodoVo">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_todo_id" property="fieldTodoId"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_creator_name" property="fieldCreatorName"/>
+        <result column="field_model_name" property="fieldModelName"/>
+        <result column="field_notify_type" property="fieldNotifyType"/>
+        <result column="field_url" property="fieldUrl"/>
+        <result column="field_content" property="fieldContent"/>
+        <result column="field_is_done" property="fieldIsDone"/>
+        <result column="field_is_star" property="fieldIsStar"/>
+        <result column="field_receive_time" property="fieldReceiveTime"/>
+        <result column="field_done_time" property="fieldDoneTime"/>
+        <result column="field_star_time" property="fieldStarTime"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_todo_id, field_user_id, field_is_done, field_is_star, field_is_del,
+        field_receive_time, field_done_time, field_star_time, field_del_time
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.notify.model.SysNotifyTodoTarget">
+        INSERT INTO sys_notify_todo_target (
+        field_id, field_todo_id, field_user_id, field_is_done, field_is_star, field_is_del,
+        field_receive_time, field_done_time, field_star_time, field_del_time
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldTodoId}, #{model.fieldUserId}, #{model.fieldIsDone}, #{model.fieldIsStar}, #{model.fieldIsDel},
+        #{model.fieldReceiveTime}, #{model.fieldDoneTime}, #{model.fieldStarTime}, #{model.fieldDelTime}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.notify.model.SysNotifyTodoTarget">
+        UPDATE sys_notify_todo_target
+        <set>
+            <if test="model.fieldTodoId != null">field_todo_id = #{model.fieldTodoId},</if>
+            <if test="model.fieldUserId != null">field_user_id = #{model.fieldUserId},</if>
+            <if test="model.fieldIsDone != null">field_is_done = #{model.fieldIsDone},</if>
+            <if test="model.fieldIsStar != null">field_is_star = #{model.fieldIsStar},</if>
+            <if test="model.fieldIsDel != null">field_is_del = #{model.fieldIsDel},</if>
+            <if test="model.fieldReceiveTime != null">field_receive_time = #{model.fieldReceiveTime},</if>
+            <if test="model.fieldDoneTime != null">field_done_time = #{model.fieldDoneTime},</if>
+            <if test="model.fieldStarTime != null">field_star_time = #{model.fieldStarTime},</if>
+            <if test="model.fieldDelTime != null">field_del_time = #{model.fieldDelTime},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_notify_todo_target
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysNotifyTodoTargetResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_notify_todo_target
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysNotifyTodoTargetResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_notify_todo_target
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldTodoId != null and model.fieldTodoId != ''">AND field_todo_id = #{model.fieldTodoId}</if>
+            <if test="model.fieldUserId != null and model.fieldUserId != ''">AND field_user_id = #{model.fieldUserId}</if>
+            <if test="model.fieldIsDone != null">AND field_is_done = #{model.fieldIsDone}</if>
+            <if test="model.fieldIsStar != null">AND field_is_star = #{model.fieldIsStar}</if>
+            <if test="model.fieldIsDel != null">AND field_is_del = #{model.fieldIsDel}</if>
+        </where>
+        ORDER BY field_receive_time DESC
+        <if test="pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!--
+        我的待办列表：只显示自己接收到的待办（field_user_id = 当前用户），
+        过滤已删除记录（field_is_del = 0）；
+        排序字段/方向经 <choose> 白名单映射，杜绝 SQL 注入；默认接收时间降序。
+    -->
+    <select id="selectMyList" resultMap="SysNotifyTodoVoResultMap">
+        SELECT
+            t.field_id, t.field_todo_id, t.field_is_done, t.field_is_star,
+            t.field_receive_time, t.field_done_time, t.field_star_time,
+            m.field_name, m.field_model_name, m.field_notify_type, m.field_url
+        FROM sys_notify_todo_target t
+        LEFT JOIN sys_notify_todo m ON m.field_id = t.field_todo_id
+        <where>
+            t.field_user_id = #{userId}
+            AND t.field_is_del = 0
+            <if test="model.fieldNotifyType != null and model.fieldNotifyType != ''">AND m.field_notify_type = #{model.fieldNotifyType}</if>
+            <if test="model.fieldModelName != null and model.fieldModelName != ''">AND m.field_model_name = #{model.fieldModelName}</if>
+            <if test="model.fieldIsStar != null">AND t.field_is_star = #{model.fieldIsStar}</if>
+            <if test="model.fieldIsDone != null">AND t.field_is_done = #{model.fieldIsDone}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND m.field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldReceiveTimeStart != null">AND t.field_receive_time &gt;= #{model.fieldReceiveTimeStart}</if>
+            <if test="model.fieldReceiveTimeEnd != null">AND t.field_receive_time &lt;= #{model.fieldReceiveTimeEnd}</if>
+        </where>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'receiveTime'">t.field_receive_time</when>
+            <otherwise>t.field_receive_time</otherwise>
+        </choose>
+        <choose>
+            <when test="sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 我的待办列表总数（与 selectMyList 过滤条件一致，供分页 metadata.total 使用） -->
+    <select id="selectMyCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_notify_todo_target t
+        LEFT JOIN sys_notify_todo m ON m.field_id = t.field_todo_id
+        <where>
+            t.field_user_id = #{userId}
+            AND t.field_is_del = 0
+            <if test="model.fieldNotifyType != null and model.fieldNotifyType != ''">AND m.field_notify_type = #{model.fieldNotifyType}</if>
+            <if test="model.fieldModelName != null and model.fieldModelName != ''">AND m.field_model_name = #{model.fieldModelName}</if>
+            <if test="model.fieldIsStar != null">AND t.field_is_star = #{model.fieldIsStar}</if>
+            <if test="model.fieldIsDone != null">AND t.field_is_done = #{model.fieldIsDone}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND m.field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldReceiveTimeStart != null">AND t.field_receive_time &gt;= #{model.fieldReceiveTimeStart}</if>
+            <if test="model.fieldReceiveTimeEnd != null">AND t.field_receive_time &lt;= #{model.fieldReceiveTimeEnd}</if>
+        </where>
+    </select>
+
+    <!-- 我的待办详情（限定本人且未删除）：JOIN 待办主表与发送人组装展示信息 -->
+    <select id="selectMyVoById" resultMap="SysNotifyTodoVoResultMap">
+        SELECT
+            t.field_id, t.field_todo_id, t.field_is_done, t.field_is_star,
+            t.field_receive_time, t.field_done_time, t.field_star_time,
+            m.field_name, creator.field_name AS field_creator_name,
+            m.field_model_name, m.field_notify_type, m.field_url, m.field_content
+        FROM sys_notify_todo_target t
+        LEFT JOIN sys_notify_todo m ON m.field_id = t.field_todo_id
+        LEFT JOIN sys_org_element creator ON creator.field_id = m.field_creator_id
+        WHERE t.field_id = #{fieldId} AND t.field_user_id = #{userId} AND t.field_is_del = 0
+    </select>
+
+    <!-- 单条转已办/转未办（限定本人）：已办写入办结时间，转未办清空办结时间 -->
+    <update id="updateDone">
+        UPDATE sys_notify_todo_target
+        SET field_is_done = #{done},
+            field_done_time = CASE WHEN #{done} = 1 THEN #{time} ELSE NULL END
+        WHERE field_id = #{fieldId} AND field_user_id = #{userId}
+    </update>
+
+    <!-- 单条星标/取消星标（限定本人）：星标写入收藏时间，取消清空收藏时间 -->
+    <update id="updateStar">
+        UPDATE sys_notify_todo_target
+        SET field_is_star = #{star},
+            field_star_time = CASE WHEN #{star} = 1 THEN #{time} ELSE NULL END
+        WHERE field_id = #{fieldId} AND field_user_id = #{userId}
+    </update>
+
+    <!-- 单条软删除（限定本人）：置 field_is_del=true 并写入删除时间，不是真的删除记录 -->
+    <update id="updateDel">
+        UPDATE sys_notify_todo_target
+        SET field_is_del = #{del},
+            field_del_time = CASE WHEN #{del} = 1 THEN #{time} ELSE NULL END
+        WHERE field_id = #{fieldId} AND field_user_id = #{userId}
+    </update>
+
+    <!-- 批量转已办/转未办（限定本人，跳过已删除记录） -->
+    <update id="batchUpdateDone">
+        UPDATE sys_notify_todo_target
+        SET field_is_done = #{done},
+            field_done_time = CASE WHEN #{done} = 1 THEN #{time} ELSE NULL END
+        WHERE field_user_id = #{userId} AND field_is_del = 0
+        AND field_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 批量星标/取消星标（限定本人，跳过已删除记录） -->
+    <update id="batchUpdateStar">
+        UPDATE sys_notify_todo_target
+        SET field_is_star = #{star},
+            field_star_time = CASE WHEN #{star} = 1 THEN #{time} ELSE NULL END
+        WHERE field_user_id = #{userId} AND field_is_del = 0
+        AND field_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 批量软删除（限定本人，跳过已删除记录）：置 field_is_del=true 并写入删除时间 -->
+    <update id="batchUpdateDel">
+        UPDATE sys_notify_todo_target
+        SET field_is_del = #{del},
+            field_del_time = CASE WHEN #{del} = 1 THEN #{time} ELSE NULL END
+        WHERE field_user_id = #{userId} AND field_is_del = 0
+        AND field_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 按待办id + 接收人查询接收记录（后端内部「自动转已办」服务使用） -->
+    <select id="selectByTodoAndUser" resultMap="SysNotifyTodoTargetResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_notify_todo_target
+        WHERE field_todo_id = #{todoId} AND field_user_id = #{userId}
+    </select>
+
+    <!-- 某待办的接收人数（后台待办列表汇总用） -->
+    <select id="countByTodoId" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_notify_todo_target
+        WHERE field_todo_id = #{todoId}
+    </select>
+
+    <!-- 某待办的已办人数（后台待办列表汇总用） -->
+    <select id="countDoneByTodoId" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_notify_todo_target
+        WHERE field_todo_id = #{todoId} AND field_is_done = 1
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name（接收记录无名称，返回待办id），供关联对象赋值使用 -->
+    <resultMap id="SysNotifyTodoTargetLoadResultMap" type="com.common.system.sys.notify.model.SysNotifyTodoTarget">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_todo_id" property="fieldTodoId"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysNotifyTodoTargetLoadResultMap">
+        SELECT field_id, field_todo_id
+        FROM sys_notify_todo_target
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

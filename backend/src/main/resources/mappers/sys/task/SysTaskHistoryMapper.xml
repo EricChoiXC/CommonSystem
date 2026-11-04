@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.task.mapper.SysTaskHistoryMapper">
+
+    <!--
+        任务执行历史表(sys_task_history)映射
+        流水只增不改：应用侧只执行 insert；update/deleteById 仅为满足基础接口契约保留。
+        列表/详情 JOIN sys_task_main 组装任务名。
+        列清单与 artificial/docs/设计文档/sys/task/定时任务表结构.md 保持一致。
+    -->
+
+    <resultMap id="SysTaskHistoryResultMap" type="com.common.system.sys.task.model.SysTaskHistory">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_task_id" property="fieldTaskId"/>
+        <result column="field_result" property="fieldResult"/>
+        <result column="field_start_time" property="fieldStartTime"/>
+        <result column="field_end_time" property="fieldEndTime"/>
+        <result column="field_group" property="fieldGroup"/>
+        <result column="field_params" property="fieldParams"/>
+        <result column="field_log" property="fieldLog"/>
+    </resultMap>
+
+    <resultMap id="SysTaskHistoryVoResultMap" type="com.common.system.sys.task.response.SysTaskHistoryVo">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_task_id" property="fieldTaskId"/>
+        <result column="field_task_name" property="fieldTaskName"/>
+        <result column="field_result" property="fieldResult"/>
+        <result column="field_start_time" property="fieldStartTime"/>
+        <result column="field_end_time" property="fieldEndTime"/>
+        <result column="field_group" property="fieldGroup"/>
+        <result column="field_params" property="fieldParams"/>
+        <result column="field_log" property="fieldLog"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_task_id, field_result, field_start_time, field_end_time,
+        field_group, field_params, field_log
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.task.model.SysTaskHistory">
+        INSERT INTO sys_task_history (
+        field_id, field_task_id, field_result, field_start_time, field_end_time,
+        field_group, field_params, field_log
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldTaskId}, #{model.fieldResult}, #{model.fieldStartTime}, #{model.fieldEndTime},
+        #{model.fieldGroup}, #{model.fieldParams}, #{model.fieldLog}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.task.model.SysTaskHistory">
+        UPDATE sys_task_history
+        <set>
+            <if test="model.fieldTaskId != null">field_task_id = #{model.fieldTaskId},</if>
+            <if test="model.fieldResult != null">field_result = #{model.fieldResult},</if>
+            <if test="model.fieldStartTime != null">field_start_time = #{model.fieldStartTime},</if>
+            <if test="model.fieldEndTime != null">field_end_time = #{model.fieldEndTime},</if>
+            <if test="model.fieldGroup != null">field_group = #{model.fieldGroup},</if>
+            <if test="model.fieldParams != null">field_params = #{model.fieldParams},</if>
+            <if test="model.fieldLog != null">field_log = #{model.fieldLog},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_task_history
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysTaskHistoryResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_task_history
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysTaskHistoryResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_task_history
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldTaskId != null and model.fieldTaskId != ''">AND field_task_id = #{model.fieldTaskId}</if>
+            <if test="model.fieldResult != null and model.fieldResult != ''">AND field_result = #{model.fieldResult}</if>
+        </where>
+        ORDER BY field_start_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!--
+        执行记录分页列表（JOIN sys_task_main 取任务名）：
+        筛选支持任务名称、结果、开始时间范围、结束时间范围；
+        排序字段/方向经 <choose> 白名单映射（startTime / endTime），杜绝 SQL 注入。
+    -->
+    <select id="selectHistoryList" resultMap="SysTaskHistoryVoResultMap">
+        SELECT
+            h.field_id, h.field_task_id, m.field_name AS field_task_name,
+            h.field_result, h.field_start_time, h.field_end_time,
+            h.field_group, h.field_params, h.field_log
+        FROM sys_task_history h
+        LEFT JOIN sys_task_main m ON m.field_id = h.field_task_id
+        <where>
+            <if test="model.fieldTaskName != null and model.fieldTaskName != ''">AND m.field_name LIKE CONCAT('%', #{model.fieldTaskName}, '%')</if>
+            <if test="model.fieldResult != null and model.fieldResult != ''">AND h.field_result = #{model.fieldResult}</if>
+            <if test="model.fieldStartTimeStart != null">AND h.field_start_time &gt;= #{model.fieldStartTimeStart}</if>
+            <if test="model.fieldStartTimeEnd != null">AND h.field_start_time &lt;= #{model.fieldStartTimeEnd}</if>
+            <if test="model.fieldEndTimeStart != null">AND h.field_end_time &gt;= #{model.fieldEndTimeStart}</if>
+            <if test="model.fieldEndTimeEnd != null">AND h.field_end_time &lt;= #{model.fieldEndTimeEnd}</if>
+        </where>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'startTime'">h.field_start_time</when>
+            <when test="sortField == 'endTime'">h.field_end_time</when>
+            <otherwise>h.field_start_time</otherwise>
+        </choose>
+        <choose>
+            <when test="sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 执行记录列表总数（与 selectHistoryList 过滤条件一致，供分页 metadata.total 使用） -->
+    <select id="selectHistoryCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_task_history h
+        LEFT JOIN sys_task_main m ON m.field_id = h.field_task_id
+        <where>
+            <if test="model.fieldTaskName != null and model.fieldTaskName != ''">AND m.field_name LIKE CONCAT('%', #{model.fieldTaskName}, '%')</if>
+            <if test="model.fieldResult != null and model.fieldResult != ''">AND h.field_result = #{model.fieldResult}</if>
+            <if test="model.fieldStartTimeStart != null">AND h.field_start_time &gt;= #{model.fieldStartTimeStart}</if>
+            <if test="model.fieldStartTimeEnd != null">AND h.field_start_time &lt;= #{model.fieldStartTimeEnd}</if>
+            <if test="model.fieldEndTimeStart != null">AND h.field_end_time &gt;= #{model.fieldEndTimeStart}</if>
+            <if test="model.fieldEndTimeEnd != null">AND h.field_end_time &lt;= #{model.fieldEndTimeEnd}</if>
+        </where>
+    </select>
+
+    <!-- 执行记录详情（JOIN sys_task_main 取任务名） -->
+    <select id="selectHistoryById" parameterType="string" resultMap="SysTaskHistoryVoResultMap">
+        SELECT
+            h.field_id, h.field_task_id, m.field_name AS field_task_name,
+            h.field_result, h.field_start_time, h.field_end_time,
+            h.field_group, h.field_params, h.field_log
+        FROM sys_task_history h
+        LEFT JOIN sys_task_main m ON m.field_id = h.field_task_id
+        WHERE h.field_id = #{fieldId}
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name（本表无名称列，仅返回 id） -->
+    <select id="loadModel" parameterType="string" resultMap="SysTaskHistoryResultMap">
+        SELECT field_id, field_task_id, field_result, field_start_time, field_end_time,
+               field_group, field_params, field_log
+        FROM sys_task_history
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

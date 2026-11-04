@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.org.mapper.SysOrgUserMapper">
+
+    <!--
+        人员扩展表(sys_org_user)映射
+        本表仅承载人员扩展字段，公共字段与层级字段存储在 sys_org_element 主表中
+        (field_org_type = 3)，通过 field_id 一对一关联；
+        查询统一 LEFT JOIN sys_org_element 以组装完整用户信息，写入(insert/update)
+        仅操作扩展表——公共字段由 SysOrgElementMapper 双表写入(SysOrgUserDao 承担)。
+        field_password 仅允许写入，任何查询列集合都不返回密码；
+        field_login_name 仅管理员/本人可见(见 BaseColumns/NormalColumns)。
+        列清单与 artificial/docs/设计文档/sys/org/组织架构表结构.md 保持一致。
+    -->
+
+    <resultMap id="SysOrgUserResultMap" type="com.common.system.sys.org.model.SysOrgUser">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_parent_id" property="fieldParentId"/>
+        <result column="field_hierarchy" property="fieldHierarchy"/>
+        <result column="field_level" property="fieldLevel"/>
+        <result column="field_org_type" property="fieldOrgType"/>
+        <result column="field_is_virtual" property="fieldIsVirtual"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_enable" property="fieldEnable"/>
+        <result column="field_phone" property="fieldPhone"/>
+        <result column="field_email" property="fieldEmail"/>
+        <result column="field_address" property="fieldAddress"/>
+        <result column="field_gender" property="fieldGender"/>
+        <result column="field_birthday" property="fieldBirthday"/>
+        <result column="field_login_name" property="fieldLoginName"/>
+        <result column="field_job_status" property="fieldJobStatus"/>
+        <result column="field_account_status" property="fieldAccountStatus"/>
+        <result column="field_last_login_time" property="fieldLastLoginTime"/>
+        <result column="field_last_chg_pwd_time" property="fieldLastChgPwdTime"/>
+    </resultMap>
+
+    <!-- 查询列：管理员/本人可见，公共字段取自 element 主表，永不包含密码 -->
+    <sql id="BaseColumns">
+        e.field_id, e.field_code, e.field_name, e.field_parent_id,
+        e.field_hierarchy, e.field_level, e.field_org_type, e.field_is_virtual,
+        e.field_creator_id, e.field_create_time, e.field_updater_id, e.field_update_time, e.field_enable,
+        u.field_phone, u.field_email, u.field_address, u.field_gender, u.field_birthday,
+        u.field_login_name, u.field_job_status, u.field_account_status,
+        u.field_last_login_time, u.field_last_chg_pwd_time
+    </sql>
+
+    <!-- 查询列：非本人/非权限用户可见，额外隐藏登录名(脱敏由 Service 层处理) -->
+    <sql id="NormalColumns">
+        e.field_id, e.field_code, e.field_name, e.field_parent_id,
+        e.field_hierarchy, e.field_level, e.field_org_type, e.field_is_virtual,
+        e.field_creator_id, e.field_create_time, e.field_updater_id, e.field_update_time, e.field_enable,
+        u.field_phone, u.field_email, u.field_address, u.field_gender, u.field_birthday,
+        u.field_job_status, u.field_account_status,
+        u.field_last_login_time, u.field_last_chg_pwd_time
+    </sql>
+
+    <!-- 插入列：仅人员扩展表字段，公共字段由 SysOrgElementMapper 写入 -->
+    <sql id="InsertColumns">
+        field_id, field_phone, field_email, field_address, field_gender, field_birthday,
+        field_login_name, field_password, field_job_status, field_account_status,
+        field_last_login_time, field_last_chg_pwd_time
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgUser">
+        INSERT INTO sys_org_user (
+        <include refid="InsertColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldPhone}, #{model.fieldEmail}, #{model.fieldAddress},
+        #{model.fieldGender}, #{model.fieldBirthday}, #{model.fieldLoginName}, #{model.fieldPassword},
+        #{model.fieldJobStatus}, #{model.fieldAccountStatus},
+        #{model.fieldLastLoginTime}, #{model.fieldLastChgPwdTime}
+        )
+    </insert>
+
+    <!--
+        通用更新：仅更新普通字段，不包含 field_password——
+        密码仅通过 changePwd 接口的 updatePassword 更新（见下），
+        防止通过编辑接口意外重置密码；field_login_name 仅管理员/本人可见(见 Service 裁剪)。
+    -->
+    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgUser">
+        UPDATE sys_org_user
+        <set>
+            <if test="model.fieldPhone != null">field_phone = #{model.fieldPhone},</if>
+            <if test="model.fieldEmail != null">field_email = #{model.fieldEmail},</if>
+            <if test="model.fieldAddress != null">field_address = #{model.fieldAddress},</if>
+            <if test="model.fieldBirthday != null">field_birthday = #{model.fieldBirthday},</if>
+            field_gender = #{model.fieldGender},
+            <if test="model.fieldLoginName != null">field_login_name = #{model.fieldLoginName},</if>
+            field_job_status = #{model.fieldJobStatus},
+            field_account_status = #{model.fieldAccountStatus},
+            <if test="model.fieldLastLoginTime != null">field_last_login_time = #{model.fieldLastLoginTime},</if>
+            <if test="model.fieldLastChgPwdTime != null">field_last_chg_pwd_time = #{model.fieldLastChgPwdTime},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <!--
+        仅更新密码：changePwd 接口专用，只触碰 field_password 与 field_last_chg_pwd_time，
+        不更新用户其他字段；field_password 入参必须是 PasswordUtil 加密后的 BCrypt 哈希串。
+    -->
+    <update id="updatePassword" parameterType="com.common.system.sys.org.model.SysOrgUser">
+        UPDATE sys_org_user
+        <set>
+            field_password = #{model.fieldPassword},
+            field_last_chg_pwd_time = #{model.fieldLastChgPwdTime},
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_org_user
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysOrgUserResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_user u
+        LEFT JOIN sys_org_element e ON e.field_id = u.field_id
+        WHERE u.field_id = #{fieldId}
+    </select>
+
+    <select id="selectByIdWithFields" parameterType="string" resultMap="SysOrgUserResultMap">
+        SELECT
+        <choose>
+            <when test="visibility == 'SYS_ORG_ADMIN'">
+                <include refid="BaseColumns"/>
+            </when>
+            <otherwise>
+                <include refid="NormalColumns"/>
+            </otherwise>
+        </choose>
+        FROM sys_org_user u
+        LEFT JOIN sys_org_element e ON e.field_id = u.field_id
+        WHERE u.field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysOrgUserResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_user u
+        LEFT JOIN sys_org_element e ON e.field_id = u.field_id
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND u.field_id = #{model.fieldId}</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND e.field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND e.field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldLoginName != null and model.fieldLoginName != ''">AND u.field_login_name LIKE CONCAT('%', #{model.fieldLoginName}, '%')</if>
+            <if test="model.fieldPhone != null and model.fieldPhone != ''">AND u.field_phone LIKE CONCAT('%', #{model.fieldPhone}, '%')</if>
+            <if test="model.fieldEmail != null and model.fieldEmail != ''">AND u.field_email LIKE CONCAT('%', #{model.fieldEmail}, '%')</if>
+            <if test="model.fieldEnable != null">AND e.field_enable = #{model.fieldEnable}</if>
+        </where>
+        ORDER BY e.field_create_time DESC
+        <if test="pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="selectListWithFields" resultMap="SysOrgUserResultMap">
+        SELECT
+        <choose>
+            <when test="visibility == 'SYS_ORG_ADMIN'">
+                <include refid="BaseColumns"/>
+            </when>
+            <otherwise>
+                <include refid="NormalColumns"/>
+            </otherwise>
+        </choose>
+        FROM sys_org_user u
+        LEFT JOIN sys_org_element e ON e.field_id = u.field_id
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND u.field_id = #{model.fieldId}</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND e.field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND e.field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldLoginName != null and model.fieldLoginName != ''">AND u.field_login_name LIKE CONCAT('%', #{model.fieldLoginName}, '%')</if>
+            <if test="model.fieldPhone != null and model.fieldPhone != ''">AND u.field_phone LIKE CONCAT('%', #{model.fieldPhone}, '%')</if>
+            <if test="model.fieldEmail != null and model.fieldEmail != ''">AND u.field_email LIKE CONCAT('%', #{model.fieldEmail}, '%')</if>
+            <if test="model.fieldEnable != null">AND e.field_enable = #{model.fieldEnable}</if>
+        </where>
+        ORDER BY e.field_create_time DESC
+        <if test="pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!--
+        轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用；
+        field_name 不在本扩展表，JOIN sys_org_element 主表获取
+    -->
+    <resultMap id="SysOrgUserLoadResultMap" type="com.common.system.sys.org.model.SysOrgUser">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <!--
+        登录专用 resultMap：在完整列基础上额外映射 field_password（BCrypt 哈希串），
+        仅供登录校验使用；field_password 在模型中标注 WRITE_ONLY，响应序列化时不输出。
+    -->
+    <resultMap id="SysOrgUserLoginResultMap" type="com.common.system.sys.org.model.SysOrgUser"
+               extends="SysOrgUserResultMap">
+        <result column="field_password" property="fieldPassword"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysOrgUserLoadResultMap">
+        SELECT e.field_id, e.field_name
+        FROM sys_org_user u
+        INNER JOIN sys_org_element e ON e.field_id = u.field_id
+        WHERE u.field_id = #{fieldId}
+    </select>
+
+    <!--
+        登录专用查询：按登录名精确匹配，额外返回 u.field_password 供密码校验；
+        查询结果仅存在于本次请求的模型对象中，不会出现在任何响应体里。
+    -->
+    <select id="selectByLoginName" parameterType="string" resultMap="SysOrgUserLoginResultMap">
+        SELECT
+        <include refid="BaseColumns"/>,
+        u.field_password
+        FROM sys_org_user u
+        LEFT JOIN sys_org_element e ON e.field_id = u.field_id
+        WHERE u.field_login_name = #{loginName}
+        LIMIT 1
+    </select>
+
+    <!--
+        按邮箱查询用户（登录/校验邮箱唯一性）：额外返回 field_password 供密码校验。
+    -->
+    <select id="selectByEmail" parameterType="string" resultMap="SysOrgUserLoginResultMap">
+        SELECT
+        <include refid="BaseColumns"/>,
+        u.field_password
+        FROM sys_org_user u
+        LEFT JOIN sys_org_element e ON e.field_id = u.field_id
+        WHERE u.field_email = #{email}
+        LIMIT 1
+    </select>
+
+    <!--
+        按电话查询用户（登录/校验电话唯一性）：额外返回 field_password 供密码校验。
+    -->
+    <select id="selectByPhone" parameterType="string" resultMap="SysOrgUserLoginResultMap">
+        SELECT
+        <include refid="BaseColumns"/>,
+        u.field_password
+        FROM sys_org_user u
+        LEFT JOIN sys_org_element e ON e.field_id = u.field_id
+        WHERE u.field_phone = #{phone}
+        LIMIT 1
+    </select>
+
+</mapper>

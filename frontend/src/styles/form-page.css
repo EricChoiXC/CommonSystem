@@ -1,0 +1,92 @@
+/* ============================================================
+ * 新建 / 编辑 / 查看页面公共样式
+ * 对应仓库 AGENTS.md 5.2「新建/编辑/查看页面公共样式要求」：
+ * 独立路由页面（/{资源}/create、/{资源}/edit/:id、/{资源}/detail/:id），
+ * 顶部标签卡片 + 表单/详情网格 + 底部操作区。
+ * 类名语义化，供各模块表单页/详情页直接复用。
+ * ============================================================ */
+
+/* —— 页面容器：宽度 100%，不收缩为固定最大宽度 —— */
+.page-card {
+  width: 100%;
+}
+
+/* —— 顶部标题（el-card header） —— */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.page-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* —— 表单主体：默认一行两字段，字段名:字段值 = 2:3（el-form label-width="40%"） —— */
+.page-form {
+  padding-top: 8px;
+}
+
+/* —— 卡片头部操作区：新建/编辑页「返回 + 保存」，查看页「返回 + 编辑」 ——
+ * 统一放在 el-card header 右侧（.page-header > .header-btns），页面底部不再放置操作区。 */
+.header-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* —— 详情网格：默认一行两字段 2:3；长字段（is-full）一行一字段 2:8 ——
+ * 自定义 flex 网格实现，不使用 el-descriptions（非垂直模式单元格 colspan 恒为 1，
+ * 无法实现长字段整行 2:8 布局）。 */
+.detail-grid {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--el-border-color-lighter);
+  border-left: 1px solid var(--el-border-color-lighter);
+}
+
+.detail-item {
+  display: flex;
+  width: 50%;
+  border-right: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  box-sizing: border-box;
+}
+
+/* 长内容字段：一行一字段，字段名:字段值 = 2:8 */
+.detail-item.is-full {
+  width: 100%;
+}
+
+.detail-item.is-full .detail-label {
+  width: 20%;
+}
+
+.detail-item.is-full .detail-value {
+  width: 80%;
+}
+
+.detail-label {
+  flex-shrink: 0;
+  width: 40%;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--el-text-color-secondary);
+  background-color: var(--el-fill-color-light);
+  box-sizing: border-box;
+}
+
+.detail-value {
+  flex: 1;
+  width: 60%;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--el-text-color-primary);
+  word-break: break-all;
+  box-sizing: border-box;
+}

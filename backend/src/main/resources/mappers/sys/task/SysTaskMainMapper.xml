@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.task.mapper.SysTaskMainMapper">
+
+    <!--
+        定时任务主表(sys_task_main)映射
+        字段命名遵循公共字段规范(field_ 前缀)，与 Java 属性直接 camel-case 对应；
+        列清单与 artificial/docs/设计文档/sys/task/定时任务表结构.md 保持一致。
+        field_params 为 JSON 列，Java 侧以 String(合法 JSON 文本) 存取，值均为字符串。
+    -->
+
+    <resultMap id="SysTaskMainResultMap" type="com.common.system.sys.task.model.SysTaskMain">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_enable" property="fieldEnable"/>
+        <result column="field_cron" property="fieldCron"/>
+        <result column="field_class" property="fieldClass"/>
+        <result column="field_params" property="fieldParams"/>
+        <result column="field_status" property="fieldStatus"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_name, field_enable, field_cron, field_class,
+        field_params, field_status, field_create_time
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.task.model.SysTaskMain">
+        INSERT INTO sys_task_main (
+        field_id, field_name, field_enable, field_cron, field_class,
+        field_params, field_status, field_create_time
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldName}, #{model.fieldEnable}, #{model.fieldCron}, #{model.fieldClass},
+        #{model.fieldParams}, #{model.fieldStatus}, #{model.fieldCreateTime}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.task.model.SysTaskMain">
+        UPDATE sys_task_main
+        <set>
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldEnable != null">field_enable = #{model.fieldEnable},</if>
+            <if test="model.fieldCron != null">field_cron = #{model.fieldCron},</if>
+            <if test="model.fieldClass != null">field_class = #{model.fieldClass},</if>
+            <if test="model.fieldParams != null">field_params = #{model.fieldParams},</if>
+            <if test="model.fieldStatus != null">field_status = #{model.fieldStatus},</if>
+            <if test="model.fieldCreateTime != null">field_create_time = #{model.fieldCreateTime},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_task_main
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysTaskMainResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_task_main
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysTaskMainResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_task_main
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+            <if test="model.fieldStatus != null and model.fieldStatus != ''">AND field_status = #{model.fieldStatus}</if>
+        </where>
+        ORDER BY field_create_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 按任务类名查询：系统启动扫描写入时判断是否已登记 -->
+    <select id="selectByClass" parameterType="string" resultMap="SysTaskMainResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_task_main
+        WHERE field_class = #{fieldClass}
+        LIMIT 1
+    </select>
+
+    <!-- 批量更新是否启用（批量停用/启用） -->
+    <update id="updateEnableBatch">
+        UPDATE sys_task_main
+        SET field_enable = #{enable}
+        WHERE field_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <!-- 任务列表总数（与 selectList 过滤条件一致，供分页 metadata.total 使用） -->
+    <select id="selectCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_task_main
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+            <if test="model.fieldStatus != null and model.fieldStatus != ''">AND field_status = #{model.fieldStatus}</if>
+        </where>
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
+    <resultMap id="SysTaskMainLoadResultMap" type="com.common.system.sys.task.model.SysTaskMain">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysTaskMainLoadResultMap">
+        SELECT field_id, field_name
+        FROM sys_task_main
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

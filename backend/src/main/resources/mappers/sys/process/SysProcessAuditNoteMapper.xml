@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.process.mapper.SysProcessAuditNoteMapper">
+
+    <!--
+        流程审批记录表(sys_process_audit_note)映射
+        field_handle_type 枚举: DRAFTER_SUBMIT/DRAFTER_BACK/DRAFTER_ABANDON/HANDLER_PASS/
+        HANDLER_RETURN/AUTO_PASS/ADMIN_PAUSE/ADMIN_RESUME/ADMIN_JUMP/ADMIN_ABANDON/ADMIN_FINISH；
+        field_workitem_id 关联工作项（自动跳过等无工作项的操作可为空）。
+    -->
+
+    <resultMap id="SysProcessAuditNoteResultMap" type="com.common.system.sys.process.model.SysProcessAuditNote">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_example_id" property="fieldExampleId"/>
+        <result column="field_workitem_id" property="fieldWorkitemId"/>
+        <result column="field_handler_id" property="fieldHandlerId"/>
+        <result column="field_content" property="fieldContent"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_handle_type" property="fieldHandleType"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_example_id, field_workitem_id, field_handler_id, field_content, field_create_time, field_handle_type
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.process.model.SysProcessAuditNote">
+        INSERT INTO sys_process_audit_note (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldExampleId}, #{model.fieldWorkitemId}, #{model.fieldHandlerId}, #{model.fieldContent}, #{model.fieldCreateTime}, #{model.fieldHandleType}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.process.model.SysProcessAuditNote">
+        UPDATE sys_process_audit_note
+        <set>
+            <if test="model.fieldExampleId != null">field_example_id = #{model.fieldExampleId},</if>
+            <if test="model.fieldWorkitemId != null">field_workitem_id = #{model.fieldWorkitemId},</if>
+            <if test="model.fieldHandlerId != null">field_handler_id = #{model.fieldHandlerId},</if>
+            <if test="model.fieldContent != null">field_content = #{model.fieldContent},</if>
+            <if test="model.fieldCreateTime != null">field_create_time = #{model.fieldCreateTime},</if>
+            <if test="model.fieldHandleType != null">field_handle_type = #{model.fieldHandleType},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_process_audit_note
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysProcessAuditNoteResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_audit_note
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysProcessAuditNoteResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_audit_note
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldExampleId != null and model.fieldExampleId != ''">AND field_example_id = #{model.fieldExampleId}</if>
+            <if test="model.fieldWorkitemId != null and model.fieldWorkitemId != ''">AND field_workitem_id = #{model.fieldWorkitemId}</if>
+            <if test="model.fieldHandleType != null and model.fieldHandleType != ''">AND field_handle_type = #{model.fieldHandleType}</if>
+        </where>
+        ORDER BY field_create_time ASC
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id，供关联对象赋值使用 -->
+    <resultMap id="SysProcessAuditNoteLoadResultMap" type="com.common.system.sys.process.model.SysProcessAuditNote">
+        <id column="field_id" property="fieldId"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysProcessAuditNoteLoadResultMap">
+        SELECT field_id
+        FROM sys_process_audit_note
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 按实例查询全部审批记录（按创建时间升序） -->
+    <select id="selectListByExampleId" parameterType="string" resultMap="SysProcessAuditNoteResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_audit_note
+        WHERE field_example_id = #{exampleId}
+        ORDER BY field_create_time ASC
+    </select>
+
+</mapper>

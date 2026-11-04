@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.process.mapper.SysProcessTemplateNodeMapper">
+
+    <!--
+        流程模板节点表(sys_process_template_node)映射
+        field_node_type 枚举: START/END/DRAFT/APPROVE/ROBORT；
+        field_node_config 以 JSON 字符串保存审批节点配置（审批人/审批模式/节点触发/触发条件/是否允许自动跳过）。
+    -->
+
+    <resultMap id="SysProcessTemplateNodeResultMap" type="com.common.system.sys.process.model.SysProcessTemplateNode">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_template_id" property="fieldTemplateId"/>
+        <result column="field_no" property="fieldNo"/>
+        <result column="field_node_name" property="fieldNodeName"/>
+        <result column="field_node_type" property="fieldNodeType"/>
+        <result column="field_node_config" property="fieldNodeConfig"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_template_id, field_no, field_node_name, field_node_type, field_node_config
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.process.model.SysProcessTemplateNode">
+        INSERT INTO sys_process_template_node (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldTemplateId}, #{model.fieldNo}, #{model.fieldNodeName}, #{model.fieldNodeType}, #{model.fieldNodeConfig}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.process.model.SysProcessTemplateNode">
+        UPDATE sys_process_template_node
+        <set>
+            <if test="model.fieldTemplateId != null">field_template_id = #{model.fieldTemplateId},</if>
+            <if test="model.fieldNo != null">field_no = #{model.fieldNo},</if>
+            <if test="model.fieldNodeName != null">field_node_name = #{model.fieldNodeName},</if>
+            <if test="model.fieldNodeType != null">field_node_type = #{model.fieldNodeType},</if>
+            <if test="model.fieldNodeConfig != null">field_node_config = #{model.fieldNodeConfig},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_process_template_node
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysProcessTemplateNodeResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_template_node
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysProcessTemplateNodeResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_template_node
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldTemplateId != null and model.fieldTemplateId != ''">AND field_template_id = #{model.fieldTemplateId}</if>
+        </where>
+        ORDER BY field_no ASC
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
+    <resultMap id="SysProcessTemplateNodeLoadResultMap" type="com.common.system.sys.process.model.SysProcessTemplateNode">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_node_name" property="fieldNodeName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysProcessTemplateNodeLoadResultMap">
+        SELECT field_id, field_node_name AS field_name
+        FROM sys_process_template_node
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 按模板查询全部节点（按节点编号升序） -->
+    <select id="selectListByTemplateId" parameterType="string" resultMap="SysProcessTemplateNodeResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_template_node
+        WHERE field_template_id = #{templateId}
+        ORDER BY field_no ASC
+    </select>
+
+    <!-- 删除模板全部节点（编辑全量替换前清空） -->
+    <delete id="deleteByTemplateId" parameterType="string">
+        DELETE FROM sys_process_template_node
+        WHERE field_template_id = #{templateId}
+    </delete>
+
+    <!-- 批量插入模板节点 -->
+    <insert id="insertBatch">
+        INSERT INTO sys_process_template_node (
+        <include refid="BaseColumns"/>
+        ) VALUES
+        <foreach collection="nodes" item="node" separator=",">
+            (#{node.fieldId}, #{templateId}, #{node.fieldNo}, #{node.fieldNodeName}, #{node.fieldNodeType}, #{node.fieldNodeConfig})
+        </foreach>
+    </insert>
+
+</mapper>

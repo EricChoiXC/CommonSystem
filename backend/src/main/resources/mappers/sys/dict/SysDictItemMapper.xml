@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.dict.mapper.SysDictItemMapper">
+
+    <!--
+        码值项(sys_dict_item)映射
+        字段命名遵循公共字段规范(field_ 前缀)，与 Java 属性直接 camel-case 对应；
+        码值项列表固定按 field_value 升序展示；field_system = true 的码值不可维护。
+        列清单与 artificial/docs/设计文档/sys/dict/码值功能核心业务.md 保持一致。
+    -->
+
+    <resultMap id="SysDictItemResultMap" type="com.common.system.sys.dict.model.SysDictItem">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_type_id" property="fieldTypeId"/>
+        <result column="field_value" property="fieldValue"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_enable" property="fieldEnable"/>
+        <result column="field_system" property="fieldSystem"/>
+    </resultMap>
+
+    <resultMap id="SysDictItemVoResultMap" type="com.common.system.sys.dict.response.SysDictItemVo">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_type_id" property="fieldTypeId"/>
+        <result column="field_value" property="fieldValue"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_enable" property="fieldEnable"/>
+        <result column="field_system" property="fieldSystem"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_type_id, field_value, field_name, field_enable, field_system
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.dict.model.SysDictItem">
+        INSERT INTO sys_dict_item (
+        field_id, field_type_id, field_value, field_name, field_enable, field_system
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldTypeId}, #{model.fieldValue}, #{model.fieldName}, #{model.fieldEnable}, #{model.fieldSystem}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.dict.model.SysDictItem">
+        UPDATE sys_dict_item
+        <set>
+            <if test="model.fieldTypeId != null">field_type_id = #{model.fieldTypeId},</if>
+            <if test="model.fieldValue != null">field_value = #{model.fieldValue},</if>
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldEnable != null">field_enable = #{model.fieldEnable},</if>
+            <if test="model.fieldSystem != null">field_system = #{model.fieldSystem},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_dict_item
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysDictItemResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_dict_item
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysDictItemResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_dict_item
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldTypeId != null and model.fieldTypeId != ''">AND field_type_id = #{model.fieldTypeId}</if>
+            <if test="model.fieldValue != null and model.fieldValue != ''">AND field_value LIKE CONCAT('%', #{model.fieldValue}, '%')</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+            <if test="model.fieldSystem != null">AND field_system = #{model.fieldSystem}</if>
+        </where>
+        ORDER BY field_value ASC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 指定类型下的码值项（按 field_value 升序），供右侧码值项列表展示 -->
+    <select id="selectByTypeId" parameterType="string" resultMap="SysDictItemResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_dict_item
+        WHERE field_type_id = #{fieldTypeId}
+        ORDER BY field_value ASC
+    </select>
+
+    <!-- 按类型 + 码值查询码值项（校验同类型下码值唯一性） -->
+    <select id="selectByTypeIdAndValue" resultMap="SysDictItemResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_dict_item
+        WHERE field_type_id = #{fieldTypeId} AND field_value = #{fieldValue}
+        LIMIT 1
+    </select>
+
+    <!--
+        通过类型编号获取该类型下已启用的码值项（供其他模块/页面快速使用）：
+        JOIN sys_dict_type 按 field_code 定位类型，只返回启用项，按 field_value 升序。
+    -->
+    <select id="selectItemsByTypeCode" parameterType="string" resultMap="SysDictItemVoResultMap">
+        SELECT i.field_id, i.field_type_id, i.field_value, i.field_name, i.field_enable, i.field_system
+        FROM sys_dict_item i
+        INNER JOIN sys_dict_type t ON t.field_id = i.field_type_id
+        WHERE t.field_code = #{fieldCode} AND i.field_enable = 1
+        ORDER BY i.field_value ASC
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
+    <resultMap id="SysDictItemLoadResultMap" type="com.common.system.sys.dict.model.SysDictItem">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysDictItemLoadResultMap">
+        SELECT field_id, field_name
+        FROM sys_dict_item
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

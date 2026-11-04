@@ -1,0 +1,67 @@
+/* ============================================================
+ * 列表查询页面公共样式
+ * 对应 docs/开发规范.md 与仓库 AGENTS.md 5.1「列表查询页面公共样式要求」：
+ * 所有后台列表查询页面统一采用「筛选条件区 → 工具区 → 列表区」三段式结构。
+ * 类名语义化，供各模块列表页直接复用；页面特有布局（如左右分栏、树形）保留在组件内。
+ * ============================================================ */
+
+/* —— 筛选条件区：四分栅栏（el-row + el-col :span="6"） —— */
+.filter-form {
+  margin-bottom: 4px;
+}
+
+.filter-form .el-form-item {
+  margin-bottom: 14px;
+}
+
+/* —— 工具区：一行左右两段，左侧排序区、右侧按钮区 —— */
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  margin-bottom: 10px;
+}
+
+/* —— 排序区：仅单条件排序，选中项外框高亮 + 升/降序箭头 —— */
+.sort-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sort-item {
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+}
+
+.sort-item:hover {
+  color: #409eff;
+}
+
+.sort-item.active {
+  color: #409eff;
+  border-color: #409eff;
+  background: var(--el-color-primary-light-9);
+}
+
+.sort-arrow {
+  font-style: normal;
+  margin-left: 2px;
+}
+
+/* —— 分页：total, prev, pager, next, sizes，右对齐 —— */
+.list-pagination {
+  margin-top: 10px;
+  justify-content: flex-end;
+}

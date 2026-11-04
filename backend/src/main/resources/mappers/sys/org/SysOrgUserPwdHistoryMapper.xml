@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.org.mapper.SysOrgUserPwdHistoryMapper">
+
+    <!--
+        密码历史表(sys_org_pwd_history)映射
+        记录用户最近n次密码，用于不可重复设定密码次数校验。
+        字段：field_id, field_user_id, field_pwd, field_version
+    -->
+
+    <resultMap id="SysOrgUserPwdHistoryResultMap" type="com.common.system.sys.org.model.SysOrgUserPwdHistory">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_user_id" property="fieldUserId"/>
+        <result column="field_pwd" property="fieldPwd"/>
+        <result column="field_version" property="fieldVersion"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_user_id, field_pwd, field_version
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgUserPwdHistory">
+        INSERT INTO sys_org_pwd_history (
+        field_id, field_user_id, field_pwd, field_version
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldUserId}, #{model.fieldPwd}, #{model.fieldVersion}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgUserPwdHistory">
+        UPDATE sys_org_pwd_history
+        <set>
+            <if test="model.fieldUserId != null">field_user_id = #{model.fieldUserId},</if>
+            <if test="model.fieldPwd != null">field_pwd = #{model.fieldPwd},</if>
+            <if test="model.fieldVersion != null">field_version = #{model.fieldVersion},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_org_pwd_history
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysOrgUserPwdHistoryResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM sys_org_pwd_history
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysOrgUserPwdHistoryResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM sys_org_pwd_history
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldUserId != null and model.fieldUserId != ''">AND field_user_id = #{model.fieldUserId}</if>
+        </where>
+        ORDER BY field_version DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="selectByUserId" parameterType="string" resultMap="SysOrgUserPwdHistoryResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM sys_org_pwd_history
+        WHERE field_user_id = #{userId}
+        ORDER BY field_version DESC
+    </select>
+
+    <delete id="deleteExcess">
+        DELETE FROM sys_org_pwd_history
+        WHERE field_id IN (
+            SELECT field_id FROM (
+                SELECT field_id
+                FROM sys_org_pwd_history
+                WHERE field_user_id = #{userId}
+                ORDER BY field_version DESC
+                LIMIT 18446744073709551615
+                OFFSET #{keepCount}
+            ) AS tmp
+        )
+    </delete>
+
+    <select id="loadModel" parameterType="string" resultMap="SysOrgUserPwdHistoryResultMap">
+        SELECT field_id, field_user_id
+        FROM sys_org_pwd_history
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

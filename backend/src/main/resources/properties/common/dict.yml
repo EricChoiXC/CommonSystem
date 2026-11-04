@@ -1,0 +1,68 @@
+# =====================================================================
+# 公共模块系统码值配置：启动时增量导入 sys_dict_type / sys_dict_item（field_system = true）
+# 统一填写格式（依据 artificial/docs/设计文档/sys/dict/码值功能核心业务.md）：
+#   dict:
+#     ${type.field_code}:
+#       name: ${type.field_name}
+#       desc: ${type.field_desc}
+#       ${item.field_value}: ${item.field_name}
+# 码值来源代码：common/base/enums/BooleanEnum、GenderEnum
+# =====================================================================
+dict:
+  yes_no:
+    name: 是否
+    desc: 通用是否码值（field_enable / field_is_star / field_is_del 等布尔字段共用）
+    1: 是
+    0: 否
+  gender:
+    name: 性别
+    desc: 性别码值（当前业务代码暂未使用，可保留备用）
+    1: 男
+    2: 女
+    0: 其他
+  currency:
+    name: 币种
+    desc: 币种码值
+    CNY: 人民币
+  region:
+    name: 地区
+    desc: 地区码值
+    HK: 中国香港
+    MC: 中国澳门
+    TW: 中国台湾
+    OS: 海外
+  measurement:
+    name: 计量单位
+    desc: 计量单位码值
+    c: 个
+    h: 重量
+    l: 长度
+    m: 面积
+    n: 体积
+  unit:
+    name: 单位
+    desc: 单位码值
+    c: 个
+    g: 克
+    kg: 千克
+    ton: 吨
+    cm: 厘米
+    m: 米
+    km: 千米
+    cm2: 平方厘米
+    m2: 平方米
+    km2: 平方千米
+    ha: 公顷
+    ml: 毫升
+    l: 升
+  doc_status:
+    name: 文档状态
+    desc: 文档状态码值
+    ABANDON: 废弃
+    DRAFT: 草稿
+    RETURN: 驳回
+    PROCESSING: 审批中
+    STOP: 暂停
+    FINISH: 办结
+    REVOKE: 撤销
+    ARCHIVE: 归档

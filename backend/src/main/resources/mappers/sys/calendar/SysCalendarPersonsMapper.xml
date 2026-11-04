@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.calendar.mapper.SysCalendarPersonsMapper">
+
+    <resultMap id="SysCalendarPersonsResultMap" type="com.common.system.sys.calendar.model.SysCalendarPersons">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_calendar_id" property="fieldCalendarId"/>
+        <result column="field_person_id" property="fieldPersonId"/>
+        <result column="field_accept" property="fieldAccept"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_calendar_id, field_person_id, field_accept
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.calendar.model.SysCalendarPersons">
+        INSERT INTO sys_calendar_persons (
+        field_id, field_calendar_id, field_person_id, field_accept
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldCalendarId}, #{model.fieldPersonId}, #{model.fieldAccept}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.calendar.model.SysCalendarPersons">
+        UPDATE sys_calendar_persons
+        <set>
+            <if test="model.fieldAccept != null">field_accept = #{model.fieldAccept},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_calendar_persons WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysCalendarPersonsResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM sys_calendar_persons WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysCalendarPersonsResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM sys_calendar_persons
+        <where>
+            <if test="model.fieldCalendarId != null and model.fieldCalendarId != ''">AND field_calendar_id = #{model.fieldCalendarId}</if>
+            <if test="model.fieldPersonId != null and model.fieldPersonId != ''">AND field_person_id = #{model.fieldPersonId}</if>
+        </where>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="selectByCalendarId" resultType="com.common.system.sys.calendar.response.SysCalendarPersonVo">
+        SELECT
+            p.field_id,
+            p.field_person_id,
+            u.field_name AS field_person_name,
+            p.field_accept
+        FROM sys_calendar_persons p
+        LEFT JOIN sys_org_user u ON u.field_id = p.field_person_id
+        WHERE p.field_calendar_id = #{calendarId}
+        ORDER BY p.field_id ASC
+    </select>
+
+    <delete id="deleteByCalendarId">
+        DELETE FROM sys_calendar_persons WHERE field_calendar_id = #{calendarId}
+    </delete>
+
+    <insert id="batchInsert">
+        INSERT INTO sys_calendar_persons (field_id, field_calendar_id, field_person_id, field_accept)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.fieldId}, #{item.fieldCalendarId}, #{item.fieldPersonId}, #{item.fieldAccept})
+        </foreach>
+    </insert>
+
+    <update id="updateAccept">
+        UPDATE sys_calendar_persons
+        SET field_accept = #{accept}
+        WHERE field_id = #{fieldId} AND field_person_id = #{personId}
+    </update>
+
+    <select id="selectByCalendarAndPerson" resultMap="SysCalendarPersonsResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM sys_calendar_persons
+        WHERE field_calendar_id = #{calendarId} AND field_person_id = #{personId}
+    </select>
+
+    <resultMap id="SysCalendarPersonsLoadResultMap" type="com.common.system.sys.calendar.model.SysCalendarPersons">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_person_id" property="fieldPersonId"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysCalendarPersonsLoadResultMap">
+        SELECT field_id, field_person_id
+        FROM sys_calendar_persons
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

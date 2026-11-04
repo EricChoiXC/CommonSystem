@@ -1,0 +1,5 @@
+ROLE_LIST: ["SYS_ADMIN"]
+ROLE_MAP:
+  SYS_ADMIN:
+    NAME: "系统管理员"
+    DESC: "系统管理员"

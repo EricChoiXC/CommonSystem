@@ -1,0 +1,5 @@
+ROLE_LIST: ["SYS_TASK_ADMIN"]
+ROLE_MAP:
+  SYS_TASK_ADMIN:
+    NAME: "定时任务管理员"
+    DESC: "拥有管理定时任务（管理/执行/中止/执行记录查看）的权限"

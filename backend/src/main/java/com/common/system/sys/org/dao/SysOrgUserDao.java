@@ -1,0 +1,87 @@
+package com.common.system.sys.org.dao;
+
+import com.common.system.common.base.dao.BaseDao;
+import com.common.system.common.base.model.Pages;
+import com.common.system.sys.org.mapper.SysOrgElementMapper;
+import com.common.system.sys.org.mapper.SysOrgUserMapper;
+import com.common.system.sys.org.model.SysOrgUser;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+/**
+ * 用户数据访问对象
+ *
+ * @author Eric
+ * @date 2026/8/3
+ * @description 与 SysOrgUserMapper 一对一对接，不承载业务逻辑。
+ */
+@Repository
+public class SysOrgUserDao extends BaseDao<SysOrgUser, SysOrgUserMapper> {
+
+    public SysOrgUserDao(SysOrgUserMapper baseMapper) {
+        super(baseMapper);
+    }
+
+    @Autowired
+    private SysOrgElementMapper sysOrgElementMapper;
+
+    public SysOrgElementMapper getSysOrgElementMapper() {
+        return sysOrgElementMapper;
+    }
+
+    @Override
+    public int insert(SysOrgUser model) {
+        getSysOrgElementMapper().insert(model);
+        return getBaseMapper().insert(model);
+    }
+
+    @Override
+    public int update(SysOrgUser model) {
+        getSysOrgElementMapper().update(model);
+        return getBaseMapper().update(model);
+    }
+
+    @Override
+    public int deleteById(String fieldId) {
+        getSysOrgElementMapper().deleteById(fieldId);
+        return getBaseMapper().deleteById(fieldId);
+    }
+
+    /**
+     * 仅更新密码与最后修改密码时间，不触碰其他字段
+     */
+    public int updatePassword(SysOrgUser model) {
+        return getBaseMapper().updatePassword(model);
+    }
+
+    /**
+     * 按登录名查询用户（登录专用，额外携带 BCrypt 密码哈希供校验）
+     */
+    public SysOrgUser selectByLoginName(String loginName) {
+        return getBaseMapper().selectByLoginName(loginName);
+    }
+
+    /**
+     * 按邮箱查询用户
+     */
+    public SysOrgUser selectByEmail(String email) {
+        return getBaseMapper().selectByEmail(email);
+    }
+
+    /**
+     * 按电话查询用户
+     */
+    public SysOrgUser selectByPhone(String phone) {
+        return getBaseMapper().selectByPhone(phone);
+    }
+
+    public SysOrgUser selectByIdWithFields(String id, String visibility) {
+        return getBaseMapper().selectByIdWithFields(id, visibility);
+    }
+
+    public List<SysOrgUser> selectListWithFields(SysOrgUser criteria, Pages pages, String visibleFields) {
+        return getBaseMapper().selectListWithFields(criteria, pages, visibleFields);
+    }
+}

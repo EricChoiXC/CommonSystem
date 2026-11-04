@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.att.mapper.SysAttFileMapper">
+
+    <!--
+        附件文件表(sys_att_file)映射
+        与 sys_att_main 通过 field_id 一对一关联，本表承载文件类型、大小、保存路径、删除标记。
+        列清单与 artificial/docs/设计文档/sys/attachment/附件表结构.md 保持一致。
+    -->
+
+    <resultMap id="SysAttFileResultMap" type="com.common.system.sys.att.model.SysAttFile">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_file_type" property="fieldFileType"/>
+        <result column="field_file_path" property="fieldFilePath"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_file_size" property="fieldFileSize"/>
+        <result column="field_is_delete" property="fieldIsDelete"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_name, field_file_type, field_file_path,
+        field_create_time, field_file_size, field_is_delete
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.att.model.SysAttFile">
+        INSERT INTO sys_att_file (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldName}, #{model.fieldFileType}, #{model.fieldFilePath},
+        #{model.fieldCreateTime}, #{model.fieldFileSize}, #{model.fieldIsDelete}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.att.model.SysAttFile">
+        UPDATE sys_att_file
+        <set>
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldFileType != null">field_file_type = #{model.fieldFileType},</if>
+            <if test="model.fieldFilePath != null">field_file_path = #{model.fieldFilePath},</if>
+            <if test="model.fieldCreateTime != null">field_create_time = #{model.fieldCreateTime},</if>
+            <if test="model.fieldFileSize > 0">field_file_size = #{model.fieldFileSize},</if>
+            <if test="model.fieldIsDelete != null">field_is_delete = #{model.fieldIsDelete},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <!-- 软删除：置 field_is_delete = 1 -->
+    <update id="updateIsDelete" parameterType="string">
+        UPDATE sys_att_file
+        SET field_is_delete = #{isDelete}
+        WHERE field_id = #{fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_att_file
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysAttFileResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_att_file
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysAttFileResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_att_file
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldFileType != null and model.fieldFileType != ''">AND field_file_type = #{model.fieldFileType}</if>
+            <if test="model.fieldFilePath != null and model.fieldFilePath != ''">AND field_file_path LIKE CONCAT('%', #{model.fieldFilePath}, '%')</if>
+            <if test="model.fieldIsDelete != null">AND field_is_delete = #{model.fieldIsDelete}</if>
+        </where>
+        ORDER BY field_create_time DESC
+        <if test="pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 文件列表总数（与 selectList 过滤条件一致，供分页 metadata.total 使用） -->
+    <select id="selectCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_att_file
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldFileType != null and model.fieldFileType != ''">AND field_file_type = #{model.fieldFileType}</if>
+            <if test="model.fieldFilePath != null and model.fieldFilePath != ''">AND field_file_path LIKE CONCAT('%', #{model.fieldFilePath}, '%')</if>
+            <if test="model.fieldIsDelete != null">AND field_is_delete = #{model.fieldIsDelete}</if>
+        </where>
+    </select>
+
+    <!--
+        文件列表分页查询（单条件排序版）：过滤条件与 selectList 一致。
+        排序字段/方向经 <choose> 白名单映射，杜绝 SQL 注入；默认创建时间降序。
+    -->
+    <select id="selectListSorted" resultMap="SysAttFileResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_att_file
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldFileType != null and model.fieldFileType != ''">AND field_file_type = #{model.fieldFileType}</if>
+            <if test="model.fieldFilePath != null and model.fieldFilePath != ''">AND field_file_path LIKE CONCAT('%', #{model.fieldFilePath}, '%')</if>
+            <if test="model.fieldIsDelete != null">AND field_is_delete = #{model.fieldIsDelete}</if>
+        </where>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'fileSize'">field_file_size</when>
+            <otherwise>field_create_time</otherwise>
+        </choose>
+        <choose>
+            <when test="sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
+    <resultMap id="SysAttFileLoadResultMap" type="com.common.system.sys.att.model.SysAttFile">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysAttFileLoadResultMap">
+        SELECT field_id, field_name
+        FROM sys_att_file
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

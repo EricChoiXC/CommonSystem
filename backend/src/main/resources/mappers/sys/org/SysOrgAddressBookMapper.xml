@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.org.mapper.SysOrgAddressBookMapper">
+
+    <!--
+        地址本(addressbook)查询映射：仅查询 sys_org_element 主表，
+        供地址本组件(AddressBook.vue)树选择、关键字分页查询、目标回填使用。
+        limitRange 语义：限制的组织架构范围(fieldId 值数组)。
+        列表/下级查询中「范围内」= 节点自身在范围内 或 其任一祖先在范围内
+        (field_hierarchy 形如 /id1/id2/，用 LIKE '%/<id>/%' 匹配祖先)；
+        树根节点查询中范围直接作为根节点集合。
+        orgTypes 为空表示不限制类型；keyword 为空表示不带关键字条件。
+        列清单与 artificial/docs/设计文档/sys/org/组织架构表结构.md 保持一致。
+    -->
+
+    <resultMap id="SysOrgElementResultMap" type="com.common.system.sys.org.model.SysOrgElement">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_parent_id" property="fieldParentId"/>
+        <result column="field_hierarchy" property="fieldHierarchy"/>
+        <result column="field_level" property="fieldLevel"/>
+        <result column="field_org_type" property="fieldOrgType"/>
+        <result column="field_is_virtual" property="fieldIsVirtual"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_enable" property="fieldEnable"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_code, field_name, field_parent_id,
+        field_hierarchy, field_level, field_org_type, field_is_virtual,
+        field_creator_id, field_create_time, field_updater_id, field_update_time, field_enable
+    </sql>
+
+    <!-- 范围过滤：节点自身在 limitRange 内，或任一祖先在 limitRange 内 -->
+    <sql id="LimitRangeFilter">
+        <if test="limitRange != null and limitRange.size() > 0">
+            AND (
+                field_id IN
+                <foreach collection="limitRange" item="limitId" open="(" separator="," close=")">#{limitId}</foreach>
+                OR
+                <foreach collection="limitRange" item="limitId" open="(" separator=" OR " close=")">
+                    field_hierarchy LIKE CONCAT('%/', #{limitId}, '/%')
+                </foreach>
+            )
+        </if>
+    </sql>
+
+    <select id="selectTree" resultMap="SysOrgElementResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_element
+        <where>
+            <if test="orgTypes != null and orgTypes.size() > 0">
+                AND field_org_type IN
+                <foreach collection="orgTypes" item="orgType" open="(" separator="," close=")">#{orgType}</foreach>
+            </if>
+            <choose>
+                <!-- 指定上级节点：返回其直接下级，并受范围过滤 -->
+                <when test="parentId != null and parentId != ''">
+                    AND field_parent_id = #{parentId}
+                    <include refid="LimitRangeFilter"/>
+                </when>
+                <!-- 根级：limitRange 非空时以范围节点为根，否则返回全部根节点 -->
+                <otherwise>
+                    <choose>
+                        <when test="limitRange != null and limitRange.size() > 0">
+                            AND field_id IN
+                            <foreach collection="limitRange" item="limitId" open="(" separator="," close=")">#{limitId}</foreach>
+                        </when>
+                        <otherwise>
+                            AND (field_parent_id IS NULL OR field_parent_id = '')
+                        </otherwise>
+                    </choose>
+                </otherwise>
+            </choose>
+            AND field_enable = 1
+        </where>
+        ORDER BY field_level ASC, field_create_time ASC
+    </select>
+
+    <select id="selectList" resultMap="SysOrgElementResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_element
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (field_name LIKE CONCAT('%', #{keyword}, '%') OR field_code LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="orgTypes != null and orgTypes.size() > 0">
+                AND field_org_type IN
+                <foreach collection="orgTypes" item="orgType" open="(" separator="," close=")">#{orgType}</foreach>
+            </if>
+            <include refid="LimitRangeFilter"/>
+            AND field_enable = 1
+        </where>
+        ORDER BY field_level ASC, field_create_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_org_element
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (field_name LIKE CONCAT('%', #{keyword}, '%') OR field_code LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="orgTypes != null and orgTypes.size() > 0">
+                AND field_org_type IN
+                <foreach collection="orgTypes" item="orgType" open="(" separator="," close=")">#{orgType}</foreach>
+            </if>
+            <include refid="LimitRangeFilter"/>
+            AND field_enable = 1
+        </where>
+    </select>
+
+    <select id="selectByIds" resultMap="SysOrgElementResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_element
+        <where>
+            field_id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+            AND field_enable = 1
+        </where>
+        ORDER BY field_create_time ASC
+    </select>
+
+</mapper>

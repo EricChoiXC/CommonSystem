@@ -1,0 +1,5 @@
+ROLE_LIST: ["SYS_NOTIFY_ADMIN"]
+ROLE_MAP:
+  SYS_NOTIFY_ADMIN:
+    NAME: "待办管理员"
+    DESC: "拥有查看所有待办的权限"

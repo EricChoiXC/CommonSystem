@@ -1,0 +1,5 @@
+ROLE_LIST: ["SYS_DICT_ADMIN"]
+ROLE_MAP:
+  SYS_DICT_ADMIN:
+    NAME: "码值管理员"
+    DESC: "可编辑维护所有非系统码值"

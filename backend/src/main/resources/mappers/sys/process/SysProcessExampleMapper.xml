@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.process.mapper.SysProcessExampleMapper">
+
+    <!--
+        流程实例表(sys_process_example)映射
+        field_model_name 为所属模块（template_model 二级配置项，与模板一致）；
+        field_status 枚举: ABANDON/DRAFT/PROCESSING/PAUSE/FINISH/RETURN。
+        列表查询经 sys_process_template 补全流程名称（模板名）、经 sys_org_element（field_org_type=3 人员）
+        补全发起人名称、经 sys_process_example_node 关联子查询补全当前节点名称。
+    -->
+
+    <resultMap id="SysProcessExampleResultMap" type="com.common.system.sys.process.model.SysProcessExample">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_template_id" property="fieldTemplateId"/>
+        <result column="field_template_version" property="fieldTemplateVersion"/>
+        <result column="field_model_id" property="fieldModelId"/>
+        <result column="field_model_name" property="fieldModelName"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_finish_time" property="fieldFinishTime"/>
+        <result column="field_status" property="fieldStatus"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_template_id, field_template_version, field_model_id, field_model_name,
+        field_code, field_creator_id, field_create_time, field_finish_time, field_status
+    </sql>
+
+    <!-- 列表 VO：基本字段 + 流程名称（模板名）/发起人名称/当前节点名称 -->
+    <resultMap id="SysProcessExampleVoMap" type="com.common.system.sys.process.response.SysProcessExampleVo">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_template_id" property="fieldTemplateId"/>
+        <result column="field_template_version" property="fieldTemplateVersion"/>
+        <result column="field_model_id" property="fieldModelId"/>
+        <result column="field_model_name" property="fieldModelName"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_creator_name" property="fieldCreatorName"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_finish_time" property="fieldFinishTime"/>
+        <result column="field_status" property="fieldStatus"/>
+        <result column="current_node_name" property="currentNodeName"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.common.system.sys.process.model.SysProcessExample">
+        INSERT INTO sys_process_example (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldTemplateId}, #{model.fieldTemplateVersion}, #{model.fieldModelId}, #{model.fieldModelName},
+        #{model.fieldCode}, #{model.fieldCreatorId}, #{model.fieldCreateTime}, #{model.fieldFinishTime}, #{model.fieldStatus}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.process.model.SysProcessExample">
+        UPDATE sys_process_example
+        <set>
+            <if test="model.fieldTemplateId != null">field_template_id = #{model.fieldTemplateId},</if>
+            <if test="model.fieldTemplateVersion != null">field_template_version = #{model.fieldTemplateVersion},</if>
+            <if test="model.fieldModelId != null">field_model_id = #{model.fieldModelId},</if>
+            <if test="model.fieldModelName != null">field_model_name = #{model.fieldModelName},</if>
+            <if test="model.fieldCode != null">field_code = #{model.fieldCode},</if>
+            <if test="model.fieldCreatorId != null">field_creator_id = #{model.fieldCreatorId},</if>
+            <if test="model.fieldCreateTime != null">field_create_time = #{model.fieldCreateTime},</if>
+            <if test="model.fieldFinishTime != null">field_finish_time = #{model.fieldFinishTime},</if>
+            <if test="model.fieldStatus != null">field_status = #{model.fieldStatus},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_process_example
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysProcessExampleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysProcessExampleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldTemplateId != null and model.fieldTemplateId != ''">AND field_template_id = #{model.fieldTemplateId}</if>
+            <if test="model.fieldModelName != null and model.fieldModelName != ''">AND field_model_name = #{model.fieldModelName}</if>
+            <if test="model.fieldCreatorId != null and model.fieldCreatorId != ''">AND field_creator_id = #{model.fieldCreatorId}</if>
+            <if test="model.fieldStatus != null and model.fieldStatus != ''">AND field_status = #{model.fieldStatus}</if>
+        </where>
+        ORDER BY field_create_time DESC
+        <if test="pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 按所属业务文档查询最近一条流程实例（field_model_name + field_model_id）：
+         业务模块详情页反查流程实例 id 后嵌入审批面板（如项目/项目变更）。 -->
+    <select id="selectByModelId" resultMap="SysProcessExampleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example
+        WHERE field_model_name = #{modelName} AND field_model_id = #{modelId}
+        ORDER BY field_create_time DESC
+        LIMIT 1
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id，供关联对象赋值使用（流程实例无轻量名称） -->
+    <resultMap id="SysProcessExampleLoadResultMap" type="com.common.system.sys.process.model.SysProcessExample">
+        <id column="field_id" property="fieldId"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysProcessExampleLoadResultMap">
+        SELECT field_id
+        FROM sys_process_example
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 列表总数（与 selectListSorted 过滤条件一致，供分页 metadata.total 使用） -->
+    <select id="selectCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_process_example e
+        LEFT JOIN sys_process_template t ON t.field_id = e.field_template_id
+        LEFT JOIN sys_org_element u ON u.field_id = e.field_creator_id AND u.field_org_type = 3
+        <where>
+            <if test="query.fieldModelName != null and query.fieldModelName != ''">AND e.field_model_name = #{query.fieldModelName}</if>
+            <if test="query.fieldCode != null and query.fieldCode != ''">AND e.field_code LIKE CONCAT('%', #{query.fieldCode}, '%')</if>
+            <if test="query.fieldName != null and query.fieldName != ''">AND t.field_name LIKE CONCAT('%', #{query.fieldName}, '%')</if>
+            <if test="query.fieldCreatorName != null and query.fieldCreatorName != ''">AND u.field_name LIKE CONCAT('%', #{query.fieldCreatorName}, '%')</if>
+            <if test="query.fieldCreateTimeBegin != null">AND e.field_create_time &gt;= #{query.fieldCreateTimeBegin}</if>
+            <if test="query.fieldCreateTimeEnd != null">AND e.field_create_time &lt;= #{query.fieldCreateTimeEnd}</if>
+            <if test="query.fieldStatus != null and query.fieldStatus != ''">AND e.field_status = #{query.fieldStatus}</if>
+        </where>
+    </select>
+
+    <!--
+        列表分页查询：过滤条件与 selectCount 一致；
+        当前节点名称为关联子查询（当前处理中的实例节点名），排序字段经 <choose> 白名单映射。
+    -->
+    <select id="selectListSorted" resultMap="SysProcessExampleVoMap">
+        SELECT e.field_id, e.field_template_id, e.field_template_version, e.field_model_id, e.field_model_name,
+               e.field_code, e.field_creator_id, u.field_name AS field_creator_name,
+               t.field_name AS field_name,
+               e.field_create_time, e.field_finish_time, e.field_status,
+               (SELECT en.field_node_name FROM sys_process_example_node en
+                WHERE en.field_example_id = e.field_id AND en.field_status = 'PROCESSING'
+                ORDER BY en.field_node_no ASC LIMIT 1) AS current_node_name
+        FROM sys_process_example e
+        LEFT JOIN sys_process_template t ON t.field_id = e.field_template_id
+        LEFT JOIN sys_org_element u ON u.field_id = e.field_creator_id AND u.field_org_type = 3
+        <where>
+            <if test="query.fieldModelName != null and query.fieldModelName != ''">AND e.field_model_name = #{query.fieldModelName}</if>
+            <if test="query.fieldCode != null and query.fieldCode != ''">AND e.field_code LIKE CONCAT('%', #{query.fieldCode}, '%')</if>
+            <if test="query.fieldName != null and query.fieldName != ''">AND t.field_name LIKE CONCAT('%', #{query.fieldName}, '%')</if>
+            <if test="query.fieldCreatorName != null and query.fieldCreatorName != ''">AND u.field_name LIKE CONCAT('%', #{query.fieldCreatorName}, '%')</if>
+            <if test="query.fieldCreateTimeBegin != null">AND e.field_create_time &gt;= #{query.fieldCreateTimeBegin}</if>
+            <if test="query.fieldCreateTimeEnd != null">AND e.field_create_time &lt;= #{query.fieldCreateTimeEnd}</if>
+            <if test="query.fieldStatus != null and query.fieldStatus != ''">AND e.field_status = #{query.fieldStatus}</if>
+        </where>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'createTime'">e.field_create_time</when>
+            <otherwise>e.field_create_time</otherwise>
+        </choose>
+        <choose>
+            <when test="sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+</mapper>

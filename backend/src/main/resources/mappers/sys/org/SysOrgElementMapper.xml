@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.org.mapper.SysOrgElementMapper">
+
+    <!--
+        组织架构元素主表(sys_org_element)映射
+        字段命名遵循公共字段规范(field_ 前缀)，修改人列使用 field_updater_id，
+        与 Java 属性 fieldUpdaterId 直接 camel-case 对应。
+        SysOrgElement.fieldParent / fieldParentName 为父级组织关联信息，表中不存储
+        field_parent_name 列，由 Service 层按 field_parent_id 组装；
+        field_level / field_org_type / field_is_virtual 为基本类型字段，更新时直接赋值，
+        selectList 不将其作为查询条件，避免未赋值时(0/false)误过滤数据。
+        列清单与 artificial/docs/设计文档/sys/org/组织架构表结构.md 保持一致。
+    -->
+
+    <resultMap id="SysOrgElementResultMap" type="com.common.system.sys.org.model.SysOrgElement">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_parent_id" property="fieldParentId"/>
+        <result column="field_hierarchy" property="fieldHierarchy"/>
+        <result column="field_level" property="fieldLevel"/>
+        <result column="field_org_type" property="fieldOrgType"/>
+        <result column="field_is_virtual" property="fieldIsVirtual"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_enable" property="fieldEnable"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_code, field_name, field_parent_id,
+        field_hierarchy, field_level, field_org_type, field_is_virtual,
+        field_creator_id, field_create_time, field_updater_id, field_update_time, field_enable
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgElement">
+        INSERT INTO sys_org_element (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldCode}, #{model.fieldName}, #{model.fieldParentId},
+        #{model.fieldHierarchy}, #{model.fieldLevel}, #{model.fieldOrgType}, #{model.fieldIsVirtual},
+        #{model.fieldCreatorId}, #{model.fieldCreateTime}, #{model.fieldUpdaterId}, #{model.fieldUpdateTime}, #{model.fieldEnable}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgElement">
+        UPDATE sys_org_element
+        <set>
+            <if test="model.fieldCode != null">field_code = #{model.fieldCode},</if>
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldParentId != null">field_parent_id = #{model.fieldParentId},</if>
+            <if test="model.fieldHierarchy != null">field_hierarchy = #{model.fieldHierarchy},</if>
+            field_level = #{model.fieldLevel},
+            field_org_type = #{model.fieldOrgType},
+            field_is_virtual = #{model.fieldIsVirtual},
+            <if test="model.fieldCreatorId != null">field_creator_id = #{model.fieldCreatorId},</if>
+            <if test="model.fieldCreateTime != null">field_create_time = #{model.fieldCreateTime},</if>
+            <if test="model.fieldUpdaterId != null">field_updater_id = #{model.fieldUpdaterId},</if>
+            <if test="model.fieldUpdateTime != null">field_update_time = #{model.fieldUpdateTime},</if>
+            <if test="model.fieldEnable != null">field_enable = #{model.fieldEnable},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_org_element
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysOrgElementResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_element
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysOrgElementResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_element
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldParentId != null and model.fieldParentId != ''">AND field_parent_id = #{model.fieldParentId}</if>
+            <if test="model.fieldHierarchy != null and model.fieldHierarchy != ''">AND field_hierarchy LIKE CONCAT(#{model.fieldHierarchy}, '%')</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+        </where>
+        ORDER BY field_create_time DESC
+        <if test="pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象(如 SysOrgElement.fieldParent)赋值使用 -->
+    <resultMap id="SysOrgElementLoadResultMap" type="com.common.system.sys.org.model.SysOrgElement">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysOrgElementLoadResultMap">
+        SELECT field_id, field_name
+        FROM sys_org_element
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!--
+        轻量查询：按用户查询其所属虚拟组织，仅返回 field_id 与 field_name（登录等场景组装用）；
+        虚拟组织与用户的关系由 sys_org_virtual_user 表承载。
+    -->
+    <resultMap id="SysOrgElementIdNameResultMap" type="com.common.system.sys.org.model.SysOrgElement">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="selectVirtualIdNameListByUserId" parameterType="string" resultMap="SysOrgElementIdNameResultMap">
+        SELECT e.field_id, e.field_name
+        FROM sys_org_virtual_user vu
+        INNER JOIN sys_org_element e ON e.field_id = vu.field_virtual_id
+        WHERE vu.field_user_id = #{userId}
+          AND e.field_is_virtual = 1
+        ORDER BY e.field_create_time DESC
+    </select>
+
+    <!--
+        轻量查询：按用户查询其所属岗位，仅返回 field_id 与 field_name（登录/权限预览场景组装用）；
+        岗位与用户的关系由 sys_org_post_user 表承载。
+    -->
+    <select id="selectPostIdNameListByUserId" parameterType="string" resultMap="SysOrgElementIdNameResultMap">
+        SELECT e.field_id, e.field_name
+        FROM sys_org_post_user pu
+        INNER JOIN sys_org_element e ON e.field_id = pu.field_post_id
+        WHERE pu.field_user_id = #{userId}
+          AND e.field_org_type = 4
+        ORDER BY e.field_create_time DESC
+    </select>
+
+    <!--
+        管理页查询列：公共字段取自 element 主表，父级名称 JOIN 主表自身，
+        类型专有字段按 field_org_type 用 CASE 归一化（避免多扩展表同名列冲突），
+        负责人名称 LEFT JOIN sys_org_element（leader 关联机构/部门/岗位负责人用户）。
+        field_password 永不返回；field_login_name 的可见性裁剪由 Service 层处理。
+    -->
+    <sql id="VoBaseColumns">
+        e.field_id, e.field_code, e.field_name, e.field_parent_id,
+        e.field_hierarchy, e.field_level, e.field_org_type, e.field_is_virtual,
+        e.field_creator_id, e.field_create_time, e.field_updater_id, e.field_update_time, e.field_enable,
+        pe.field_name AS field_parent_name,
+        CASE e.field_org_type
+            WHEN 1 THEN o.field_leader_id
+            WHEN 2 THEN d.field_leader_id
+            WHEN 4 THEN p.field_leader_id
+        END AS field_leader_id,
+        leader.field_name AS field_leader_name,
+        CASE e.field_org_type
+            WHEN 1 THEN o.field_phone
+            WHEN 2 THEN d.field_phone
+            WHEN 3 THEN u.field_phone
+        END AS field_phone,
+        CASE e.field_org_type
+            WHEN 1 THEN o.field_email
+            WHEN 3 THEN u.field_email
+        END AS field_email,
+        CASE e.field_org_type
+            WHEN 1 THEN o.field_address
+            WHEN 2 THEN d.field_address
+            WHEN 3 THEN u.field_address
+        END AS field_address,
+        u.field_gender, u.field_birthday, u.field_login_name, u.field_job_status, u.field_account_status
+    </sql>
+
+    <sql id="VoJoinClause">
+        FROM sys_org_element e
+        LEFT JOIN sys_org_element pe ON pe.field_id = e.field_parent_id
+        LEFT JOIN sys_org_org o ON o.field_id = e.field_id AND e.field_org_type = 1
+        LEFT JOIN sys_org_dept d ON d.field_id = e.field_id AND e.field_org_type = 2
+        LEFT JOIN sys_org_user u ON u.field_id = e.field_id AND e.field_org_type = 3
+        LEFT JOIN sys_org_post p ON p.field_id = e.field_id AND e.field_org_type = 4
+        LEFT JOIN sys_org_element leader ON leader.field_id = (
+            CASE e.field_org_type
+                WHEN 1 THEN o.field_leader_id
+                WHEN 2 THEN d.field_leader_id
+                WHEN 4 THEN p.field_leader_id
+            END
+        )
+    </sql>
+
+    <sql id="VoWhereClause">
+        <where>
+            <!-- parentId 为空表示根节点：仅返回 field_parent_id 为空（根级）的组织架构 -->
+            <choose>
+                <when test="query.parentId != null and query.parentId != ''">
+                    AND e.field_parent_id = #{query.parentId}
+                </when>
+                <otherwise>
+                    AND (e.field_parent_id IS NULL OR e.field_parent_id = '')
+                </otherwise>
+            </choose>
+            <if test="query.fieldName != null and query.fieldName != ''">
+                AND e.field_name LIKE CONCAT('%', #{query.fieldName}, '%')
+            </if>
+            <if test="query.fieldCode != null and query.fieldCode != ''">
+                AND e.field_code LIKE CONCAT('%', #{query.fieldCode}, '%')
+            </if>
+            <if test="query.orgType != null">
+                AND e.field_org_type = #{query.orgType}
+            </if>
+            <if test="query.enable != null">
+                AND e.field_enable = #{query.enable}
+            </if>
+        </where>
+    </sql>
+
+    <resultMap id="SysOrgElementVoResultMap" type="com.common.system.sys.org.response.SysOrgElementVo">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_parent_id" property="fieldParentId"/>
+        <result column="field_parent_name" property="fieldParentName"/>
+        <result column="field_hierarchy" property="fieldHierarchy"/>
+        <result column="field_level" property="fieldLevel"/>
+        <result column="field_org_type" property="fieldOrgType"/>
+        <result column="field_is_virtual" property="fieldIsVirtual"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_enable" property="fieldEnable"/>
+        <result column="field_leader_id" property="fieldLeaderId"/>
+        <result column="field_leader_name" property="fieldLeaderName"/>
+        <result column="field_phone" property="fieldPhone"/>
+        <result column="field_email" property="fieldEmail"/>
+        <result column="field_address" property="fieldAddress"/>
+        <result column="field_gender" property="fieldGender"/>
+        <result column="field_birthday" property="fieldBirthday"/>
+        <result column="field_login_name" property="fieldLoginName"/>
+        <result column="field_job_status" property="fieldJobStatus"/>
+        <result column="field_account_status" property="fieldAccountStatus"/>
+    </resultMap>
+
+    <!--
+        管理页列表：过滤条件 + 单条件排序 + 分页。
+        排序字段/方向经 <choose> 白名单映射，杜绝 SQL 注入；默认创建时间降序。
+    -->
+    <select id="selectVoList" resultMap="SysOrgElementVoResultMap">
+        SELECT
+        <include refid="VoBaseColumns"/>
+        <include refid="VoJoinClause"/>
+        <include refid="VoWhereClause"/>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'updateTime'">e.field_update_time</when>
+            <when test="sortField == 'code'">e.field_code</when>
+            <otherwise>e.field_create_time</otherwise>
+        </choose>
+        <choose>
+            <when test="sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countVoList" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_org_element e
+        <include refid="VoWhereClause"/>
+    </select>
+
+    <select id="selectVoById" parameterType="string" resultMap="SysOrgElementVoResultMap">
+        SELECT
+        <include refid="VoBaseColumns"/>
+        <include refid="VoJoinClause"/>
+        WHERE e.field_id = #{fieldId}
+    </select>
+
+    <update id="updateEnable">
+        UPDATE sys_org_element
+        <set>
+            field_enable = #{enable},
+            field_updater_id = #{updaterId},
+            field_update_time = #{updateTime},
+        </set>
+        WHERE field_id = #{fieldId}
+    </update>
+
+    <update id="updateHierarchy">
+        UPDATE sys_org_element
+        <set>
+            field_hierarchy = #{hierarchy},
+            field_level = #{level},
+            field_updater_id = #{updaterId},
+            field_update_time = #{updateTime},
+        </set>
+        WHERE field_id = #{fieldId}
+    </update>
+
+    <update id="updateParentId">
+        UPDATE sys_org_element
+        SET field_parent_id = #{parentId}
+        WHERE field_id = #{fieldId}
+    </update>
+
+    <select id="selectIdNameByIds" resultMap="SysOrgElementIdNameResultMap">
+        SELECT field_id, field_name
+        FROM sys_org_element
+        WHERE field_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
+    <select id="countChildren" parameterType="string" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_org_element
+        WHERE field_parent_id = #{parentId}
+    </select>
+
+    <!-- ==================== 角色管理 / 权限预览（sys.org.role / sys.org.preview） ==================== -->
+
+    <!-- 按上级组织查询其直接关联的虚拟组织架构（权限预览用，仅返回启用节点） -->
+    <select id="selectVirtualsByParentId" parameterType="string" resultMap="SysOrgElementResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_element
+        WHERE field_parent_id = #{parentId}
+          AND field_is_virtual = 1
+          AND field_enable = 1
+        ORDER BY field_create_time ASC
+    </select>
+
+</mapper>

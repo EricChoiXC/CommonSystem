@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.calendar.mapper.SysCalendarMainMapper">
+
+    <resultMap id="SysCalendarMainResultMap" type="com.common.system.sys.calendar.model.SysCalendarMain">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_start_time" property="fieldStartTime"/>
+        <result column="field_end_time" property="fieldEndTime"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_content" property="fieldContent"/>
+        <result column="field_type" property="fieldType"/>
+    </resultMap>
+
+    <resultMap id="SysCalendarVoResultMap" type="com.common.system.sys.calendar.response.SysCalendarVo">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_start_time" property="fieldStartTime"/>
+        <result column="field_end_time" property="fieldEndTime"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_content" property="fieldContent"/>
+        <result column="field_type" property="fieldType"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_creator_id, field_create_time, field_update_time,
+        field_start_time, field_end_time, field_name, field_content, field_type
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.calendar.model.SysCalendarMain">
+        INSERT INTO sys_calendar_main (
+        field_id, field_creator_id, field_create_time, field_update_time,
+        field_start_time, field_end_time, field_name, field_content, field_type
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldCreatorId}, #{model.fieldCreateTime}, #{model.fieldUpdateTime},
+        #{model.fieldStartTime}, #{model.fieldEndTime}, #{model.fieldName}, #{model.fieldContent}, #{model.fieldType}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.calendar.model.SysCalendarMain">
+        UPDATE sys_calendar_main
+        <set>
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldStartTime != null">field_start_time = #{model.fieldStartTime},</if>
+            <if test="model.fieldEndTime != null">field_end_time = #{model.fieldEndTime},</if>
+            <if test="model.fieldContent != null">field_content = #{model.fieldContent},</if>
+            <if test="model.fieldType != null">field_type = #{model.fieldType},</if>
+            <if test="model.fieldUpdateTime != null">field_update_time = #{model.fieldUpdateTime},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_calendar_main WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysCalendarMainResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM sys_calendar_main WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysCalendarMainResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM sys_calendar_main
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldType != null and model.fieldType != ''">AND field_type = #{model.fieldType}</if>
+        </where>
+        ORDER BY field_create_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 日程列表查询（含创建人/接收人过滤） -->
+    <select id="selectCalendarList" resultMap="SysCalendarVoResultMap">
+        SELECT DISTINCT m.field_id, m.field_creator_id, m.field_create_time, m.field_update_time,
+            m.field_start_time, m.field_end_time, m.field_name, m.field_content, m.field_type
+        FROM sys_calendar_main m
+        LEFT JOIN sys_calendar_persons p ON p.field_calendar_id = m.field_id
+        WHERE (m.field_creator_id = #{userId} OR p.field_person_id = #{userId})
+        <if test="model.fieldName != null and model.fieldName != ''">
+            AND m.field_name LIKE CONCAT('%', #{model.fieldName}, '%')
+        </if>
+        <if test="model.fieldType != null and model.fieldType != ''">
+            AND m.field_type = #{model.fieldType}
+        </if>
+        <if test="model.fieldAccept != null and model.fieldAccept != '' and model.fieldType == 'TEAM'">
+            <if test="model.fieldAccept == 'ACCEPTED'">
+                AND p.field_accept = 1
+            </if>
+            <if test="model.fieldAccept == 'REJECTED'">
+                AND p.field_accept = 0
+            </if>
+            <if test="model.fieldAccept == 'UNCONFIRMED'">
+                AND p.field_accept IS NULL
+            </if>
+        </if>
+        <if test="model.fieldStartTimeStart != null">
+            AND m.field_start_time &gt;= #{model.fieldStartTimeStart}
+        </if>
+        <if test="model.fieldStartTimeEnd != null">
+            AND m.field_start_time &lt;= #{model.fieldStartTimeEnd}
+        </if>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'startTime'">m.field_start_time</when>
+            <when test="sortField == 'createTime'">m.field_create_time</when>
+            <otherwise>m.field_create_time</otherwise>
+        </choose>
+        <choose>
+            <when test="sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="selectCalendarCount" resultType="long">
+        SELECT COUNT(DISTINCT m.field_id)
+        FROM sys_calendar_main m
+        LEFT JOIN sys_calendar_persons p ON p.field_calendar_id = m.field_id
+        WHERE (m.field_creator_id = #{userId} OR p.field_person_id = #{userId})
+        <if test="model.fieldName != null and model.fieldName != ''">
+            AND m.field_name LIKE CONCAT('%', #{model.fieldName}, '%')
+        </if>
+        <if test="model.fieldType != null and model.fieldType != ''">
+            AND m.field_type = #{model.fieldType}
+        </if>
+        <if test="model.fieldAccept != null and model.fieldAccept != '' and model.fieldType == 'TEAM'">
+            <if test="model.fieldAccept == 'ACCEPTED'">
+                AND p.field_accept = 1
+            </if>
+            <if test="model.fieldAccept == 'REJECTED'">
+                AND p.field_accept = 0
+            </if>
+            <if test="model.fieldAccept == 'UNCONFIRMED'">
+                AND p.field_accept IS NULL
+            </if>
+        </if>
+        <if test="model.fieldStartTimeStart != null">
+            AND m.field_start_time &gt;= #{model.fieldStartTimeStart}
+        </if>
+        <if test="model.fieldStartTimeEnd != null">
+            AND m.field_start_time &lt;= #{model.fieldStartTimeEnd}
+        </if>
+    </select>
+
+    <!-- 当月日程查询（日历视图） -->
+    <select id="selectMonthList" resultMap="SysCalendarVoResultMap">
+        SELECT DISTINCT m.field_id, m.field_creator_id, m.field_create_time, m.field_update_time,
+            m.field_start_time, m.field_end_time, m.field_name, m.field_content, m.field_type
+        FROM sys_calendar_main m
+        LEFT JOIN sys_calendar_persons p ON p.field_calendar_id = m.field_id
+        WHERE (m.field_creator_id = #{userId} OR p.field_person_id = #{userId})
+        AND YEAR(m.field_start_time) = #{model.year}
+        AND MONTH(m.field_start_time) = #{model.month}
+        ORDER BY m.field_start_time ASC
+    </select>
+
+    <!-- 日程详情 -->
+    <select id="selectCalendarDetail" resultMap="SysCalendarVoResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM sys_calendar_main
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <resultMap id="SysCalendarMainLoadResultMap" type="com.common.system.sys.calendar.model.SysCalendarMain">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysCalendarMainLoadResultMap">
+        SELECT field_id, field_name
+        FROM sys_calendar_main
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 查询结束时间早于指定时间的日程（自动清理任务使用） -->
+    <select id="selectByEndTimeBefore" resultMap="SysCalendarMainResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM sys_calendar_main
+        WHERE field_end_time &lt; #{deadline}
+        ORDER BY field_end_time ASC
+    </select>
+
+</mapper>

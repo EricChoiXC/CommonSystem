@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.task.mapper.SysTaskExampleMapper">
+
+    <!--
+        任务执行实例表(sys_task_example)映射
+        每次任务执行（或触发被阻塞）登记一条实例；field_group 为运行组，
+        与 sys_task_history.field_group 同组对应。
+        列清单与 artificial/docs/设计文档/sys/task/定时任务表结构.md 保持一致。
+    -->
+
+    <resultMap id="SysTaskExampleResultMap" type="com.common.system.sys.task.model.SysTaskExample">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_status" property="fieldStatus"/>
+        <result column="field_start_time" property="fieldStartTime"/>
+        <result column="field_group" property="fieldGroup"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_status, field_start_time, field_group
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.task.model.SysTaskExample">
+        INSERT INTO sys_task_example (
+        field_id, field_status, field_start_time, field_group
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldStatus}, #{model.fieldStartTime}, #{model.fieldGroup}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.task.model.SysTaskExample">
+        UPDATE sys_task_example
+        <set>
+            <if test="model.fieldStatus != null">field_status = #{model.fieldStatus},</if>
+            <if test="model.fieldStartTime != null">field_start_time = #{model.fieldStartTime},</if>
+            <if test="model.fieldGroup != null">field_group = #{model.fieldGroup},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_task_example
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysTaskExampleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_task_example
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysTaskExampleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_task_example
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldStatus != null and model.fieldStatus != ''">AND field_status = #{model.fieldStatus}</if>
+            <if test="model.fieldGroup != null and model.fieldGroup != ''">AND field_group = #{model.fieldGroup}</if>
+        </where>
+        ORDER BY field_start_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name（本表无名称列，仅返回 id） -->
+    <select id="loadModel" parameterType="string" resultMap="SysTaskExampleResultMap">
+        SELECT field_id, field_status, field_start_time, field_group
+        FROM sys_task_example
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

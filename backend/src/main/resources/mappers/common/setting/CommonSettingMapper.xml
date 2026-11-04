@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.common.setting.mapper.CommonSettingMapper">
+
+    <!--
+        公共配置信息表(common_setting)映射
+        字段命名遵循公共字段规范(field_ 前缀)，与 Java 属性直接 camel-case 对应；
+        列清单与 artificial/docs/设计文档/common/common_setting.md 保持一致。
+        配置以 (field_type, field_key) 为唯一键，不提供对外接口，仅供后端内部调用。
+    -->
+
+    <resultMap id="CommonSettingResultMap" type="com.common.system.common.setting.model.CommonSetting">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_model_name" property="fieldModelName"/>
+        <result column="field_key" property="fieldKey"/>
+        <result column="field_value" property="fieldValue"/>
+        <result column="field_type" property="fieldType"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_default_value" property="fieldDefaultValue"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_model_name, field_key, field_value, field_type,
+        field_update_time, field_default_value
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.common.setting.model.CommonSetting">
+        INSERT INTO common_setting (
+        field_id, field_model_name, field_key, field_value, field_type,
+        field_update_time, field_default_value
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldModelName}, #{model.fieldKey}, #{model.fieldValue}, #{model.fieldType},
+        #{model.fieldUpdateTime}, #{model.fieldDefaultValue}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.common.setting.model.CommonSetting">
+        UPDATE common_setting
+        <set>
+            <if test="model.fieldModelName != null">field_model_name = #{model.fieldModelName},</if>
+            <if test="model.fieldKey != null">field_key = #{model.fieldKey},</if>
+            <if test="model.fieldValue != null">field_value = #{model.fieldValue},</if>
+            <if test="model.fieldType != null">field_type = #{model.fieldType},</if>
+            <if test="model.fieldUpdateTime != null">field_update_time = #{model.fieldUpdateTime},</if>
+            <if test="model.fieldDefaultValue != null">field_default_value = #{model.fieldDefaultValue},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM common_setting
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="CommonSettingResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM common_setting
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="CommonSettingResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM common_setting
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldModelName != null and model.fieldModelName != ''">AND field_model_name = #{model.fieldModelName}</if>
+            <if test="model.fieldKey != null and model.fieldKey != ''">AND field_key = #{model.fieldKey}</if>
+            <if test="model.fieldValue != null and model.fieldValue != ''">AND field_value = #{model.fieldValue}</if>
+            <if test="model.fieldType != null and model.fieldType != ''">AND field_type = #{model.fieldType}</if>
+            <if test="model.fieldDefaultValue != null and model.fieldDefaultValue != ''">AND field_default_value = #{model.fieldDefaultValue}</if>
+        </where>
+        ORDER BY field_update_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 按类型 + 配置字段查询：系统启动增量同步与内部读取时使用 -->
+    <select id="selectByTypeAndKey" resultMap="CommonSettingResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM common_setting
+        WHERE field_type = #{fieldType} AND field_key = #{fieldKey}
+        LIMIT 1
+    </select>
+
+    <!-- 按类型查询全部配置（内部按类型读取配置值集合） -->
+    <select id="selectByType" resultMap="CommonSettingResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM common_setting
+        WHERE field_type = #{fieldType}
+        ORDER BY field_key ASC
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_key（配置表无 field_name 列，以「配置字段」作为名称来源） -->
+    <resultMap id="CommonSettingLoadResultMap" type="com.common.system.common.setting.model.CommonSetting">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_key" property="fieldKey"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="CommonSettingLoadResultMap">
+        SELECT field_id, field_key
+        FROM common_setting
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

@@ -1,0 +1,18 @@
+# =====================================================================
+# 定时任务模块系统码值配置：启动时增量导入（field_system = true）
+# 码值来源代码：enums/SysTaskStatus、enums/SysTaskResult
+# =====================================================================
+dict:
+  task_status:
+    name: 定时任务状态
+    desc: sys_task_main.field_status / sys_task_example.field_status
+    WAITING: 等待中
+    RUNNING: 运行中
+    FINISH: 完成
+    BLOCK: 阻塞
+    FAIL: 失败
+  task_result:
+    name: 定时任务执行结果
+    desc: sys_task_history.field_result
+    1: 成功
+    0: 失败

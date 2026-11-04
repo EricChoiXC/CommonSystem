@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.org.mapper.SysOrgAuthMapper">
+
+    <!--
+        权限表(sys_org_auth)映射
+        字段命名遵循公共字段规范(field_ 前缀)，与 Java 属性直接 camel-case 对应。
+        SysOrgAuth.roles 依赖角色权限关系表(sys_org_role_auth)与角色查询，
+        当前代码未提供关系表 Mapper，暂不映射，由 Service 层组装。
+    -->
+
+    <resultMap id="SysOrgAuthResultMap" type="com.common.system.sys.org.model.SysOrgAuth">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_model" property="fieldModel"/>
+        <result column="field_description" property="fieldDescription"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_name, field_code, field_model, field_description
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgAuth">
+        INSERT INTO sys_org_auth (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldName}, #{model.fieldCode}, #{model.fieldModel}, #{model.fieldDescription}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgAuth">
+        UPDATE sys_org_auth
+        <set>
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldCode != null">field_code = #{model.fieldCode},</if>
+            <if test="model.fieldModel != null">field_model = #{model.fieldModel},</if>
+            <if test="model.fieldDescription != null">field_description = #{model.fieldDescription},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_org_auth
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysOrgAuthResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_auth
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectByCode" parameterType="string" resultMap="SysOrgAuthResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_auth
+        WHERE field_code = #{fieldCode}
+    </select>
+
+    <!--
+        按用户查询其权限编码列表（field_code），供登录等场景组装；
+        权限计算模型与 SysOrgRoleMapper.selectListByUserId 一致：从用户自身组织元素、
+        所属岗位、所属虚拟组织、直属机构/部门链路取角色，再经 sys_org_role_auth 取权限。
+    -->
+    <select id="selectCodesByUserId" parameterType="string" resultType="string">
+        SELECT DISTINCT a.field_code
+        FROM sys_org_auth a
+        INNER JOIN sys_org_role_auth ra ON a.field_id = ra.field_auth_id
+        WHERE ra.field_role_id IN (
+            SELECT DISTINCT r.field_id
+            FROM sys_org_role r
+            INNER JOIN sys_org_role_element re ON r.field_id = re.field_role_id
+            WHERE re.field_element_id IN (
+                -- 用户自身组织元素
+                SELECT e.field_id FROM sys_org_element e
+                WHERE e.field_id = #{userId} AND e.field_org_type = 3
+                UNION
+                -- 用户所属岗位
+                SELECT pu.field_post_id FROM sys_org_post_user pu
+                WHERE pu.field_user_id = #{userId}
+                UNION
+                -- 用户所属虚拟组织
+                SELECT vu.field_virtual_id FROM sys_org_virtual_user vu
+                WHERE vu.field_user_id = #{userId}
+                UNION
+                -- 用户直属组织链路上的机构/部门
+                SELECT anc.field_id FROM sys_org_element anc
+                INNER JOIN sys_org_element u ON u.field_id = #{userId} AND u.field_org_type = 3
+                WHERE anc.field_org_type IN (1, 2)
+                  AND u.field_hierarchy IS NOT NULL
+                  AND u.field_hierarchy LIKE CONCAT('%/', anc.field_id, '/%')
+            )
+        )
+          AND a.field_code IS NOT NULL
+        ORDER BY a.field_code
+    </select>
+
+    <select id="selectList" resultMap="SysOrgAuthResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_auth
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldModel != null and model.fieldModel != ''">AND field_model = #{model.fieldModel}</if>
+            <if test="model.fieldDescription != null and model.fieldDescription != ''">AND field_description LIKE CONCAT('%', #{model.fieldDescription}, '%')</if>
+        </where>
+        ORDER BY field_name
+    </select>
+
+    <!-- ==================== 角色管理 / 权限预览（sys.org.role / sys.org.preview） ==================== -->
+
+    <!-- 按角色查询其直接绑定的权限列表（权限树角色节点展开用） -->
+    <select id="selectAuthsByRoleId" parameterType="string" resultMap="SysOrgAuthResultMap">
+        SELECT a.field_id, a.field_name, a.field_code, a.field_model, a.field_description
+        FROM sys_org_auth a
+        INNER JOIN sys_org_role_auth ra ON a.field_id = ra.field_auth_id
+        WHERE ra.field_role_id = #{roleId}
+        ORDER BY a.field_model, a.field_name
+    </select>
+
+    <!-- 按角色 ID 集合查询权限并集（权限预览「权限列表」用，去重） -->
+    <select id="selectAuthsByRoleIds" resultMap="SysOrgAuthResultMap">
+        SELECT DISTINCT a.field_id, a.field_name, a.field_code, a.field_model, a.field_description
+        FROM sys_org_auth a
+        INNER JOIN sys_org_role_auth ra ON a.field_id = ra.field_auth_id
+        WHERE ra.field_role_id IN
+        <foreach collection="roleIds" item="roleId" open="(" separator="," close=")">#{roleId}</foreach>
+        ORDER BY a.field_model, a.field_name
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
+    <resultMap id="SysOrgAuthLoadResultMap" type="com.common.system.sys.org.model.SysOrgAuth">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysOrgAuthLoadResultMap">
+        SELECT field_id, field_name
+        FROM sys_org_auth
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

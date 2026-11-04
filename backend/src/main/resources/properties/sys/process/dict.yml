@@ -1,0 +1,86 @@
+# =====================================================================
+# 流程模块系统码值配置：启动时增量导入（field_system = true）
+# 码值来源代码：SysProcessConstants（节点类型/审批模式/节点触发/自动跳过、
+#               流程状态/节点状态/工作项状态/审批记录类型/特权操作/重新提交流转方式）
+# =====================================================================
+dict:
+  process_node_type:
+    name: 流程节点类型
+    desc: 流程模板节点类型（sys_process_template_node.field_node_type）
+    START: 开始节点
+    DRAFT: 草稿节点
+    END: 结束节点
+    APPROVE: 审批节点
+    ROBORT: 机器人节点
+  process_approve_mode:
+    name: 审批模式
+    desc: 节点配置 approveMode
+    single: 单签
+    countersign: 会审
+  process_handler_source:
+    name: 审批来源
+    desc: 节点配置 handlerSource（org=组织架构 / field=表单字段）
+    org: 组织架构
+    field: 表单字段
+  process_trigger_type:
+    name: 节点触发
+    desc: 节点配置 triggerType
+    fixed: 固定
+    condition: 条件判断
+  process_auto_skip:
+    name: 是否允许自动跳过
+    desc: 节点配置 autoSkip / autoContinueSkip（共用值域 system / yes / no）
+    system: 跟随系统
+    yes: 是
+    no: 否
+  process_example_status:
+    name: 流程状态
+    desc: sys_process_example.field_status
+    DRAFT: 草稿
+    PROCESSING: 审批中
+    PAUSE: 暂停
+    FINISH: 完成
+    RETURN: 驳回
+    ABANDON: 废弃
+  process_node_status:
+    name: 流程节点状态
+    desc: sys_process_example_node.field_status
+    WAITING: 等待处理
+    PROCESSING: 审批中
+    FINISH: 完成
+    PASS: 跳过
+    REJECT: 驳回
+  process_workitem_status:
+    name: 流程工作项状态
+    desc: sys_process_example_workitem.field_status
+    PROCESSING: 审批中
+    FINISH: 完成
+    ABANDON: 废弃
+    PAUSE: 暂停
+  process_audit_type:
+    name: 审批记录类型
+    desc: sys_process_audit_note.field_handle_type
+    DRAFTER_SUBMIT: 起草人提交
+    DRAFTER_BACK: 起草人收回
+    DRAFTER_ABANDON: 起草人废弃
+    HANDLER_PASS: 处理人通过
+    HANDLER_RETURN: 处理人驳回
+    AUTO_PASS: 自动跳过
+    ADMIN_PAUSE: 管理员暂停
+    ADMIN_RESUME: 管理员恢复
+    ADMIN_JUMP: 管理员跳转
+    ADMIN_ABANDON: 管理员作废
+    ADMIN_FINISH: 管理员办结
+  process_admin_operate:
+    name: 管理员特权操作
+    desc: 流程实例详情页特权操作弹窗
+    JUMP: 跳转
+    FINISH: 终审通过
+    ABANDON: 作废
+    PAUSE: 暂停
+    RESUME: 恢复
+  process_resume_mode:
+    name: 驳回后重新提交流转方式
+    desc: 工作项配置 resumeMode
+    restart: 重新流转
+    backToNode: 转回本节点

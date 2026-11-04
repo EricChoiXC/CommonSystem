@@ -1,0 +1,5 @@
+ROLE_LIST: ["SYS_ATT_MAIN"]
+ROLE_MAP:
+  SYS_ATT_MAIN:
+    NAME: "附件管理员"
+    DESC: "拥有附件模块后台管理权限"

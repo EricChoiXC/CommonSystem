@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.process.mapper.SysProcessExampleWorkitemMapper">
+
+    <!--
+        流程工作项表(sys_process_example_workitem)映射
+        field_status 枚举: PROCESSING/FINISH/ABANDON/PAUSE；
+        field_expect_handler_id 为节点配置的期望处理人，field_handler_id 为实际处理人；
+        field_config 为工作项配置（JSON 字符串，如驳回后的「重新提交后流转方式」）。
+    -->
+
+    <resultMap id="SysProcessExampleWorkitemResultMap" type="com.common.system.sys.process.model.SysProcessExampleWorkitem">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_example_id" property="fieldExampleId"/>
+        <result column="field_node_id" property="fieldNodeId"/>
+        <result column="field_handler_id" property="fieldHandlerId"/>
+        <result column="field_expect_handler_id" property="fieldExpectHandlerId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_finish_time" property="fieldFinishTime"/>
+        <result column="field_status" property="fieldStatus"/>
+        <result column="field_config" property="fieldConfig"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_example_id, field_node_id, field_handler_id, field_expect_handler_id,
+        field_create_time, field_finish_time, field_status, field_config
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.process.model.SysProcessExampleWorkitem">
+        INSERT INTO sys_process_example_workitem (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldExampleId}, #{model.fieldNodeId}, #{model.fieldHandlerId}, #{model.fieldExpectHandlerId},
+        #{model.fieldCreateTime}, #{model.fieldFinishTime}, #{model.fieldStatus}, #{model.fieldConfig}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.process.model.SysProcessExampleWorkitem">
+        UPDATE sys_process_example_workitem
+        <set>
+            <if test="model.fieldExampleId != null">field_example_id = #{model.fieldExampleId},</if>
+            <if test="model.fieldNodeId != null">field_node_id = #{model.fieldNodeId},</if>
+            <if test="model.fieldHandlerId != null">field_handler_id = #{model.fieldHandlerId},</if>
+            <if test="model.fieldExpectHandlerId != null">field_expect_handler_id = #{model.fieldExpectHandlerId},</if>
+            <if test="model.fieldCreateTime != null">field_create_time = #{model.fieldCreateTime},</if>
+            <if test="model.fieldFinishTime != null">field_finish_time = #{model.fieldFinishTime},</if>
+            <if test="model.fieldStatus != null">field_status = #{model.fieldStatus},</if>
+            <if test="model.fieldConfig != null">field_config = #{model.fieldConfig},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_process_example_workitem
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysProcessExampleWorkitemResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_workitem
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysProcessExampleWorkitemResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_workitem
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldExampleId != null and model.fieldExampleId != ''">AND field_example_id = #{model.fieldExampleId}</if>
+            <if test="model.fieldNodeId != null and model.fieldNodeId != ''">AND field_node_id = #{model.fieldNodeId}</if>
+            <if test="model.fieldHandlerId != null and model.fieldHandlerId != ''">AND field_handler_id = #{model.fieldHandlerId}</if>
+            <if test="model.fieldStatus != null and model.fieldStatus != ''">AND field_status = #{model.fieldStatus}</if>
+        </where>
+        ORDER BY field_create_time ASC
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_handler_id，供关联对象赋值使用 -->
+    <resultMap id="SysProcessExampleWorkitemLoadResultMap" type="com.common.system.sys.process.model.SysProcessExampleWorkitem">
+        <id column="field_id" property="fieldId"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysProcessExampleWorkitemLoadResultMap">
+        SELECT field_id
+        FROM sys_process_example_workitem
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 按实例查询全部工作项（按创建时间升序） -->
+    <select id="selectListByExampleId" parameterType="string" resultMap="SysProcessExampleWorkitemResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_workitem
+        WHERE field_example_id = #{exampleId}
+        ORDER BY field_create_time ASC
+    </select>
+
+    <!-- 按节点查询全部工作项（按创建时间升序） -->
+    <select id="selectListByNodeId" parameterType="string" resultMap="SysProcessExampleWorkitemResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_workitem
+        WHERE field_node_id = #{nodeId}
+        ORDER BY field_create_time ASC
+    </select>
+
+    <!-- 按实例 + 处理人查询工作项（判断当前用户对当前节点的可执行审批操作） -->
+    <select id="selectByExampleAndHandler" resultMap="SysProcessExampleWorkitemResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_workitem
+        WHERE field_example_id = #{exampleId} AND field_handler_id = #{handlerId}
+        ORDER BY field_create_time ASC
+    </select>
+
+    <!-- 按实例查询处理中（PROCESSING / PAUSE）的工作项（暂停/恢复/收回/作废时批量置终态） -->
+    <select id="selectActiveByExample" parameterType="string" resultMap="SysProcessExampleWorkitemResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_example_workitem
+        WHERE field_example_id = #{exampleId}
+          AND field_status IN ('PROCESSING', 'PAUSE')
+        ORDER BY field_create_time ASC
+    </select>
+
+</mapper>

@@ -1,0 +1,8 @@
+MODEL_KEY: "SYS-CALENDAR"
+MODEL_NAME: "日程模块"
+version: "1.0.0"
+
+# 系统配置信息
+SETTING:
+  calendar:
+    AUTO_DELETE: 0

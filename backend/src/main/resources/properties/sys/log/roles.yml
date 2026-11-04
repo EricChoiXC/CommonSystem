@@ -1,0 +1,5 @@
+ROLE_LIST: ["SYS_LOG_ADMIN"]
+ROLE_MAP:
+  SYS_LOG_ADMIN:
+    NAME: "日志管理员"
+    DESC: "拥有查看全部日志（操作日志、登录日志）的后台管理权限"

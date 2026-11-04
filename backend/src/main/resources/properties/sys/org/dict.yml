@@ -1,0 +1,28 @@
+# =====================================================================
+# 组织架构和权限模块系统码值配置：启动时增量导入（field_system = true）
+# 码值来源代码：SysOrgElementProperties.ORG_TYPE_*、
+#               enums/SysOrgAccountStatus、enums/SysOrgJobStatus
+# =====================================================================
+dict:
+  org_element_type:
+    name: 组织架构类型
+    desc: sys_org_element.field_org_type（1 机构 / 2 部门 / 3 人员 / 4 岗位）
+    1: 机构
+    2: 部门
+    3: 人员
+    4: 岗位
+  org_account_status:
+    name: 账号状态
+    desc: sys_org_user.field_account_status
+    0: 禁用
+    1: 正常
+    2: 锁定
+    3: 密码过期
+    4: 注销
+  org_job_status:
+    name: 人员在岗状态
+    desc: sys_org_user.field_job_status
+    0: 离职
+    1: 在职
+    2: 停职
+    3: 休假

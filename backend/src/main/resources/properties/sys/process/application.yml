@@ -1,0 +1,18 @@
+MODEL_KEY: "SYS-PROCESS"
+MODEL_NAME: "流程模块"
+version: "1.0.0"
+# 流程模块公共配置（依据 artificial/docs/设计文档/sys/process/流程核心业务.md「流程公共配置」）：
+# 结构为 SETTING.${field_type}.${field_key}: ${field_default_value}，
+# 系统启动时由 CommonSettingService 增量同步到 common_setting。
+SETTING:
+  process:
+    auto_handle_pass: true
+    auto_handle_pass_drafter: true
+    auto_continue_pass: true
+    finish_notify_handler: true
+  notify:
+    notify_handle_subject: "请审批${fieldCreatorName}提交的流程：${fieldName}"
+    notify_refuse_subject: "您提交的流程被${fieldHandlerName}驳回，请修改"
+    notify_finish_drafter_subject: "您提交的流程${fieldName}已通过"
+    notify_finish_handler_subject: "您审批的流程${fieldName}已通过"
+# 流程分类（process_template）由各业务系统在自身 application.yml 中自行维护。
