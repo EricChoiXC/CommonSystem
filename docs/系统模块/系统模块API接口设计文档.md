@@ -83,6 +83,21 @@
 - Dao 仅负责与 Mapper 一对一对接，不承载业务分支判断。
 - 请求/响应对象命名应采用明确业务语义 + `Request` / `Response` / `Vo`。
 
+### 3.5 在线接口文档（springdoc-openapi）
+
+后端已接入 springdoc-openapi，与本文档形成互补：本文档定义接口分组、路径规范与鉴权规则，在线文档由代码注解实时生成，用于联调与第三方导入。
+
+| 地址 | 说明 |
+| --- | --- |
+| `GET /swagger-ui.html` | Swagger UI 交互页面，可按 `@Tag` 分组浏览全部接口 |
+| `GET /v3/api-docs` | OpenAPI 3 JSON，可导入 Apifox / Postman 等工具 |
+
+- **访问控制**：默认开启，统一开关为环境变量 `CS_API_DOCS_ENABLED`（`application.properties` 中 `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` 均引用该变量）。置为 `false` 时两个端点同时不可访问，生产部署按需关闭。
+- **配置归属（偏离说明）**：该开关属部署运行参数，不是业务配置，因此**不写入 `common_setting`**，也不提供前端维护页面，只通过环境变量覆盖。这与「新增配置按 `CS_*` > `SETTING` > 代码兜底三段式」的常规约定不同，属有意偏离，勿在后续任务中把该开关迁入 `SETTING`。
+- **鉴权方案**：全局注册 `SecurityScheme`（apiKey / header / `X-Login-Token`），Swagger UI 的 Authorize 按钮可一次性填入登录凭证。登录、登出、`/backend/common/init`、`/backend/common/initID`、`/backend/common/setting/load` 与 SSE 订阅（凭证走 URL 参数 `token`）不依赖该请求头，对应方法以 `@SecurityRequirements` 取消全局要求。
+- **注解规范**：每个 Controller 必须有 `@Tag`（中文名 + 页面/权限概述）；每个接口方法必须有 `@Operation(summary=…, description="鉴权动作 <ACTION 常量值>；…")`；`@RequestParam`、`MultipartFile` 等非请求体参数补 `@Parameter(description=…)`；公共模型与排序字段用 `@Schema` 说明，字段级请求/响应卡片不在本表逐项维护。
+- **与 SPA 回退的关系**：`SpaWebConfig` 的前端回退已排除 `swagger-ui`、`v3/api-docs`、`webjars` 三个路径前缀，直接访问文档地址不会被前端路由接管。
+
 ## 4. 模块接口设计骨架
 
 ### 4.1 组织架构模块

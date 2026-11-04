@@ -119,18 +119,29 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
     /**
      * 待办详情：GET /backend/sys/notify/todo/load?fieldId=${id}
      * 待阅类型点击详情触发跳转时，系统自动将该待阅转已办。
+     *
+     * @param fieldId 待办接收记录 ID
+     * @return 统一响应，data 为待办详情
      */
     @GetMapping("/load")
-    public BaseResponse<SysNotifyTodoVo> load(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "待办详情", description = "鉴权动作 sys.notify.todo.load；待阅类型点击详情触发跳转时，"
+            + "系统自动将该待阅转已办")
+    public BaseResponse<SysNotifyTodoVo> load(
+            @Parameter(description = "待办接收记录 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_LOAD, fieldId);
         return BaseResponse.success(getBaseService().loadDetail(fieldId), null);
     }
 
     /**
      * 转已办：PATCH /backend/sys/notify/todo/done?fieldId=${id}
+     *
+     * @param fieldId 待办接收记录 ID
+     * @return 统一响应
      */
     @PatchMapping("/done")
-    public BaseResponse<Void> done(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "转已办", description = "鉴权动作 sys.notify.todo.done；将当前用户的待办接收记录置为已办")
+    public BaseResponse<Void> done(
+            @Parameter(description = "待办接收记录 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_DONE, fieldId);
         getBaseService().markDone(fieldId);
         return BaseResponse.<Void>success("success", null, null);
@@ -138,9 +149,14 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
 
     /**
      * 转未办：PATCH /backend/sys/notify/todo/undone?fieldId=${id}
+     *
+     * @param fieldId 待办接收记录 ID
+     * @return 统一响应
      */
     @PatchMapping("/undone")
-    public BaseResponse<Void> undone(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "转未办", description = "鉴权动作 sys.notify.todo.undone；将当前用户的待办接收记录置回未办")
+    public BaseResponse<Void> undone(
+            @Parameter(description = "待办接收记录 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_UNDONE, fieldId);
         getBaseService().markUndone(fieldId);
         return BaseResponse.<Void>success("success", null, null);
@@ -148,9 +164,14 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
 
     /**
      * 星标：PATCH /backend/sys/notify/todo/star?fieldId=${id}（未星标则置星标，已星标则取消）
+     *
+     * @param fieldId 待办接收记录 ID
+     * @return 统一响应
      */
     @PatchMapping("/star")
-    public BaseResponse<Void> star(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "切换星标", description = "鉴权动作 sys.notify.todo.star；未星标则置星标，已星标则取消")
+    public BaseResponse<Void> star(
+            @Parameter(description = "待办接收记录 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_STAR, fieldId);
         getBaseService().toggleStar(fieldId);
         return BaseResponse.<Void>success("success", null, null);
@@ -159,9 +180,15 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
     /**
      * 删除：DELETE /backend/sys/notify/todo/delete?fieldId=${id}
      * 删除只是对 sys_notify_todo_target.field_is_del 置 true，不是真的删除记录。
+     *
+     * @param fieldId 待办接收记录 ID
+     * @return 统一响应
      */
     @DeleteMapping("/delete")
-    public BaseResponse<Void> delete(@RequestParam("fieldId") String fieldId) {
+    @Operation(summary = "删除待办", description = "鉴权动作 sys.notify.todo.delete；仅对 "
+            + "sys_notify_todo_target.field_is_del 置 true（软删除），不删除主记录")
+    public BaseResponse<Void> delete(
+            @Parameter(description = "待办接收记录 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_DELETE, fieldId);
         getBaseService().deleteByTarget(fieldId);
         return BaseResponse.<Void>success("success", null, null);
@@ -169,8 +196,13 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
 
     /**
      * 批量已办：POST /backend/sys/notify/todo/batchDone，请求体 { ids: string[] }
+     *
+     * @param request 批量请求，ids 为待办接收记录 ID 列表
+     * @return 统一响应
      */
     @PostMapping("/batchDone")
+    @Operation(summary = "批量转已办", description = "鉴权动作 sys.notify.todo.batchDone；请求体 "
+            + "{ ids: string[] }")
     public BaseResponse<Void> batchDone(@RequestBody SysNotifyBatchRequest request) {
         authorize(new AuthorizationContext(ACTION_BATCH_DONE));
         getBaseService().batchDone(idsOf(request));
@@ -179,8 +211,13 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
 
     /**
      * 批量转未办：POST /backend/sys/notify/todo/batchUndone，请求体 { ids: string[] }
+     *
+     * @param request 批量请求，ids 为待办接收记录 ID 列表
+     * @return 统一响应
      */
     @PostMapping("/batchUndone")
+    @Operation(summary = "批量转未办", description = "鉴权动作 sys.notify.todo.batchUndone；请求体 "
+            + "{ ids: string[] }")
     public BaseResponse<Void> batchUndone(@RequestBody SysNotifyBatchRequest request) {
         authorize(new AuthorizationContext(ACTION_BATCH_UNDONE));
         getBaseService().batchUndone(idsOf(request));
@@ -189,8 +226,13 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
 
     /**
      * 批量星标：POST /backend/sys/notify/todo/batchStar，请求体 { ids: string[] }
+     *
+     * @param request 批量请求，ids 为待办接收记录 ID 列表
+     * @return 统一响应
      */
     @PostMapping("/batchStar")
+    @Operation(summary = "批量星标", description = "鉴权动作 sys.notify.todo.batchStar；请求体 "
+            + "{ ids: string[] }")
     public BaseResponse<Void> batchStar(@RequestBody SysNotifyBatchRequest request) {
         authorize(new AuthorizationContext(ACTION_BATCH_STAR));
         getBaseService().batchStar(idsOf(request));
@@ -200,8 +242,13 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
     /**
      * 批量删除：POST /backend/sys/notify/todo/batchDelete，请求体 { ids: string[] }
      * 删除只是软删除（field_is_del 置 true）。
+     *
+     * @param request 批量请求，ids 为待办接收记录 ID 列表
+     * @return 统一响应
      */
     @PostMapping("/batchDelete")
+    @Operation(summary = "批量删除", description = "鉴权动作 sys.notify.todo.batchDelete；请求体 "
+            + "{ ids: string[] }，仅软删除（field_is_del 置 true）")
     public BaseResponse<Void> batchDelete(@RequestBody SysNotifyBatchRequest request) {
         authorize(new AuthorizationContext(ACTION_BATCH_DELETE));
         getBaseService().batchDelete(idsOf(request));
@@ -213,8 +260,15 @@ public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, S
      * 请求体 { body: { fieldNotifyType, fieldModelName, fieldName, fieldCreateTimeStart, fieldCreateTimeEnd },
      *           pages: { pageNo, pageSize, needPage }, sortField, sortOrder }；
      * 按 sys_notify_todo 表可见所有待办（含接收人数/已办人数），总数经 metadata.total 返回。
+     *
+     * @param request 后台列表请求（条件 + 分页 + 单条件排序），排序字段取 createTime
+     * @return 统一响应，data 为含接收人数/已办人数的待办列表，metadata.total 为总数
      */
     @PostMapping("/adminList")
+    @Operation(summary = "后台待办列表", description = "鉴权动作 sys.notify.todo.adminList（仅 SYS_NOTIFY_ADMIN）；"
+            + "请求体 { body: { fieldNotifyType, fieldModelName, fieldName, fieldCreateTimeStart, "
+            + "fieldCreateTimeEnd }, pages, sortField, sortOrder }，返回含接收人数/已办人数的待办列表，"
+            + "排序字段取 createTime")
     public BaseResponse<List<SysNotifyAdminTodoVo>> adminList(@RequestBody SysNotifyAdminListRequest request) {
         authorize(new AuthorizationContext(ACTION_ADMIN_LIST));
         SysNotifyAdminQuery query = null == request ? null : request.getBody();

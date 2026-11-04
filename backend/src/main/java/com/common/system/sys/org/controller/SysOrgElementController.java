@@ -55,6 +55,9 @@ public class SysOrgElementController {
      * 列表查询：POST /backend/sys/org/element/list
      * 请求体为 { body: { parentId, fieldName, fieldCode, orgType, enable }, pages: { pageNo, pageSize, needPage },
      *           sortField, sortOrder }；parentId 为空表示根级，总数经 metadata.total 返回。
+     *
+     * @param request 列表请求（条件 + 分页 + 单条件排序），排序字段取 createTime / updateTime / code
+     * @return 统一响应，data 为元素列表，metadata.total 为满足条件的总数
      */
     @PostMapping("/list")
     @Operation(summary = "组织架构元素列表", description = "鉴权动作 sys.org.element.list；请求体 "

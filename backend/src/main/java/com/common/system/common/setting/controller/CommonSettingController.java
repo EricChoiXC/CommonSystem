@@ -50,8 +50,8 @@ public class CommonSettingController {
      * @return 统一响应，data 为 fieldKey → fieldValue 的配置映射
      */
     @GetMapping("/load")
-    @Operation(summary = "读取系统配置", description = "返回所有 system 类型（SETTING.system.*）配置项，"
-            + "供登录页读取邮箱/电话登录开关等；不要求登录")
+    @Operation(summary = "读取系统配置", description = "无需鉴权（登录页需要，无 ACTION 常量）；"
+            + "返回所有 system 类型（SETTING.system.*）配置项，供登录页读取邮箱/电话登录开关等")
     @SecurityRequirements
     public BaseResponse<Map<String, String>> load() {
         Map<String, String> values = commonSettingService.getValues(TYPE_SYSTEM);
@@ -68,8 +68,8 @@ public class CommonSettingController {
      * @return 统一响应；缺参返回 BAD_REQUEST，非系统管理员返回 FORBIDDEN
      */
     @PatchMapping("/update")
-    @Operation(summary = "更新单个配置项", description = "请求体 { fieldKey, fieldValue }，仅更新 system 类型的"
-            + "单个配置；仅 SYS_ADMIN 可执行，非管理员返回 FORBIDDEN")
+    @Operation(summary = "更新单个配置项", description = "鉴权动作：无 ACTION 常量（入口直接判 SYS_ADMIN，不走 resolver）；"
+            + "请求体 { fieldKey, fieldValue }，仅更新 system 类型的单个配置，非管理员返回 FORBIDDEN")
     public BaseResponse<Void> update(@RequestBody Map<String, String> body) {
         // 鉴权：仅 SYS_ADMIN 可更新配置
         if (!isSysAdmin()) {

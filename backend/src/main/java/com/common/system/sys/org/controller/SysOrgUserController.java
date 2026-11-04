@@ -74,8 +74,9 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
      *         登录名或密码为空返回 BAD_REQUEST
      */
     @PostMapping("/login")
-    @Operation(summary = "登录", description = "无需凭证；请求体 { body: { fieldLoginName, fieldPassword } }，"
-            + "成功后 metadata 返回 X-Login-Token 与 forceChangePwd，成功/失败均记录登录日志")
+    @Operation(summary = "登录", description = "无需鉴权（登录前无身份，不走 resolver）；请求体 "
+            + "{ body: { fieldLoginName, fieldPassword } }，成功后 metadata 返回 X-Login-Token 与 forceChangePwd，"
+            + "成功/失败均记录登录日志")
     @SecurityRequirements
     public SysOrgUserResponse login(@RequestBody SysOrgLoginRequest request, HttpServletRequest httpRequest) {
         SysOrgUser body = null == request ? null : request.getBody();
@@ -109,8 +110,8 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
      * @return 统一响应；凭证缺失或已失效时同样返回成功（幂等）
      */
     @PostMapping("/logout")
-    @Operation(summary = "登出", description = "从请求头 X-Login-Token 读取凭证并注销会话，幂等；"
-            + "同时记录登出日志")
+    @Operation(summary = "登出", description = "无需鉴权（凭证失效也返回成功，不走 resolver）；"
+            + "从请求头 X-Login-Token 读取凭证并注销会话，幂等，同时记录登出日志")
     @SecurityRequirements
     public SysOrgUserResponse logout(HttpServletRequest request) {
         logService.recordLogout(LogContextUtil.getClientIp(request), request.getHeader("User-Agent"));

@@ -42,12 +42,14 @@ public class InitController {
     /**
      * 预取主键 ID：{@code GET /backend/common/initID}
      * <p>返回 32 位 ID（毫秒时间戳 + UUID v4 补位），供新建页/新建弹窗在提交前预置 fieldId。</p>
+     * <p>注：方法名 {@code init} 与路径 {@code /initID} 不一致属历史命名，为保持兼容不改方法名，
+     * 调用方与文档一律以路径 {@code /initID} 为准。</p>
      *
      * @return 统一响应，data 为 32 位主键字符串
      */
     @GetMapping("/initID")
-    @Operation(summary = "预取主键 ID", description = "返回 32 位主键（毫秒时间戳 + UUID v4 补位），"
-            + "供新建页/新建弹窗在提交前预置 fieldId；无需登录")
+    @Operation(summary = "预取主键 ID", description = "无需鉴权（无 ACTION 常量，登录前即可调用）；"
+            + "返回 32 位主键（毫秒时间戳 + UUID v4 补位），供新建页/新建弹窗在提交前预置 fieldId")
     @SecurityRequirements
     public BaseResponse<String> init() {
         return BaseResponse.success(IDUtil.initID(), null);
@@ -60,8 +62,8 @@ public class InitController {
      * @return 统一响应，data.applicationName 为配置的应用名称（为空时回退默认值）
      */
     @GetMapping("/init")
-    @Operation(summary = "系统初始化信息", description = "返回 data.applicationName（application.name，"
-            + "为空时回退默认应用名），供前端 LOGO、浏览器标题使用；无需登录")
+    @Operation(summary = "系统初始化信息", description = "无需鉴权（无 ACTION 常量，登录前即可调用）；"
+            + "返回 data.applicationName（application.name，为空时回退默认应用名），供前端 LOGO、浏览器标题使用")
     @SecurityRequirements
     public BaseResponse<Map<String, Object>> initInfo() {
         Map<String, Object> data = new LinkedHashMap<>();

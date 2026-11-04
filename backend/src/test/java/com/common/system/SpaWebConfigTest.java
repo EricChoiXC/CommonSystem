@@ -33,8 +33,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(MockMapperConfig.class)
 class SpaWebConfigTest {
 
-    /** 前端 index.html 的标志性内容，用于区分「回退到前端页面」与「接口/资源响应」 */
-    private static final String APP_ROOT_MARK = "<div id=\"app\">";
+    /**
+     * index.html 的标志性内容，用于区分「回退到前端页面」与「接口/资源响应」。
+     * 取 title 前缀而非 {@code <div id="app">}：前端构建产物为 {@code <title>CommonSystem Frontend</title>}，
+     * 仓库内的未构建占位页为 {@code <title>CommonSystem</title>}，两者都命中，断言不依赖前端是否已构建。
+     */
+    private static final String APP_ROOT_MARK = "<title>CommonSystem";
 
     @Autowired
     private MockMvc mockMvc;
@@ -96,10 +100,14 @@ class SpaWebConfigTest {
 
     @Test
     void swaggerUiPathIsNotRoutedToFrontend() throws Exception {
-        // Swagger UI 静态资源路径同样不参与 SPA 回退，避免文档页面被前端路由接管
+        // Swagger UI 静态资源路径不参与 SPA 回退，避免文档页面被前端路由接管
         mockMvc.perform(get("/swagger-ui/__missing__.css"))
                 .andExpect(content().string(not(containsString(APP_ROOT_MARK))));
-        mockMvc.perform(get("/swagger-ui-x"))
+        mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(content().string(not(containsString(APP_ROOT_MARK))));
+        // 前缀排除按「首段完全匹配」，/swagger-ui-x 这类同前缀的前端路由不受影响，仍正常回退
+        mockMvc.perform(get("/swagger-ui-x"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString(APP_ROOT_MARK)));
     }
 }

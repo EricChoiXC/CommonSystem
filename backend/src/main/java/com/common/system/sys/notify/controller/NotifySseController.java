@@ -6,8 +6,16 @@ import com.common.system.common.session.LoginSessionService;
 import com.common.system.sys.notify.resolver.NotifyResolver;
 import com.common.system.sys.notify.service.SseEmitterManager;
 import com.common.system.sys.org.utils.CurrentUserHolder;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -33,6 +41,7 @@ import static com.common.system.sys.notify.properties.SysNotifyConstants.ACTION_
  */
 @RestController
 @RequestMapping("/backend/sys/notify/sse")
+@Tag(name = "通知待办-SSE", description = "SSE 长连接订阅：前端 EventSource 连接，登录凭证经 URL 参数 token 传递；30 秒心跳、30 分钟超时，断线后自动重连")
 public class NotifySseController {
 
     private static final Logger log = LoggerFactory.getLogger(NotifySseController.class);
@@ -68,10 +77,18 @@ public class NotifySseController {
      * 后端手动解析 token 获取 userId，并通过 NotifyResolver 完成鉴权。</p>
      *
      * @param token 登录凭证（从 URL query 参数获取）
-     * @return SseEmitter 长连接
+     * @return SseEmitter 长连接，事件流名为 connected / heartbeat，推送待办时按业务事件名下发
      */
     @GetMapping("/subscribe")
-    public SseEmitter subscribe(@RequestParam("token") String token) {
+    @Operation(summary = "SSE 订阅", description = "鉴权动作 sys.notify.todo.sseSubscribe（登录即可）；"
+            + "因 EventSource 不支持自定义请求头，凭证经 URL 参数 token 传递，不走 X-Login-Token 头；"
+            + "建立后每 30 秒发送 heartbeat 事件，超时 30 分钟，断线由前端 EventSource 自动重连")
+    @SecurityRequirements
+    @ApiResponse(responseCode = "200", description = "SSE 事件流（connected / heartbeat / 待办推送）",
+            content = @Content(mediaType = MediaType.TEXT_EVENT_STREAM_VALUE,
+                    schema = @Schema(type = "string")))
+    public SseEmitter subscribe(
+            @Parameter(description = "登录凭证（URL query 参数传入）", required = true) @RequestParam("token") String token) {
         // 1. 解析 token 获取 userId
         String userId = loginSessionService.resolve(token);
         if (userId == null) {
