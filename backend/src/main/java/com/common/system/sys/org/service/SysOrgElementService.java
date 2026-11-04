@@ -274,7 +274,8 @@ public class SysOrgElementService {
         if (StringUtil.isEmpty(vo.getFieldCode())) {
             throw new IllegalArgumentException("编码不能为空");
         }
-        if (vo.getFieldOrgType() < ORG_TYPE_ORG || vo.getFieldOrgType() > ORG_TYPE_POST) {
+        // 白名单校验：角色(5)/群组(6) 不参与组织架构树，禁止经 element 接口写入
+        if (!ELEMENT_WRITABLE_ORG_TYPES.contains(vo.getFieldOrgType())) {
             throw new IllegalArgumentException("无效的组织架构类型: " + vo.getFieldOrgType());
         }
     }

@@ -84,7 +84,7 @@ SYS_ORG_GROUP_ADMIN      → 全部放行（可见范围仍需 Service 判定公
 
 | 改动 | 说明 |
 | --- | --- |
-| `SysOrgElementMapper.xml#VoWhereClause` | 根级分支追加 `AND e.field_org_type NOT IN (5, 6)`；`query.orgType` 若传入 5/6 直接返回空（或由 Service 拒绝） |
+| `SysOrgElementMapper.xml#VoWhereClause` | 固定追加 `AND e.field_org_type NOT IN (5, 6)`（`selectVoList` / `countVoList` 共用，非仅根级分支），因此 `query.orgType` 传 5/6 时结果为空 |
 | `SysOrgElementService#validateCommon` | 类型校验由 `1..4` 闭区间改为白名单 `Set.of(1,2,3,4)`；角色/群组禁止走 element 接口 |
 | `SysOrgElementService#save` / `#update` / `#delete` | switch 增加 `default -> throw`（现状已有），无需改 |
 | `SysOrgElementProperties` | 新增 `ORG_TYPE_ROLE = 5`、`ORG_TYPE_GROUP = 6` 常量（仅作语义与排除用，不参与 element 接口写入） |
@@ -95,7 +95,7 @@ SYS_ORG_GROUP_ADMIN      → 全部放行（可见范围仍需 Service 判定公
 
 | 改动 | 说明 |
 | --- | --- |
-| `SysOrgAddressBookMapper.xml#selectTree` | 根级分支与 `parentId` 分支追加 `AND field_org_type NOT IN (5, 6)`（当 `orgTypes` 未显式包含时）；推荐实现为「永远排除 5/6，除非 `orgTypes` 精确等于 [5] 或 [6]」——更简单的做法是 `orgTypes` 含 5/6 时由前端走专用页签接口，**地址本 tree 永久排除 5/6** |
+| `SysOrgAddressBookMapper.xml#selectTree` | 固定追加 `AND field_org_type NOT IN (5, 6)`（与 `orgTypes` 条件是「与」关系，调用方传入 5/6 也不会返回）；即**地址本 tree 永久排除 5/6**，角色与群组走专用页签接口 |
 | `#selectList` / `#countList` | 保持通用：`orgTypes` 含 5 时返回角色（方案 A 下即镜像行），不含时不返回。角色页签复用此接口 |
 | `#selectByIds` | 不变（回填不受类型限制） |
 

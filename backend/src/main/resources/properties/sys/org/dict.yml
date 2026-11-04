@@ -6,11 +6,13 @@
 dict:
   org_element_type:
     name: 组织架构类型
-    desc: sys_org_element.field_org_type（1 机构 / 2 部门 / 3 人员 / 4 岗位）
+    desc: sys_org_element.field_org_type（1 机构 / 2 部门 / 3 人员 / 4 岗位 / 5 角色 / 6 群组）
     1: 机构
     2: 部门
     3: 人员
     4: 岗位
+    5: 角色
+    6: 群组
   org_account_status:
     name: 账号状态
     desc: sys_org_user.field_account_status
@@ -26,3 +28,8 @@ dict:
     1: 在职
     2: 停职
     3: 休假
+  org_group_type:
+    name: 群组类型
+    desc: sys_org_group.field_type
+    COMMON: 公共
+    PERSONAL: 个人

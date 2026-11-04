@@ -56,6 +56,9 @@
         <include refid="BaseColumns"/>
         FROM sys_org_element
         <where>
+            <!-- 地址本树只服务树形类型(1/2/3/4)：角色(5)/群组(6) 永久排除，即使调用方传入；
+                 角色/群组走独立页签（角色复用 list 接口 orgTypes=[5]，群组走 groupList） -->
+            AND field_org_type NOT IN (5, 6)
             <if test="orgTypes != null and orgTypes.size() > 0">
                 AND field_org_type IN
                 <foreach collection="orgTypes" item="orgType" open="(" separator="," close=")">#{orgType}</foreach>

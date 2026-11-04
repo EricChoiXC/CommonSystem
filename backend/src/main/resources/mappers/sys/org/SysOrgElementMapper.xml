@@ -192,6 +192,9 @@
 
     <sql id="VoWhereClause">
         <where>
+            <!-- 角色(5)/群组(6) 不参与组织架构树，组织管理页列表永久排除；
+                 与 SysOrgElementProperties.EXCLUDED_ORG_TYPES 保持一致（SQL 内无法引用常量） -->
+            AND e.field_org_type NOT IN (5, 6)
             <!-- parentId 为空表示根节点：仅返回 field_parent_id 为空（根级）的组织架构 -->
             <choose>
                 <when test="query.parentId != null and query.parentId != ''">

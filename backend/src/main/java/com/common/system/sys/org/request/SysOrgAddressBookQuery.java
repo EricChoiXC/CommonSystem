@@ -19,7 +19,7 @@ public class SysOrgAddressBookQuery {
     /** 关键字：名称或编码模糊匹配，可为空 */
     private String keyword;
 
-    /** 组织架构类型数字数组：1=机构 2=部门 3=人员 4=岗位，为空表示全部 */
+    /** 组织架构类型数字数组：1=机构 2=部门 3=人员 4=岗位 5=角色 6=群组，为空表示全部（树查询永久排除 5/6） */
     private List<Integer> orgTypes;
 
     /** 限制的组织架构范围：组织架构元素 fieldId 值数组，为空表示不限制 */

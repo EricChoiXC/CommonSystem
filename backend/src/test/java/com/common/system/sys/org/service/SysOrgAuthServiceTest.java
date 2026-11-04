@@ -108,13 +108,16 @@ class SysOrgAuthServiceTest {
 
         service.syncAuthsFromRolesYml();
 
-        // common/roles.yml(1) + sys/att/roles.yml(1) + sys/org/roles.yml(6)
-        verify(dao, atLeast(8)).insert(any(SysOrgAuth.class));
+        // common/roles.yml(1) + sys/att/roles.yml(1) + sys/org/roles.yml(7)
+        verify(dao, atLeast(9)).insert(any(SysOrgAuth.class));
         // field_model 取同目录 application.yml 的 MODEL_KEY
         verify(dao).insert(argThat(auth ->
                 "SYS_ADMIN".equals(auth.getFieldCode()) && "COMMON".equals(auth.getFieldModel())));
         verify(dao).insert(argThat(auth ->
                 "SYS_ORG_ADMIN".equals(auth.getFieldCode()) && "SYS-ORG".equals(auth.getFieldModel())));
+        // v1.1 新增群组管理员权限码，须经 ROLE_LIST 增量导入
+        verify(dao).insert(argThat(auth ->
+                "SYS_ORG_GROUP_ADMIN".equals(auth.getFieldCode()) && "SYS-ORG".equals(auth.getFieldModel())));
     }
 
     @Test
