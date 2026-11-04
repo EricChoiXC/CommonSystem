@@ -77,6 +77,23 @@ com.common.system.sys.{模块}
 
 权限码取 `sys_org_role.field_code`，在 `properties/{common,sys}/{模块}/roles.yml` 定义：`SYS_ADMIN`（全权）、`SYS_ORG_*`、`SYS_ATT_MAIN`、`SYS_CALENDAR_SENDLEADER`、`SYS_DICT_ADMIN`、`SYS_LOG_ADMIN`、`SYS_NOTIFY_ADMIN`、`SYS_PROCESS_*`、`SYS_TASK_ADMIN`。批量鉴权接口只供前端按钮预判，不能替代最终鉴权。
 
+**接口文档同步（强制）**：在线文档由代码注解生成（`GET /swagger-ui.html`、`GET /v3/api-docs`），**新增或修改接口必须与代码同批更新文档信息**，不允许留下一份与代码不一致的 api-docs。
+
+| 变更内容 | 必须同批更新的注解 / 文档 |
+| --- | --- |
+| 新增接口方法 | `@Operation(summary=中文动作名, description="鉴权动作 <ACTION 常量值>；…")`；`@RequestParam`、`MultipartFile` 等非请求体参数补 `@Parameter(description=…)` |
+| 新增 Controller | 类级 `@Tag(name=中文模块名, description=页面/权限概述)` |
+| 路径、HTTP 方法、参数名或必填性变化 | 同步 `@Operation` 描述与 `@Parameter(required=…)` |
+| 请求/响应字段增删或语义变化 | 公共模型（`BaseResponse`/`BaseRequest`/`Pages`/`BaseModel`）与本次涉及字段的 `@Schema(description=…)`；排序字段同步 `allowableValues` 与 `defaultValue` |
+| 鉴权方式变化 | 全局 `SecurityScheme LoginToken` 之外的情况在方法上补 `@SecurityRequirements`（如登录、登出、`init`/`initID`、`setting/load`、SSE 订阅） |
+| 非 JSON 响应（文件流、SSE） | `@ApiResponse(content=@Content(mediaType=…, schema=@Schema(...)))`，文件流用 `APPLICATION_OCTET_STREAM_VALUE` + `format="binary"` |
+| 接口分组/权限/路径规则变化 | 同步 `docs/系统模块/系统模块API接口设计文档.md`（含「3.5 在线接口文档」） |
+
+- `@Operation.description` 统一以「鉴权动作 <ACTION 常量值>（权限说明）；」开头；无 `ACTION_*` 常量的入口写「无需鉴权（…）」，禁止留空或只写中文业务描述。
+- 删除接口时同步删除其注解与 `@Tag`（若整个 Controller 移除），并回查文档中是否仍有引用。
+- 注解只做增量：不得为补齐文档而改动接口路径、HTTP 方法、`ACTION_*` 常量、resolver 分支或业务逻辑。
+- 校验方式：`cd backend && ./mvnw -Dtest=ApiDocsTest test`（断言文档 JSON 可生成并含中文摘要），必要时启动服务人工核对 Swagger UI 分组与参数。
+
 ## 4. 数据库与迁移
 
 **字段**：统一 `field_` 前缀。公共字段 `field_id`（`VARCHAR(32)`，毫秒时间戳 + UUID v4，`IDUtil.initID()`）、`field_code`、`field_name` / `field_subject`、`field_creator_id`、`field_create_time`、`field_updater_id`、`field_update_time`、`field_enable`（`BIT(1)` 默认 `b'1'`）。
@@ -132,7 +149,7 @@ com.common.system.sys.{模块}
 
 补充：`docs/开发规范.md`（总规范基线）、`公共接口.md`、`前端公共组件.md`、`数据库必填和表单必填字段对比表.md`、`字段级可见性设计方案.md`、`迁移说明.md`（抽取边界与 ERP 接入，改命名或配置键时必须同步）。
 
-在线接口文档由 springdoc-openapi 从代码注解生成：`GET /swagger-ui.html`（交互页面）、`GET /v3/api-docs`（OpenAPI 3 JSON）；统一开关为环境变量 `CS_API_DOCS_ENABLED`（默认开启），属部署运行参数，**不入 `common_setting`**、不设前端入口。规范与偏离说明见 `docs/系统模块/系统模块API接口设计文档.md` 的「3.5 在线接口文档」。
+在线接口文档由 springdoc-openapi 从代码注解生成：`GET /swagger-ui.html`（交互页面）、`GET /v3/api-docs`（OpenAPI 3 JSON）；统一开关为环境变量 `CS_API_DOCS_ENABLED`（默认开启），属部署运行参数，**不入 `common_setting`**、不设前端入口。规范与偏离说明见 `docs/系统模块/系统模块API接口设计文档.md` 的「3.5 在线接口文档」；新增/修改接口时的注解同步要求见本文第 3 节「接口文档同步（强制）」。
 
 冲突裁决按冲突项归属：业务流程/权限/异常 → 需求；路由菜单/页面布局 → UI；接口规则 → API；表结构与索引 → 数据库。未覆盖时回退 `docs/开发规范.md`；仍不明确时先补文档，不得以现有代码反推业务规则。开发顺序：需求 → UI → API → 数据库 → 代码与迁移脚本，实现导致设计变更时同批更新文档。
 
@@ -146,6 +163,7 @@ com.common.system.sys.{模块}
 提交前自检：
 
 - [ ] 新接口：路径与方法合规，有 `ACTION_*` 常量、resolver `case` 分支、Controller 调用 `authorize(...)`。
+- [ ] 接口文档：新增/修改的接口已同步 `@Tag` / `@Operation` / `@Parameter` / `@Schema`，`@Operation.description` 以「鉴权动作 …」开头；改动接口分组或路径规则时同步 `docs/系统模块/系统模块API接口设计文档.md`。
 - [ ] 新权限码：已同步 `roles.yml` 的 `ROLE_LIST` 与 `ROLE_MAP`。
 - [ ] 新表/字段：`field_` 前缀、公共字段齐全、已补迁移脚本且序号接续。
 - [ ] 新页面：路由（含 `meta.title`、动态路由 `meta.tab: 'name'`）、`HomeView.vue` 菜单与 `activeMenu`、UI 文档三者同步。
