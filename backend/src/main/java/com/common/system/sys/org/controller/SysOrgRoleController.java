@@ -39,7 +39,7 @@ import static com.common.system.sys.org.properties.SysOrgRoleProperties.*;
  *              （要求 SYS_ORG_ROLE_ADMIN，SYS_ORG_ADMIN / SYS_ADMIN 自动放行）。
  */
 @RestController
-@RequestMapping("/backend/sys/org/role")
+@RequestMapping("${project.request.prefix}/sys/org/role")
 @Tag(name = "组织架构-角色", description = "角色管理页：角色增改查与权限可选项；需要 SYS_ORG_ROLE_ADMIN（SYS_ORG_ADMIN / SYS_ADMIN 自动放行）")
 public class SysOrgRoleController {
 

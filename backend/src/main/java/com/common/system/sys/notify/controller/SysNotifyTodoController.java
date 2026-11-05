@@ -44,7 +44,7 @@ import static com.common.system.sys.notify.properties.SysNotifyConstants.*;
  *              列表仅 SYS_NOTIFY_ADMIN 权限。接口路径遵循 /backend/{根模块}/{模块}/{次级模块}/{请求方法}。
  */
 @RestController
-@RequestMapping("/backend/sys/notify/todo")
+@RequestMapping("${project.request.prefix}/sys/notify/todo")
 @Tag(name = "通知待办", description = "我的待办（列表/详情/已办/星标/删除/批量）登录即可并按本人过滤；发送待办与后台待办列表仅 SYS_NOTIFY_ADMIN")
 public class SysNotifyTodoController extends BaseCrudController<SysNotifyTodo, SysNotifyTodoService, NotifyResolver> {
 

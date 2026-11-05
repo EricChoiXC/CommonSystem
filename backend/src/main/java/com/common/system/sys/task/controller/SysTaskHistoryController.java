@@ -36,7 +36,7 @@ import static com.common.system.sys.task.properties.SysTaskConstants.ACTION_HIST
  *              列表接口以权限动作鉴权，详情接口以目标记录 ID 为文档 ID 完成最终鉴权。
  */
 @RestController
-@RequestMapping("/backend/sys/task/history")
+@RequestMapping("${project.request.prefix}/sys/task/history")
 @Tag(name = "定时任务-执行记录", description = "后台管理-执行记录（仅 SYS_TASK_ADMIN）：执行记录分页查询与详情，只读")
 public class SysTaskHistoryController extends BaseCrudController<SysTaskHistory, SysTaskHistoryService, TaskResolver> {
 

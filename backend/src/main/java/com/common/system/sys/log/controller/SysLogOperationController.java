@@ -36,7 +36,7 @@ import static com.common.system.sys.log.properties.SysLogConstants.ACTION_LOAD;
  *              详情接口以目标日志 ID 为文档 ID 完成最终鉴权。
  */
 @RestController
-@RequestMapping("/backend/sys/log/operation")
+@RequestMapping("${project.request.prefix}/sys/log/operation")
 @Tag(name = "日志-操作日志", description = "后台管理：操作日志与登录日志查询（只读）；仅 SYS_LOG_ADMIN")
 public class SysLogOperationController extends BaseCrudController<SysLogOperation, SysLogOperationService, LogResolver> {
 

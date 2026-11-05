@@ -48,7 +48,7 @@ import static com.common.system.sys.process.properties.SysProcessConstants.ACTIO
  *              先通过 ProcessResolver 完成鉴权；接口路径遵循 /backend/{根模块}/{模块}/{次级模块}/{请求方法}。
  */
 @RestController
-@RequestMapping("/backend/sys/process/example")
+@RequestMapping("${project.request.prefix}/sys/process/example")
 @Tag(name = "流程-流程实例", description = "后台管理-流程管理-流程实例：所属模块、列表、详情、审批面板、特权操作；查看需 SYS_PROCESS_EXAMPLE_VIEWER 及以上，特权操作仅 SYS_PROCESS_EXAMPLE_ADMIN")
 public class SysProcessExampleController {
 

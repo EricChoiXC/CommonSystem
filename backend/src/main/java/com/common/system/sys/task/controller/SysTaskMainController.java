@@ -38,7 +38,7 @@ import static com.common.system.sys.task.properties.SysTaskConstants.*;
  *              接口路径遵循 /backend/{根模块}/{模块}/{次级模块}/{请求方法}。
  */
 @RestController
-@RequestMapping("/backend/sys/task/main")
+@RequestMapping("${project.request.prefix}/sys/task/main")
 @Tag(name = "定时任务-任务管理", description = "后台管理-定时任务管理（仅 SYS_TASK_ADMIN）：列表、详情回填、编辑、启停用、批量启停用、手动执行、中止")
 public class SysTaskMainController extends BaseCrudController<SysTaskMain, SysTaskMainService, TaskResolver> {
 

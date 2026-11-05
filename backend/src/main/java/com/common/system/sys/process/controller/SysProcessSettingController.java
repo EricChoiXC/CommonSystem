@@ -38,7 +38,7 @@ import static com.common.system.sys.process.properties.SysProcessConstants.ACTIO
  *              接口路径遵循 /backend/{根模块}/{模块}/{次级模块}/{请求方法}。
  */
 @RestController
-@RequestMapping("/backend/sys/process/setting")
+@RequestMapping("${project.request.prefix}/sys/process/setting")
 @Tag(name = "流程-公共配置", description = "后台管理-流程管理-公共配置：配置列表、提交有变更的配置项、重置单个配置项；仅 SYS_PROCESS_SETTING_ADMIN / SYS_PROCESS_ADMIN")
 public class SysProcessSettingController {
 

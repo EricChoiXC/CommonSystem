@@ -38,7 +38,7 @@ import static com.common.system.sys.org.properties.SysOrgElementProperties.*;
  *              （要求 SYS_ORG_ELEMENT_ADMIN，SYS_ORG_ADMIN / SYS_ADMIN 自动放行）。
  */
 @RestController
-@RequestMapping("/backend/sys/org/element")
+@RequestMapping("${project.request.prefix}/sys/org/element")
 @Tag(name = "组织架构元素", description = "组织架构管理页：机构/部门/人员/岗位的统一元素维护；需要 SYS_ORG_ELEMENT_ADMIN（SYS_ORG_ADMIN / SYS_ADMIN 自动放行）")
 public class SysOrgElementController {
 

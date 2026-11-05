@@ -129,7 +129,7 @@
 
 ```java
 @RestController
-@RequestMapping("/backend/sys/notify/sse")
+@RequestMapping("${project.request.prefix}/sys/notify/sse")
 public class NotifySseController {
 
     private final SseEmitterManager sseEmitterManager;

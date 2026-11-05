@@ -30,7 +30,7 @@ import static com.common.system.sys.att.properties.SysAttConstants.ACTION_OPERAT
  *              按 field_att_id 查询，要求 SYS_ATT_MAIN 权限。
  */
 @RestController
-@RequestMapping("/backend/sys/att/operation")
+@RequestMapping("${project.request.prefix}/sys/att/operation")
 @Tag(name = "附件-操作日志", description = "后台管理：按附件 ID 查看上传/下载/预览/删除等操作记录；需要 SYS_ATT_MAIN")
 public class SysAttOperationController extends BaseCrudController<SysAttOperation, SysAttOperationService, AttResolver> {
 

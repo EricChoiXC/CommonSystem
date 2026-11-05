@@ -39,7 +39,7 @@ import static com.common.system.sys.org.properties.SysOrgAddressBookProperties.*
  *              群组业务由 SysOrgAddressBookService 委托 SysOrgGroupService 承担。
  */
 @RestController
-@RequestMapping("/backend/sys/org/addressbook")
+@RequestMapping("${project.request.prefix}/sys/org/addressbook")
 @Tag(name = "组织架构-地址本", description = "地址本组件（AddressBook.vue）：树查询、关键字分页查询、回填与群组页签；登录且账号启用即可访问")
 public class SysOrgAddressBookController {
 

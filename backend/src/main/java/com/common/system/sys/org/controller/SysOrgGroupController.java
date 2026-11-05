@@ -44,7 +44,7 @@ import static com.common.system.sys.org.properties.SysOrgGroupProperties.*;
  *              AuthorizationException 由全局异常处理器转换为 BaseResponse。
  */
 @RestController
-@RequestMapping("/backend/sys/org/group")
+@RequestMapping("${project.request.prefix}/sys/org/group")
 @Tag(name = "组织架构-群组", description = "群组维护：列表/详情/新建/编辑/删除；登录且账号启用即可访问（不设权），"
         + "归属与可见性等数据级过滤由 Service 按当前登录人承担")
 public class SysOrgGroupController {

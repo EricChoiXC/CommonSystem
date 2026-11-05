@@ -38,7 +38,7 @@ import static com.common.system.sys.dict.properties.SysDictConstants.*;
  *              接口路径遵循 /backend/{根模块}/{模块}/{次级模块}/{请求方法}。
  */
 @RestController
-@RequestMapping("/backend/sys/dict")
+@RequestMapping("${project.request.prefix}/sys/dict")
 @Tag(name = "码值", description = "码值管理：类型与码值项查询（登录即可）、码值项维护（仅 SYS_DICT_ADMIN）")
 public class SysDictController extends BaseCrudController<SysDictType, SysDictService, DictResolver> {
 

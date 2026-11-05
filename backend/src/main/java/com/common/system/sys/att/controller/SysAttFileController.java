@@ -30,7 +30,7 @@ import static com.common.system.sys.att.properties.SysAttConstants.ACTION_FILE_L
  *              核心查询信息为文件类型、文件大小、保存路径、是否删除等，要求 SYS_ATT_MAIN 权限。
  */
 @RestController
-@RequestMapping("/backend/sys/att/file")
+@RequestMapping("${project.request.prefix}/sys/att/file")
 @Tag(name = "附件-文件", description = "后台管理：物理文件清单查询（文件类型/大小/路径/是否删除）；需要 SYS_ATT_MAIN")
 public class SysAttFileController extends BaseCrudController<SysAttFile, SysAttFileService, AttResolver> {
 

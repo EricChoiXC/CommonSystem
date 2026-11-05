@@ -51,7 +51,7 @@ import static com.common.system.sys.process.properties.SysProcessConstants.ACTIO
  *              接口路径遵循 /backend/{根模块}/{模块}/{次级模块}/{请求方法}。
  */
 @RestController
-@RequestMapping("/backend/sys/process/module")
+@RequestMapping("${project.request.prefix}/sys/process/module")
 @Tag(name = "流程-模板管理", description = "后台管理-流程管理-模板管理：分类、列表、详情、新建/编辑/启停用/置为默认；查看需 SYS_PROCESS_TEMPLATE_VIEWER 及以上，写操作仅 SYS_PROCESS_TEMPLATE_ADMIN")
 public class SysProcessTemplateController {
 

@@ -32,7 +32,7 @@ import static com.common.system.sys.org.properties.SysOrgRoleProperties.*;
  *              （可访问权限为 SYS_ORG_ROLE_ADMIN，SYS_ORG_ADMIN / SYS_ADMIN 自动放行）。
  */
 @RestController
-@RequestMapping("/backend/sys/org/preview")
+@RequestMapping("${project.request.prefix}/sys/org/preview")
 @Tag(name = "组织架构-权限预览", description = "权限预览页：按组织架构查看关联角色与权限并集；需要 SYS_ORG_ROLE_ADMIN（SYS_ORG_ADMIN / SYS_ADMIN 自动放行）")
 public class SysOrgRolePreviewController {
 

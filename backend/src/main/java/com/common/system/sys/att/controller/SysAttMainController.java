@@ -50,7 +50,7 @@ import static com.common.system.sys.att.properties.SysAttConstants.*;
  *              上传/下载/预览为公共附件组件接口，后台管理接口统一要求 SYS_ATT_MAIN 权限。
  */
 @RestController
-@RequestMapping("/backend/sys/att/main")
+@RequestMapping("${project.request.prefix}/sys/att/main")
 @Tag(name = "附件-主表", description = "附件上传下载预览与后台管理；公共组件接口登录即可用，后台管理需要 SYS_ATT_MAIN")
 public class SysAttMainController extends BaseCrudController<SysAttMain, SysAttMainService, AttResolver> {
 

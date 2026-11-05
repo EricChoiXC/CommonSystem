@@ -29,7 +29,7 @@ import java.util.Map;
  *              <p>两个接口均不要求登录，因此不经过任何 Resolver 鉴权。</p>
  */
 @RestController
-@RequestMapping("/backend/common")
+@RequestMapping("${project.request.prefix}/common")
 @Tag(name = "通用初始化", description = "前端公共初始化数据：预取主键 ID、应用名称；无需登录")
 public class InitController {
 

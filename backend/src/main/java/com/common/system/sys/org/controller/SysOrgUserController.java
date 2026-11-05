@@ -46,7 +46,7 @@ import java.util.Map;
  *              登录/登出因登录前无身份或仅凭 token 注销，不经过 Resolver。
  */
 @RestController
-@RequestMapping("/backend/sys/org/user")
+@RequestMapping("${project.request.prefix}/sys/org/user")
 @Tag(name = "组织架构-用户", description = "用户登录登出、增改查删与密码维护；查询类按当前用户可见性裁剪字段")
 public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgUserService, UserResolver> {
 

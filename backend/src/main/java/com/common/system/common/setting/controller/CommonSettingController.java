@@ -31,7 +31,7 @@ import static com.common.system.common.setting.properties.CommonSettingPropertie
  *              {@code CommonProperties.ROLE_ADMIN}），避免散落的权限码字面量。</p>
  */
 @RestController
-@RequestMapping("/backend/common/setting")
+@RequestMapping("${project.request.prefix}/common/setting")
 @Tag(name = "公共配置", description = "系统公共配置（common_setting）读取与更新；读取无需登录，更新仅 SYS_ADMIN")
 public class CommonSettingController {
 

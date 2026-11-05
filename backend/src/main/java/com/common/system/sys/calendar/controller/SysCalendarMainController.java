@@ -41,7 +41,7 @@ import static com.common.system.sys.calendar.properties.SysCalendarConstants.*;
  *              Service 返回统一响应。接口路径遵循 /backend/{根模块}/{模块}/{请求方法}。
  */
 @RestController
-@RequestMapping("/backend/sys/calendar")
+@RequestMapping("${project.request.prefix}/sys/calendar")
 @Tag(name = "日程", description = "日程管理：创建/编辑/删除、列表与日历视图、接收/拒绝团队日程；仅创建者或接收人可见")
 public class SysCalendarMainController extends BaseCrudController<SysCalendarMain, SysCalendarMainService, CalendarResolver> {
 

@@ -40,7 +40,7 @@ import static com.common.system.sys.notify.properties.SysNotifyConstants.ACTION_
  *              断线后前端 EventSource 会自动重连。
  */
 @RestController
-@RequestMapping("/backend/sys/notify/sse")
+@RequestMapping("${project.request.prefix}/sys/notify/sse")
 @Tag(name = "通知待办-SSE", description = "SSE 长连接订阅：前端 EventSource 连接，登录凭证经 URL 参数 token 传递；30 秒心跳、30 分钟超时，断线后自动重连")
 public class NotifySseController {
 
