@@ -233,6 +233,34 @@ public class SysI18nSyncService {
         return result;
     }
 
+    /**
+     * 读取指定模块、语言、key 的资源文件当前值（翻译重置复用，规则与启动同步一致）：
+     * application.properties 归默认语言，application_${code}.properties 归对应语言。
+     *
+     * @param fieldModel 模块名（相对 i18n/ 的子目录层级名）
+     * @param language   语言码
+     * @param key        资源 key
+     * @return 资源值；该语言无对应资源文件或文件中无此 key 时返回 null
+     */
+    public String readResourceValue(String fieldModel, String language, String key) {
+        try {
+            Map<String, Map<String, Map<String, String>>> bundles = scanResourceBundles();
+            Map<String, Map<String, String>> languageBundles = bundles.get(fieldModel);
+            if (null == languageBundles) {
+                return null;
+            }
+            Map<String, String> keyValues = languageBundles.get(language);
+            if (null == keyValues) {
+                return null;
+            }
+            return keyValues.get(key);
+        } catch (IOException e) {
+            log.error("failed to read i18n resource value, model={}, language={}, key={}",
+                    fieldModel, language, key, e);
+            throw new IllegalStateException("failed to scan i18n resources: " + I18N_RESOURCE_PATTERN, e);
+        }
+    }
+
     /* ==================== 同步核心 ==================== */
 
     /**

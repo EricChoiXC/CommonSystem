@@ -15,6 +15,9 @@ import com.common.system.sys.org.request.SysOrgUserRequest;
 import com.common.system.sys.org.resolver.UserResolver;
 import com.common.system.sys.org.response.SysOrgUserResponse;
 import com.common.system.sys.org.service.SysOrgUserService;
+import com.common.system.sys.i18n.service.SysI18nUserLanguageService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
@@ -50,16 +53,22 @@ import java.util.Map;
 @Tag(name = "组织架构-用户", description = "用户登录登出、增改查删与密码维护；查询类按当前用户可见性裁剪字段")
 public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgUserService, UserResolver> {
 
+    private static final Logger log = LoggerFactory.getLogger(SysOrgUserController.class);
+
     private final LoginSessionService loginSessionService;
 
     private final LogService logService;
 
+    private final SysI18nUserLanguageService i18nUserLanguageService;
+
     public SysOrgUserController(SysOrgUserService baseService, UserResolver userResolver,
                                 LoginSessionService loginSessionService, LogService logService,
+                                SysI18nUserLanguageService i18nUserLanguageService,
                                 ApplicationEventPublisher eventPublisher) {
         super(baseService, userResolver, eventPublisher);
         this.loginSessionService = loginSessionService;
         this.logService = logService;
+        this.i18nUserLanguageService = i18nUserLanguageService;
     }
 
     /**
@@ -67,16 +76,20 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
      * 登录前无身份，不经过 resolver 鉴权；成功签发会话 token（metadata）并返回用户信息（不含密码）；
      * 成功/失败均记录登录日志（失败仅记登录名与原因，不记录密码等敏感信息）。
      * 登录成功时 metadata 中携带 forceChangePwd 标志，指示是否需要强制修改密码。
+     * 登录语言登记（D3 契约）：body 携带 fieldLanguage 时，登录成功后 upsert
+     * sys_i18n_user_language（存在更新、不存在插入）；未携带不登记，既有登录零回归；
+     * 无效语言码由 i18n 服务忽略并回退默认语言（A4），登记失败不影响登录结果。
      *
-     * @param request      登录请求，body 需含 fieldLoginName 与 fieldPassword
+     * @param request      登录请求，body 需含 fieldLoginName 与 fieldPassword，可选 fieldLanguage
      * @param httpRequest  原始请求，用于提取客户端 IP 与 User-Agent 记录登录日志
      * @return 统一响应，data 为用户信息（不含密码），metadata 含 X-Login-Token 与 forceChangePwd；
      *         登录名或密码为空返回 BAD_REQUEST
      */
     @PostMapping("/login")
     @Operation(summary = "登录", description = "无需鉴权（登录前无身份，不走 resolver）；请求体 "
-            + "{ body: { fieldLoginName, fieldPassword } }，成功后 metadata 返回 X-Login-Token 与 forceChangePwd，"
-            + "成功/失败均记录登录日志")
+            + "{ body: { fieldLoginName, fieldPassword, fieldLanguage? } }，成功后 metadata 返回 "
+            + "X-Login-Token 与 forceChangePwd，成功/失败均记录登录日志；"
+            + "fieldLanguage 携带时登录成功后登记用户语言（D3），未携带时行为不变")
     @SecurityRequirements
     public SysOrgUserResponse login(@RequestBody SysOrgLoginRequest request, HttpServletRequest httpRequest) {
         SysOrgUser body = null == request ? null : request.getBody();
@@ -90,6 +103,16 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
             String token = loginSessionService.create(user.getFieldId());
             // 检查是否需要强制修改密码
             boolean forceChangePwd = getBaseService().isPasswordChangeRequired(user.getFieldId());
+            // 登录语言登记（D3）：仅 body 携带 fieldLanguage 时登记，未携带与既有登录行为完全一致；
+            // 登记失败仅记录日志，不影响登录结果（i18n 登记属增强能力）
+            if (null != request && StringUtil.isNotEmpty(request.getFieldLanguage())) {
+                try {
+                    i18nUserLanguageService.upsertLanguage(user.getFieldId(), request.getFieldLanguage());
+                } catch (RuntimeException e) {
+                    log.warn("failed to register user language after login, userId={}, language={}",
+                            user.getFieldId(), request.getFieldLanguage(), e);
+                }
+            }
             Map<String, Object> metadata = new HashMap<>();
             metadata.put(CurrentUserFilter.LOGIN_TOKEN_HEADER, token);
             metadata.put("forceChangePwd", forceChangePwd);
