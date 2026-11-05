@@ -33,7 +33,7 @@
         <el-button type="primary" @click="handleSearch">查询</el-button>
       </div>
 
-      <!-- 中层：页签（组织架构树 / 查询，showRole 时附角色页签，showGroup 时附群组页签），数据均受 orgType 过滤 -->
+      <!-- 中层：页签（组织架构树 / 查询，showRole 时附角色页签，可选类型含人员时附群组页签），数据均受 orgType 过滤 -->
       <el-tabs v-model="activeTab" class="ab-tabs" @tab-change="handleTabChange">
         <!-- 页签一：组织架构树，左侧树导航 + 右侧列表选中 -->
         <el-tab-pane label="组织架构树" name="tree">
@@ -139,7 +139,7 @@
           />
         </el-tab-pane>
 
-        <!-- 页签四：群组，仅 showGroup 且 orgType 含人员(3) 时渲染；左侧可见群组列表（点击选中群组，非选值），右侧展示该群组成员人员表格 -->
+        <!-- 页签四：群组，仅 orgType 含人员(3) 时渲染；左侧可见群组列表（点击选中群组，非选值），右侧展示该群组成员人员表格 -->
         <el-tab-pane v-if="groupTabVisible" label="群组" name="group">
           <div class="ab-group-panel">
             <div class="ab-group-left">
@@ -241,7 +241,7 @@ import { getDictTextMap } from '@/utils/dict'
  * 查询页签与树页签右侧可选列表受 orgType / limitRange 过滤；
  * 左侧树仅作导航，固定展示机构/部门/岗位（不含人员），与当前可选类型无关；
  * 「角色」页签仅 showRole 时渲染（角色无层级，无左侧树，仅一张分页表格）；
- * 「群组」页签仅 showGroup 且 orgType 含人员(3) 时渲染：左侧可见群组列表，点选群组后右侧加载其成员人员表格（按群组批量选人，结果为人员）。
+ * 「群组」页签仅 orgType 含人员(3) 时渲染：左侧可见群组列表，点选群组后右侧加载其成员人员表格（按群组批量选人，结果为人员）。
  */
 const props = defineProps({
   /** 关联的 id 值字段，必填 */
@@ -266,9 +266,7 @@ const props = defineProps({
   /** 是否禁用（只读展示不可打开选择弹窗），默认 false */
   disabled: { type: Boolean, default: false },
   /** 是否显示「角色」页签（角色单选/多选，结果为角色 fieldId / 名称），默认 false */
-  showRole: { type: Boolean, default: false },
-  /** 是否显示群组页签（按群组批量选人，结果为人员 fieldId/名称），默认 false */
-  showGroup: { type: Boolean, default: false }
+  showRole: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:fieldId', 'update:fieldName'])
 
@@ -284,8 +282,8 @@ const defaultExpandedKeys = [ROOT_NODE_ID]
 const treeProps = { label: 'fieldName', children: 'children' }
 const orgTypes = computed(() => resolveOrgTypes(props.orgType))
 
-/** 「群组」页签是否渲染：showGroup 且当前 orgType 可选人员(3)时展示（按群组批量选人） */
-const groupTabVisible = computed(() => props.showGroup && orgTypes.value.includes(3))
+/** 「群组」页签是否渲染：当前 orgType 可选人员(3)时展示（按群组批量选人，无需开关） */
+const groupTabVisible = computed(() => orgTypes.value.includes(3))
 
 /**
  * 左侧树固定展示的导航类型：机构(1)/部门(2)/岗位(4)。
@@ -322,7 +320,7 @@ const roleLoaded = ref(false)
 /** 角色页签固定查询的组织架构类型：5 = 角色 */
 const ROLE_ORG_TYPES = [5]
 
-// 群组页签（showGroup 且 orgType 含人员时）：左侧可见群组分页列表 + 右侧成员人员表格
+// 群组页签（orgType 含人员时）：左侧可见群组分页列表 + 右侧成员人员表格
 const groupList = ref([])
 const groupLoading = ref(false)
 const groupPage = ref(1)
