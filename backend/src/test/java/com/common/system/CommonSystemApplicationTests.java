@@ -17,6 +17,7 @@ import com.common.system.sys.org.mapper.SysOrgAddressBookMapper;
 import com.common.system.sys.org.mapper.SysOrgAuthMapper;
 import com.common.system.sys.org.mapper.SysOrgDeptMapper;
 import com.common.system.sys.org.mapper.SysOrgElementMapper;
+import com.common.system.sys.org.mapper.SysOrgGroupMapper;
 import com.common.system.sys.org.mapper.SysOrgOrgMapper;
 import com.common.system.sys.org.mapper.SysOrgPostMapper;
 import com.common.system.sys.org.mapper.SysOrgRoleMapper;
@@ -124,6 +125,11 @@ class CommonSystemApplicationTests {
 		@Bean
 		SysOrgDeptMapper sysOrgDeptMapper() {
 			return Mockito.mock(SysOrgDeptMapper.class);
+		}
+
+		@Bean
+		SysOrgGroupMapper sysOrgGroupMapper() {
+			return Mockito.mock(SysOrgGroupMapper.class);
 		}
 
 		@Bean

@@ -4,6 +4,8 @@ import com.common.system.common.base.model.Pages;
 import com.common.system.sys.org.dao.SysOrgAddressBookDao;
 import com.common.system.sys.org.model.SysOrgElement;
 import com.common.system.sys.org.request.SysOrgAddressBookQuery;
+import com.common.system.sys.org.request.SysOrgGroupQuery;
+import com.common.system.sys.org.response.SysOrgGroupVo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -28,16 +30,21 @@ import static org.mockito.Mockito.when;
  * @author Eric
  * @date 2026/8/9
  * @description 覆盖入参兜底（null 查询、空 ids、空白关键字、null pages）与透传行为。
+ *              ORG2-BE-004：群组页签两端点经 SysOrgGroupService 承担——
+ *              groupList/countGroupList 验证 keyword→fieldName 同口径转换与委托，
+ *              groupUsers 验证透传；群组可见性/求交逻辑在 SysOrgGroupServiceTest 覆盖。
  */
 class SysOrgAddressBookServiceTest {
 
     private SysOrgAddressBookDao dao;
+    private SysOrgGroupService groupService;
     private SysOrgAddressBookService service;
 
     @BeforeEach
     void setUp() {
         dao = mock(SysOrgAddressBookDao.class);
-        service = new SysOrgAddressBookService(dao);
+        groupService = mock(SysOrgGroupService.class);
+        service = new SysOrgAddressBookService(dao, groupService);
     }
 
     @Test
@@ -146,6 +153,66 @@ class SysOrgAddressBookServiceTest {
         assertTrue(service.loadByIds(List.of()).isEmpty());
         assertTrue(service.loadByIds(List.of("", "  ")).isEmpty());
         verify(dao, never()).selectByIds(anyList());
+    }
+
+    /* ==================== 群组页签：groupList / groupUsers（ORG2-BE-004） ==================== */
+
+    @Test
+    void groupListConvertsKeywordToFieldNameAndDelegates() {
+        SysOrgAddressBookQuery query = new SysOrgAddressBookQuery();
+        query.setKeyword("  项目  ");
+        Pages pages = new Pages();
+        List<SysOrgGroupVo> expected = List.of(new SysOrgGroupVo());
+        when(groupService.groupList(any(SysOrgGroupQuery.class), any(Pages.class))).thenReturn(expected);
+
+        List<SysOrgGroupVo> result = service.groupList(query, pages);
+
+        assertEquals(expected, result);
+        // keyword 转 fieldName（trim 兜底），pages 原样透传，由群组服务做可见性过滤分页
+        verify(groupService).groupList(argThat(g -> "项目".equals(g.getFieldName())), eq(pages));
+    }
+
+    @Test
+    void groupListTrimsBlankKeywordToNull() {
+        SysOrgAddressBookQuery query = new SysOrgAddressBookQuery();
+        query.setKeyword("   ");
+        when(groupService.groupList(any(SysOrgGroupQuery.class), any(Pages.class))).thenReturn(List.of());
+
+        service.groupList(query, new Pages());
+
+        verify(groupService).groupList(argThat(g -> null == g.getFieldName()), any(Pages.class));
+    }
+
+    @Test
+    void groupListReturnsEmptyForNullQueryWithoutDelegating() {
+        assertTrue(service.groupList(null, new Pages()).isEmpty());
+        verify(groupService, never()).groupList(any(), any());
+        verify(groupService, never()).count(any());
+    }
+
+    @Test
+    void countGroupListDelegatesWithSameKeywordConversion() {
+        SysOrgAddressBookQuery query = new SysOrgAddressBookQuery();
+        query.setKeyword("群组");
+        when(groupService.count(any(SysOrgGroupQuery.class))).thenReturn(7L);
+
+        assertEquals(7L, service.countGroupList(query));
+
+        verify(groupService).count(argThat(g -> "群组".equals(g.getFieldName())));
+    }
+
+    @Test
+    void countGroupListReturnsZeroForNullQuery() {
+        assertEquals(0, service.countGroupList(null));
+        verify(groupService, never()).count(any());
+    }
+
+    @Test
+    void groupUsersDelegatesToGroupService() {
+        List<SysOrgElement> members = List.of(sampleElement("u-1"));
+        when(groupService.groupUsers("g-1", List.of(3))).thenReturn(members);
+
+        assertEquals(members, service.groupUsers("g-1", List.of(3)));
     }
 
     private static SysOrgElement sampleElement(String id) {

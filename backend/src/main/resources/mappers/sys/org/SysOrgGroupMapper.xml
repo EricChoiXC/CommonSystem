@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.org.mapper.SysOrgGroupMapper">
+
+    <!--
+        群组模块映射：sys_org_group 扩展表（与 sys_org_element 主表 field_id 同值一对一，
+        field_org_type = 6）与两张明细表 sys_org_group_user / sys_org_group_viewer。
+        列清单以 V1_01_039__sys_org_group_schema.sql 为准；公共字段（名称/启用/创建/修改）
+        存储在 sys_org_element 主表，JOIN 取用；sys_org_post_user 实际列名为
+        field_user_id / field_post_id（核对自 V1_01_001__sys_org_schema.sql）。
+        可见性过滤口径见 docs/v1_1/01-组织架构改动/02-群组功能分析.md 2.2（VisibleClause）：
+        管理员（SYS_ADMIN / SYS_ORG_ADMIN / SYS_ORG_GROUP_ADMIN，query.admin 由 Service 按角色计算）
+        整体短路 1=1；普通用户 = 自己的个人群组 OR (公共群组 AND (全员可见 OR 命中可见范围))。
+        可见范围可选机构(1)/部门(2)/岗位(4)/人员(3)四类节点，三类判定 OR 并联于同一 EXISTS。
+        selectUsersByGroupId 为地址本「群组」页签（ORG2-BE-004）的成员人员明细查询：
+        列结构与 SysOrgAddressBookMapper.xml 的 BaseColumns 同构（SysOrgElement），按地址本先例风格书写。
+    -->
+
+    <!-- 群组基础模型映射（selectById / selectList 用）：扩展表字段 + 主表公共字段 -->
+    <resultMap id="SysOrgGroupResultMap" type="com.common.system.sys.org.model.SysOrgGroup">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_type" property="fieldType"/>
+        <result column="field_owner_id" property="fieldOwnerId"/>
+        <result column="field_is_all_viewer" property="fieldIsAllViewer"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_enable" property="fieldEnable"/>
+    </resultMap>
+
+    <sql id="ModelBaseColumns">
+        g.field_id, e.field_code, e.field_name, g.field_type, g.field_owner_id, g.field_is_all_viewer,
+        e.field_creator_id, e.field_create_time, e.field_updater_id, e.field_update_time, e.field_enable
+    </sql>
+
+    <sql id="ModelJoinClause">
+        FROM sys_org_group g
+        LEFT JOIN sys_org_element e ON e.field_id = g.field_id
+    </sql>
+
+    <!--
+        可见性过滤片段（02 文档 2.2 参考 SQL）：入参为 query.userId / query.admin，
+        由 SysOrgGroupService 按当前登录人与角色填充，前端传值无效；
+        selectVoList 与 countVoList 共用本片段，保证列表与总数口径一致。
+        判定说明：
+        - 机构(1)/部门(2)：用户人员节点(sys_org_element, field_org_type = 3)的 field_hierarchy
+          包含可见节点 id（'/%/id/%' 前缀匹配），即命中该节点及其全部后代；
+        - 岗位(4)：用户在 sys_org_post_user 中挂在该岗位上；
+        - 人员(3)：可见节点就是当前用户本人。
+    -->
+    <sql id="VisibleClause">
+        AND (
+        <if test="!query.admin">
+            g.field_type = 'PERSONAL' AND g.field_owner_id = #{query.userId}
+            OR g.field_type = 'COMMON' AND (
+                 g.field_is_all_viewer = 1
+                 OR EXISTS (
+                      SELECT 1
+                      FROM sys_org_group_viewer gv
+                      LEFT JOIN sys_org_element v ON v.field_id = gv.field_viewer_id
+                      WHERE gv.field_group_id = g.field_id
+                        AND (
+                             -- 机构/部门：用户所在链路包含该可见节点（含节点自身与全部后代）
+                             (v.field_org_type IN (1, 2)
+                              AND EXISTS (SELECT 1 FROM sys_org_element me
+                                          WHERE me.field_id = #{query.userId}
+                                            AND me.field_hierarchy LIKE CONCAT('%/', v.field_id, '/%')))
+                             -- 岗位：用户在该岗位上
+                             OR (v.field_org_type = 4
+                                 AND EXISTS (SELECT 1 FROM sys_org_post_user pu
+                                             WHERE pu.field_post_id = v.field_id
+                                               AND pu.field_user_id = #{query.userId}))
+                             -- 人员：就是当前用户
+                             OR (v.field_org_type = 3 AND v.field_id = #{query.userId})
+                        )
+                 )
+               )
+        </if>
+        <if test="query.admin"> 1 = 1 </if>
+        )
+    </sql>
+
+    <!--
+        列表查询列：名称/启用/创建/修改时间取自主表，所有人名称 JOIN 主表自身（oe），
+        成员数经相关子查询 COUNT 统计（SQL 一次取齐，避免 Service 层 N+1，04-API改动清单 1.1）。
+    -->
+    <sql id="VoBaseColumns">
+        g.field_id, e.field_name, g.field_type, g.field_owner_id,
+        oe.field_name AS field_owner_name, g.field_is_all_viewer, e.field_enable,
+        (SELECT COUNT(1) FROM sys_org_group_user gu WHERE gu.field_group_id = g.field_id) AS user_count,
+        e.field_create_time, e.field_update_time
+    </sql>
+
+    <sql id="GroupJoinClause">
+        FROM sys_org_group g
+        LEFT JOIN sys_org_element e ON e.field_id = g.field_id
+        LEFT JOIN sys_org_element oe ON oe.field_id = g.field_owner_id
+    </sql>
+
+    <sql id="VoWhereClause">
+        <where>
+            <!-- 可见性过滤（02 文档 2.2），管理员短路，普通用户按归属/可见范围判定 -->
+            <include refid="VisibleClause"/>
+            <if test="query.fieldName != null and query.fieldName != ''">
+                AND e.field_name LIKE CONCAT('%', #{query.fieldName}, '%')
+            </if>
+            <if test="query.fieldType != null and query.fieldType != ''">
+                AND g.field_type = #{query.fieldType}
+            </if>
+            <if test="query.fieldIsAllViewer != null">
+                AND g.field_is_all_viewer = #{query.fieldIsAllViewer}
+            </if>
+            <if test="query.fieldOwnerId != null and query.fieldOwnerId != ''">
+                AND g.field_owner_id = #{query.fieldOwnerId}
+            </if>
+        </where>
+    </sql>
+
+    <resultMap id="SysOrgGroupVoResultMap" type="com.common.system.sys.org.response.SysOrgGroupVo">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_type" property="fieldType"/>
+        <result column="field_owner_id" property="fieldOwnerId"/>
+        <result column="field_owner_name" property="fieldOwnerName"/>
+        <result column="field_is_all_viewer" property="fieldIsAllViewer"/>
+        <result column="field_enable" property="fieldEnable"/>
+        <result column="user_count" property="userCount"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+    </resultMap>
+
+    <!--
+        群组列表分页查询：过滤条件（含可见性）+ 单条件排序 + 分页。
+        排序字段/方向经 <choose> 白名单映射（createTime / updateTime / name，默认创建时间降序），
+        杜绝拼接任意列名的 SQL 注入；默认创建时间降序。
+    -->
+    <select id="selectVoList" resultMap="SysOrgGroupVoResultMap">
+        SELECT
+        <include refid="VoBaseColumns"/>
+        <include refid="GroupJoinClause"/>
+        <include refid="VoWhereClause"/>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'updateTime'">e.field_update_time</when>
+            <when test="sortField == 'name'">e.field_name</when>
+            <otherwise>e.field_create_time</otherwise>
+        </choose>
+        <choose>
+            <when test="sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 群组列表总数：JOIN 与过滤条件（含可见性片段）与 selectVoList 完全一致，供 metadata.total 使用 -->
+    <select id="countVoList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="GroupJoinClause"/>
+        <include refid="VoWhereClause"/>
+    </select>
+
+    <!--
+        群组详情：基本字段 + 所有人名称 + 成员数；成员/可见范围明细由
+        selectUserIdsByGroupId / selectViewerIdsByGroupId 组装（编辑/详情回显）。
+        详情不做可见性过滤：load 的「可见才可看」由 Service 经 selectCountVisibleById 校验
+        （04-API改动清单 1.2），以区别「不存在」（E_NOT_FOUND）与「不可见」（FORBIDDEN）。
+    -->
+    <select id="selectVoById" parameterType="string" resultMap="SysOrgGroupVoResultMap">
+        SELECT
+        <include refid="VoBaseColumns"/>
+        <include refid="GroupJoinClause"/>
+        WHERE g.field_id = #{fieldId}
+    </select>
+
+    <!--
+        按 id 校验群组对指定用户可见（load / 地址本 groupUsers 的「可见才可看」前置校验）：
+        可见性口径与 selectVoList 的 VisibleClause 完全一致；可见返回 1，不可见或不存在返回 0。
+    -->
+    <select id="selectCountVisibleById" resultType="long">
+        SELECT COUNT(*)
+        <include refid="GroupJoinClause"/>
+        <where>
+            g.field_id = #{groupId}
+            <include refid="VisibleClause"/>
+        </where>
+    </select>
+
+    <!-- 群组扩展表写入：field_is_all_viewer 为派生冗余字段，由 Service 按可见范围明细计算后传入 -->
+    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgGroup">
+        INSERT INTO sys_org_group (
+            field_id, field_type, field_owner_id, field_is_all_viewer
+        ) VALUES (
+            #{model.fieldId}, #{model.fieldType}, #{model.fieldOwnerId}, #{model.fieldIsAllViewer}
+        )
+    </insert>
+
+    <!--
+        群组扩展表更新：field_type / field_owner_id / field_is_all_viewer 按 Service 传入值更新
+        （普通用户编辑时 Service 不传 field_owner_id 即保持原值，管理员维护他人群组同样不改归属）。
+    -->
+    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgGroup">
+        UPDATE sys_org_group
+        <set>
+            <if test="model.fieldType != null">field_type = #{model.fieldType},</if>
+            <if test="model.fieldOwnerId != null">field_owner_id = #{model.fieldOwnerId},</if>
+            <if test="model.fieldIsAllViewer != null">field_is_all_viewer = #{model.fieldIsAllViewer},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <!-- 物理删除扩展表行：主表行与两张明细表的删除编排由 Service 同事务完成（02 文档 2.4） -->
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_org_group
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysOrgGroupResultMap">
+        SELECT
+        <include refid="ModelBaseColumns"/>
+        <include refid="ModelJoinClause"/>
+        WHERE g.field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysOrgGroupResultMap">
+        SELECT
+        <include refid="ModelBaseColumns"/>
+        <include refid="ModelJoinClause"/>
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND g.field_id = #{model.fieldId}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND e.field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldType != null and model.fieldType != ''">AND g.field_type = #{model.fieldType}</if>
+            <if test="model.fieldOwnerId != null and model.fieldOwnerId != ''">AND g.field_owner_id = #{model.fieldOwnerId}</if>
+            <if test="model.fieldIsAllViewer != null">AND g.field_is_all_viewer = #{model.fieldIsAllViewer}</if>
+            <if test="model.fieldEnable != null">AND e.field_enable = #{model.fieldEnable}</if>
+        </where>
+        ORDER BY e.field_create_time DESC
+        <if test="pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name（名称取自主表），供关联对象赋值使用 -->
+    <resultMap id="SysOrgGroupLoadResultMap" type="com.common.system.sys.org.model.SysOrgGroup">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysOrgGroupLoadResultMap">
+        SELECT e.field_id, e.field_name
+        FROM sys_org_group g
+        INNER JOIN sys_org_element e ON e.field_id = g.field_id
+        WHERE g.field_id = #{fieldId}
+    </select>
+
+    <!-- ==================== 成员明细（sys_org_group_user，全量替换先删后插） ==================== -->
+
+    <!-- 地址本成员明细专用：sys_org_element 人员列清单与映射，与 SysOrgAddressBookMapper.xml 的
+         BaseColumns / SysOrgElementResultMap 同构（e 前缀对应 INNER JOIN 的主表别名） -->
+    <resultMap id="SysOrgElementResultMap" type="com.common.system.sys.org.model.SysOrgElement">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_parent_id" property="fieldParentId"/>
+        <result column="field_hierarchy" property="fieldHierarchy"/>
+        <result column="field_level" property="fieldLevel"/>
+        <result column="field_org_type" property="fieldOrgType"/>
+        <result column="field_is_virtual" property="fieldIsVirtual"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_enable" property="fieldEnable"/>
+    </resultMap>
+
+    <sql id="UserBaseColumns">
+        e.field_id, e.field_code, e.field_name, e.field_parent_id,
+        e.field_hierarchy, e.field_level, e.field_org_type, e.field_is_virtual,
+        e.field_creator_id, e.field_create_time, e.field_updater_id, e.field_update_time, e.field_enable
+    </sql>
+
+    <!-- 按群组查询成员人员ID列表（编辑/详情回显用），按 field_user_id 排序保证结果确定 -->
+    <select id="selectUserIdsByGroupId" parameterType="string" resultType="string">
+        SELECT field_user_id
+        FROM sys_org_group_user
+        WHERE field_group_id = #{groupId}
+        ORDER BY field_user_id
+    </select>
+
+    <!--
+        地址本「群组」页签成员人员明细（ORG2-BE-004）：按群组返回启用人员（field_org_type = 3）
+        完整元素信息，列清单与 SysOrgAddressBookMapper.xml 的 BaseColumns 同构（SysOrgElement），
+        前端按 orgTypes 求交后直接复用地址本回填/合并逻辑；群组可见性校验由 Service
+        经 selectCountVisibleById 前置完成（不可见 FORBIDDEN），本语句不重复过滤。
+    -->
+    <select id="selectUsersByGroupId" parameterType="string" resultMap="SysOrgElementResultMap">
+        SELECT
+        <include refid="UserBaseColumns"/>
+        FROM sys_org_group_user gu
+        INNER JOIN sys_org_element e ON e.field_id = gu.field_user_id
+        WHERE gu.field_group_id = #{groupId}
+        AND e.field_org_type = 3
+        AND e.field_enable = 1
+        ORDER BY e.field_create_time ASC
+    </select>
+
+    <!-- 删除群组全部成员明细（编辑时全量替换前清空） -->
+    <delete id="deleteGroupUsersByGroupId" parameterType="string">
+        DELETE FROM sys_org_group_user
+        WHERE field_group_id = #{groupId}
+    </delete>
+
+    <!-- 批量插入成员明细（userIds 必须非空，空列表由调用方跳过，与 insertRoleElements 先例一致） -->
+    <insert id="insertGroupUsers">
+        INSERT INTO sys_org_group_user (field_group_id, field_user_id)
+        VALUES
+        <foreach collection="userIds" item="userId" separator=",">
+            (#{groupId}, #{userId})
+        </foreach>
+    </insert>
+
+    <!-- ==================== 可见范围明细（sys_org_group_viewer，全量替换先删后插） ==================== -->
+
+    <!-- 按群组查询可见范围节点ID列表（编辑/详情回显用），按 field_viewer_id 排序保证结果确定 -->
+    <select id="selectViewerIdsByGroupId" parameterType="string" resultType="string">
+        SELECT field_viewer_id
+        FROM sys_org_group_viewer
+        WHERE field_group_id = #{groupId}
+        ORDER BY field_viewer_id
+    </select>
+
+    <!-- 删除群组全部可见范围明细（编辑时全量替换前清空） -->
+    <delete id="deleteGroupViewersByGroupId" parameterType="string">
+        DELETE FROM sys_org_group_viewer
+        WHERE field_group_id = #{groupId}
+    </delete>
+
+    <!-- 批量插入可见范围明细（viewerIds 必须非空，空列表由调用方跳过） -->
+    <insert id="insertGroupViewers">
+        INSERT INTO sys_org_group_viewer (field_group_id, field_viewer_id)
+        VALUES
+        <foreach collection="viewerIds" item="viewerId" separator=",">
+            (#{groupId}, #{viewerId})
+        </foreach>
+    </insert>
+
+</mapper>

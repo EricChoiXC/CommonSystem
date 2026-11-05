@@ -12,4 +12,6 @@ public class SysOrgAddressBookProperties {
     public static final String ACTION_TREE = "sys.org.addressbook.tree";
     public static final String ACTION_LIST = "sys.org.addressbook.list";
     public static final String ACTION_LOAD = "sys.org.addressbook.load";
+    public static final String ACTION_GROUP_LIST = "sys.org.addressbook.groupList";
+    public static final String ACTION_GROUP_USERS = "sys.org.addressbook.groupUsers";
 }

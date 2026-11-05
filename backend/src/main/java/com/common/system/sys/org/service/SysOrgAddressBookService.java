@@ -5,6 +5,8 @@ import com.common.system.common.utils.StringUtil;
 import com.common.system.sys.org.dao.SysOrgAddressBookDao;
 import com.common.system.sys.org.model.SysOrgElement;
 import com.common.system.sys.org.request.SysOrgAddressBookQuery;
+import com.common.system.sys.org.request.SysOrgGroupQuery;
+import com.common.system.sys.org.response.SysOrgGroupVo;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -14,7 +16,12 @@ import java.util.List;
  *
  * @author Eric
  * @date 2026/8/9
- * @description 地址本选择组件的查询业务：树查询（根级/下级）、关键字分页列表与总数、目标回填。
+ * @description 地址本选择组件的查询业务：树查询（根级/下级）、关键字分页列表与总数、目标回填，
+ *              以及群组页签两端点（groupList / groupUsers，ORG2-BE-004）：
+ *              groupList 将 body.keyword 转 {@link SysOrgGroupQuery#setFieldName}（群组名称模糊匹配）
+ *              后复用 {@link SysOrgGroupService} 的可见性过滤分页（02-群组功能分析 2.2）；
+ *              groupUsers 委托群组服务完成存在性/可见性校验（不可见 FORBIDDEN「无权查看该群组」）
+ *              与成员明细查询（Spring 单例互注入按仓库先例）。
  *              统一做入参兜底（null 视为不限制/不分页），并承担 limitRange 归一化语义。
  */
 @Service
@@ -22,8 +29,11 @@ public class SysOrgAddressBookService {
 
     private final SysOrgAddressBookDao addressBookDao;
 
-    public SysOrgAddressBookService(SysOrgAddressBookDao addressBookDao) {
+    private final SysOrgGroupService groupService;
+
+    public SysOrgAddressBookService(SysOrgAddressBookDao addressBookDao, SysOrgGroupService groupService) {
         this.addressBookDao = addressBookDao;
+        this.groupService = groupService;
     }
 
     /**
@@ -85,6 +95,53 @@ public class SysOrgAddressBookService {
             return List.of();
         }
         return addressBookDao.selectByIds(distinctIds);
+    }
+
+    /* ==================== 群组页签（sys.org.addressbook.groupList / groupUsers，ORG2-BE-004） ==================== */
+
+    /**
+     * 地址本「群组」页签左侧列表（04-API改动清单 2）：请求体 { body: { keyword }, pages }，
+     * body.keyword 转 {@link SysOrgGroupQuery#setFieldName}（群组名称模糊匹配）后，复用
+     * {@link SysOrgGroupService#groupList} 的可见性过滤分页（02 文档 2.2：管理员全部可见，
+     * 普通用户仅可见自己的个人群组与授权可见的公共群组），固定创建时间降序；
+     * 总数由调用方经 {@link #countGroupList} 以同一条件取得。
+     */
+    public List<SysOrgGroupVo> groupList(SysOrgAddressBookQuery query, Pages pages) {
+        if (null == query) {
+            return List.of();
+        }
+        return groupService.groupList(toGroupQuery(query), pages);
+    }
+
+    /**
+     * 地址本群组列表总数：与 {@link #groupList} 同口径转换（keyword→fieldName），
+     * 供分页 metadata.total 使用。
+     */
+    public long countGroupList(SysOrgAddressBookQuery query) {
+        if (null == query) {
+            return 0;
+        }
+        return groupService.count(toGroupQuery(query));
+    }
+
+    /**
+     * 地址本「群组」页签右侧成员人员列表（04-API改动清单 2）：委托
+     * {@link SysOrgGroupService#groupUsers}——群组不存在 E_NOT_FOUND「未找到该群组」、
+     * 不可见 FORBIDDEN「无权查看该群组」、orgTypes 求交（null/空默认 [3] 仅人员）
+     * 与成员明细查询均在群组服务完成。
+     */
+    public List<SysOrgElement> groupUsers(String groupId, List<Integer> orgTypes) {
+        return groupService.groupUsers(groupId, orgTypes);
+    }
+
+    /**
+     * 地址本查询条件转群组查询条件：keyword → fieldName（群组名称模糊匹配），
+     * orgTypes / limitRange / parentId 为地址本树形页签语义，群组页签不使用。
+     */
+    private static SysOrgGroupQuery toGroupQuery(SysOrgAddressBookQuery query) {
+        SysOrgGroupQuery groupQuery = new SysOrgGroupQuery();
+        groupQuery.setFieldName(StringUtil.trimToNull(query.getKeyword()));
+        return groupQuery;
     }
 
     private static String trimToNull(String value) {
