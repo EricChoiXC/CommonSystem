@@ -31,4 +31,10 @@ public class SysI18nTranslation extends BaseModel {
 
     /** 翻译文本 */
     private String fieldMessage;
+
+    /**
+     * 人工编辑标记（field_update_time）：非空 = 人工已编辑（启动/部署同步不覆盖），
+     * 空 = 来自资源文件（可被覆盖）；与 MainModel.fieldUpdateTime 语义不同，本表无 MainModel 继承。
+     */
+    private Date fieldUpdateTime;
 }

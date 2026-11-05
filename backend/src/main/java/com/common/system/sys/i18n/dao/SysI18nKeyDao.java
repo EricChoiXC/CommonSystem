@@ -49,4 +49,18 @@ public class SysI18nKeyDao extends BaseDao<SysI18nKey, SysI18nKeyMapper> {
     public long countByModelAndKey(String fieldModel, String fieldKey) {
         return getBaseMapper().countByModelAndKey(fieldModel, fieldKey);
     }
+
+    /**
+     * 按资源 key 全局查询（key 全局唯一，启动/部署同步拦截跨模块重复登记用）
+     */
+    public SysI18nKey selectByKey(String fieldKey) {
+        return getBaseMapper().selectByKey(fieldKey);
+    }
+
+    /**
+     * 按资源 key 全局删除（D5：资源文件移除 key 后随同步级联清理登记）
+     */
+    public int deleteByKey(String fieldKey) {
+        return getBaseMapper().deleteByKey(fieldKey);
+    }
 }

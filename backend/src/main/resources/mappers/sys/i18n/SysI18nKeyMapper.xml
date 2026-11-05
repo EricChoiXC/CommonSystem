@@ -101,6 +101,21 @@
           AND field_key = #{fieldKey}
     </select>
 
+    <!-- 按资源 key 全局查询（key 全局唯一：一个 key 只归属一个 field_model，拦截跨模块重复登记） -->
+    <select id="selectByKey" parameterType="string" resultMap="SysI18nKeyResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_i18n_key
+        WHERE field_key = #{fieldKey}
+        LIMIT 1
+    </select>
+
+    <!-- 按资源 key 全局删除（D5：资源文件移除 key 后随同步级联清理登记） -->
+    <delete id="deleteByKey" parameterType="string">
+        DELETE FROM sys_i18n_key
+        WHERE field_key = #{fieldKey}
+    </delete>
+
     <!-- 轻量加载：本表无名称列，仅返回全列（先例 SysTaskHistoryMapper.loadModel） -->
     <select id="loadModel" parameterType="string" resultMap="SysI18nKeyResultMap">
         SELECT

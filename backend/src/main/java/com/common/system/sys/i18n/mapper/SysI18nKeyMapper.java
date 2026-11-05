@@ -39,4 +39,16 @@ public interface SysI18nKeyMapper extends IBaseMapper<SysI18nKey> {
      */
     long countByModelAndKey(@Param("fieldModel") String fieldModel,
                             @Param("fieldKey") String fieldKey);
+
+    /**
+     * 按资源 key 全局查询（资源 key 全局唯一：一个 key 只归属一个 field_model，
+     * 启动/部署同步据此拦截跨模块重复登记）
+     */
+    SysI18nKey selectByKey(@Param("fieldKey") String fieldKey);
+
+    /**
+     * 按资源 key 全局删除（D5：key 仅随资源文件扫描产生，
+     * 资源文件移除 key 后随启动/部署同步级联清理登记）
+     */
+    int deleteByKey(@Param("fieldKey") String fieldKey);
 }

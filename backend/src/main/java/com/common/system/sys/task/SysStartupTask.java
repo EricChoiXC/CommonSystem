@@ -3,6 +3,7 @@ package com.common.system.sys.task;
 import com.common.system.common.cache.ModelCacheService;
 import com.common.system.common.setting.service.CommonSettingService;
 import com.common.system.sys.dict.service.SysDictService;
+import com.common.system.sys.i18n.service.SysI18nSyncService;
 import com.common.system.sys.org.enums.SysOrgAccountStatus;
 import com.common.system.sys.org.enums.SysOrgJobStatus;
 import com.common.system.sys.org.model.SysOrgUser;
@@ -43,6 +44,7 @@ public class SysStartupTask implements ApplicationRunner {
     private final SysTaskSchedulerService sysTaskSchedulerService;
     private final CommonSettingService commonSettingService;
     private final SysDictService sysDictService;
+    private final SysI18nSyncService sysI18nSyncService;
 
     public SysStartupTask(SysOrgUserService sysOrgUserService,
                           SysOrgAuthService sysOrgAuthService,
@@ -50,7 +52,8 @@ public class SysStartupTask implements ApplicationRunner {
                           ModelCacheService modelCacheService,
                           SysTaskSchedulerService sysTaskSchedulerService,
                           CommonSettingService commonSettingService,
-                          SysDictService sysDictService) {
+                          SysDictService sysDictService,
+                          SysI18nSyncService sysI18nSyncService) {
         this.sysOrgUserService = sysOrgUserService;
         this.sysOrgAuthService = sysOrgAuthService;
         this.sysOrgRoleService = sysOrgRoleService;
@@ -58,6 +61,7 @@ public class SysStartupTask implements ApplicationRunner {
         this.sysTaskSchedulerService = sysTaskSchedulerService;
         this.commonSettingService = commonSettingService;
         this.sysDictService = sysDictService;
+        this.sysI18nSyncService = sysI18nSyncService;
     }
 
     @Override
@@ -76,6 +80,17 @@ public class SysStartupTask implements ApplicationRunner {
         syncSettingsFromYml();
         // 第七个启动任务：增量导入各模块 dict.yml 系统码值到 sys_dict_type / sys_dict_item
         syncDictFromYml();
+        // 第八个启动任务：i18n 初始语言保证 + 扫描 resources/i18n/** 资源按覆盖规则同步 DB + 刷新翻译缓存
+        syncI18nFromResources();
+    }
+
+    /**
+     * 第八个启动任务：多语言资源同步（初始语言保证、key 登记、四分支翻译覆盖、缓存刷新）。
+     * <p>与部署动作（/backend/sys/i18n/deploy/run）复用 {@link SysI18nSyncService#syncFromResources}
+     * 同一规则；人工编辑过的翻译（field_update_time 非空）不会被覆盖。</p>
+     */
+    private void syncI18nFromResources() {
+        sysI18nSyncService.syncFromResources();
     }
 
     /**

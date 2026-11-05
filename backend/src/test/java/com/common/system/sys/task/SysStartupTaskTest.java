@@ -3,6 +3,7 @@ package com.common.system.sys.task;
 import com.common.system.common.cache.ModelCacheService;
 import com.common.system.common.setting.service.CommonSettingService;
 import com.common.system.sys.dict.service.SysDictService;
+import com.common.system.sys.i18n.service.SysI18nSyncService;
 import com.common.system.sys.org.model.SysOrgUser;
 import com.common.system.sys.org.service.SysOrgAuthService;
 import com.common.system.sys.org.service.SysOrgRoleService;
@@ -38,6 +39,7 @@ class SysStartupTaskTest {
     private SysTaskSchedulerService sysTaskSchedulerService;
     private CommonSettingService commonSettingService;
     private SysDictService sysDictService;
+    private SysI18nSyncService sysI18nSyncService;
     private SysStartupTask task;
 
     @BeforeEach
@@ -49,8 +51,10 @@ class SysStartupTaskTest {
         sysTaskSchedulerService = mock(SysTaskSchedulerService.class);
         commonSettingService = mock(CommonSettingService.class);
         sysDictService = mock(SysDictService.class);
+        sysI18nSyncService = mock(SysI18nSyncService.class);
         task = new SysStartupTask(sysOrgUserService, sysOrgAuthService, sysOrgRoleService,
-                modelCacheService, sysTaskSchedulerService, commonSettingService, sysDictService);
+                modelCacheService, sysTaskSchedulerService, commonSettingService, sysDictService,
+                sysI18nSyncService);
     }
 
     @Test
@@ -88,5 +92,7 @@ class SysStartupTaskTest {
         verify(sysTaskSchedulerService).onApplicationReady();
         verify(commonSettingService).syncFromYml();
         verify(sysDictService).syncDictFromYml();
+        // 第八个启动任务：i18n 资源同步被调用
+        verify(sysI18nSyncService).syncFromResources();
     }
 }
