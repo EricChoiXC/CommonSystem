@@ -151,7 +151,7 @@ import { loadAddressBook } from '@/api/org'
 import { queryTodayCalendar } from '@/api/calendar'
 import { getInitInfo } from '@/api/common'
 import { useSse } from '@/utils/useSse'
-import { consumeTabsToClose } from '@/utils/tabs'
+import { consumeTabsToClose, TABS_STORAGE_KEY } from '@/utils/tabs'
 import request from '@/api/index'
 
 const route = useRoute()
@@ -159,8 +159,12 @@ const router = useRouter()
 const userStore = useUserStore()
 const notifyStore = useNotifyStore()
 
-/** sessionStorage 存储键：刷新页面保留标签记录，关闭浏览器自动清除 */
-const TABS_STORAGE_KEY = 'common_visited_tabs'
+/** 登出时清空标签页记录，避免下一个用户登录后看到上一用户残留的页签 */
+function clearVisitedTabs() {
+  visitedTabs.value = []
+  activeTab.value = ''
+  sessionStorage.removeItem(TABS_STORAGE_KEY)
+}
 
 /* ========== 左侧菜单 ========== */
 
@@ -447,6 +451,7 @@ async function handleLogout() {
     // 登出接口失败不阻塞本地登出，会话 token 一并清理
   }
   userStore.logout()
+  clearVisitedTabs()
   ElMessage.success('已退出登录')
   router.replace('/login')
 }

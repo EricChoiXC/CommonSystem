@@ -7,6 +7,9 @@
 
 const pendingClosePaths = new Set()
 
+/** 标签页记录的 sessionStorage 存储键（HomeView 持久化、登出时清理共用） */
+export const TABS_STORAGE_KEY = 'common_visited_tabs'
+
 /** 标记需要关闭的标签页（按标签页当前 path 匹配） */
 export function markTabToClose(path) {
   if (path) {

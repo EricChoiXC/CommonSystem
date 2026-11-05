@@ -2,6 +2,7 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '@/router'
 import { useUserStore } from '@/stores/user'
+import { TABS_STORAGE_KEY } from '@/utils/tabs'
 
 // 登录凭证存储键（与 stores/user.js 保持一致）
 const TOKEN_KEY = 'common_token'
@@ -41,6 +42,8 @@ export function handleUnauthorized(message = '登录已过期，请重新登录'
   // 先清理本地登录态，再跳转，避免路由守卫将已登出用户再次重定向回业务页
   const userStore = useUserStore()
   userStore.logout()
+  // 同步清空页签与 KeepAlive 缓存，避免下一个用户登录后看到上一用户残留的页签
+  window.sessionStorage.removeItem(TABS_STORAGE_KEY)
   ElMessage.warning(message)
   if (router.currentRoute.value.path !== '/login') {
     router.replace('/login')
