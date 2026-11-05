@@ -521,7 +521,7 @@ public class SysOrgGroupService {
      * 缺失时按群组行插入（树字段固定：parentId/hierarchy 为 null、level = 1、isVirtual = false）；
      * 已存在时经 updateRoleMirror 仅同步名称/编码/启用与审计字段
      * （通用 update 对 field_level / field_org_type / field_is_virtual 无条件赋值，禁止用于镜像行更新）；
-     * 群组无编码，code 传 null 与镜像行 field_code 恒空一致；更新返回 0 行视为主行缺失
+     * 群组无编码，code 写空串与镜像行 field_code 恒空一致（field_code 列 NOT NULL，禁止写 null）；更新返回 0 行视为主行缺失
      * （自愈孤儿场景），补插入保持幂等；异常不捕获吞掉，交由 @Transactional 回滚。
      */
     private void syncElementMirror(SysOrgGroup group) {
@@ -532,7 +532,7 @@ public class SysOrgGroupService {
             elementDao.insert(buildGroupMirror(group, updaterId, updateTime));
             return;
         }
-        if (elementDao.updateRoleMirror(group.getFieldId(), group.getFieldName(), null,
+        if (elementDao.updateRoleMirror(group.getFieldId(), group.getFieldName(), "",
                 group.getFieldEnable(), updaterId, updateTime) == 0) {
             elementDao.insert(buildGroupMirror(group, updaterId, updateTime));
         }
@@ -546,7 +546,7 @@ public class SysOrgGroupService {
         SysOrgElement mirror = new SysOrgElement();
         mirror.setFieldId(group.getFieldId());
         mirror.setFieldName(group.getFieldName());
-        mirror.setFieldCode(null);
+        mirror.setFieldCode("");
         mirror.setFieldOrgType(ORG_TYPE_GROUP);
         mirror.setFieldParentId(null);
         mirror.setFieldHierarchy(null);

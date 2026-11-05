@@ -42,7 +42,6 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -178,8 +177,8 @@ class SysOrgGroupServiceTest {
                         && Boolean.FALSE.equals(g.getFieldIsAllViewer())));
         verify(groupUserDao).insertGroupUsers(GROUP_ID, List.of(USER_ID));
         verify(groupViewerDao).insertGroupViewers(GROUP_ID, List.of(ORG_ID));
-        // 镜像行已存在 → 经 updateRoleMirror 仅同步名称/编码(null)/启用/审计，不重复插入
-        verify(elementDao).updateRoleMirror(eq(GROUP_ID), eq("项目A组"), isNull(), any(), any(), any());
+        // 镜像行已存在 → 经 updateRoleMirror 仅同步名称/编码(空串)/启用/审计，不重复插入
+        verify(elementDao).updateRoleMirror(eq(GROUP_ID), eq("项目A组"), eq(""), any(), any(), any());
         verify(elementDao, never()).insert(any(SysOrgElement.class));
     }
 
@@ -383,8 +382,8 @@ class SysOrgGroupServiceTest {
         verify(groupUserDao).insertGroupUsers(GROUP_ID, List.of(USER_ID));
         verify(groupViewerDao).deleteGroupViewersByGroupId(GROUP_ID);
         verify(groupViewerDao, never()).insertGroupViewers(anyString(), anyList());
-        // 主行仅同步名称/编码(null)/启用/审计字段
-        verify(elementDao).updateRoleMirror(eq(GROUP_ID), eq("新名字"), isNull(), any(), any(), any());
+        // 主行仅同步名称/编码(空串)/启用/审计字段
+        verify(elementDao).updateRoleMirror(eq(GROUP_ID), eq("新名字"), eq(""), any(), any(), any());
     }
 
     @Test
@@ -410,7 +409,8 @@ class SysOrgGroupServiceTest {
         verify(groupUserDao).insertGroupUsers(GROUP_ID, List.of(USER_ID));
         verify(groupViewerDao).deleteGroupViewersByGroupId(GROUP_ID);
         verify(groupViewerDao).insertGroupViewers(GROUP_ID, List.of(ORG_ID));
-        verify(elementDao).updateRoleMirror(eq(GROUP_ID), eq("项目A组"), isNull(), any(), any(), any());
+        // 管理员维护公共群组：镜像行同步名称/编码(空串)/启用/审计
+        verify(elementDao).updateRoleMirror(eq(GROUP_ID), eq("项目A组"), eq(""), any(), any(), any());
         verify(elementDao, never()).insert(any(SysOrgElement.class));
     }
 
