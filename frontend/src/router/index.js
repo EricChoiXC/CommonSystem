@@ -70,6 +70,30 @@ const routes = [
         meta: { title: '组织架构详情', parent: '组织架构', tab: 'name' }
       },
       {
+        path: 'org/group',
+        name: 'GroupManage',
+        component: () => import('@/views/org/GroupManageView.vue'),
+        meta: { title: '群组', parent: '组织架构' }
+      },
+      {
+        path: 'org/group/create',
+        name: 'GroupCreate',
+        component: () => import('@/views/org/GroupFormView.vue'),
+        meta: { title: '新建群组', parent: '组织架构' }
+      },
+      {
+        path: 'org/group/edit/:id',
+        name: 'GroupEdit',
+        component: () => import('@/views/org/GroupFormView.vue'),
+        meta: { title: '编辑群组', parent: '组织架构', tab: 'name' }
+      },
+      {
+        path: 'org/group/detail/:id',
+        name: 'GroupDetail',
+        component: () => import('@/views/org/GroupDetailView.vue'),
+        meta: { title: '群组详情', parent: '组织架构', tab: 'name' }
+      },
+      {
         path: 'role',
         name: 'RoleManage',
         component: () => import('@/views/org/RoleManageView.vue'),

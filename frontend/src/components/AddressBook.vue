@@ -181,11 +181,12 @@ const props = defineProps({
   fieldId: { type: String, default: '' },
   /** 关联的名称值字段，必填 */
   fieldName: { type: String, default: '' },
-  /** 可选的组织架构类型：ALL / ORG / DEPT / ORGDEPT / PERSON / POST / PERSONPOST，默认 ALL */
+  /** 可选的组织架构类型：ALL / ORG / DEPT / ORGDEPT / PERSON / POST / PERSONPOST / ORGDEPTPOSTPERSON，默认 ALL */
   orgType: {
     type: String,
     default: 'ALL',
-    validator: (value) => ['ALL', 'ORG', 'DEPT', 'ORGDEPT', 'PERSON', 'POST', 'PERSONPOST'].includes(value)
+    validator: (value) =>
+      ['ALL', 'ORG', 'DEPT', 'ORGDEPT', 'PERSON', 'POST', 'PERSONPOST', 'ORGDEPTPOSTPERSON'].includes(value)
   },
   /** 是否多选，默认 false */
   multi: { type: Boolean, default: false },

@@ -49,6 +49,12 @@
             </div>
           </div>
         </el-popover>
+        <!-- 群组图标：点击跳转群组管理页 -->
+        <el-button class="group-btn" size="small" text aria-label="群组" @click="router.push('/org/group')">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="18" height="18">
+            <path d="M6 1.9a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2zM.8 13.5c0-2.9 2.3-5.2 5.2-5.2s5.2 2.3 5.2 5.2H.8zM12.4 3.5a2.1 2.1 0 1 1 0 4.2 2.1 2.1 0 0 1 0-4.2zM9.6 14.5c.1-2 1-3.7 2.5-4.7 1.9.6 3.3 2.4 3.3 4.7H9.6z" fill="currentColor"/>
+          </svg>
+        </el-button>
         <el-avatar :size="26" class="header-avatar">{{ avatarText }}</el-avatar>
         <span class="header-username">{{ userName }}</span>
         <span class="header-dept">{{ deptName }}</span>
@@ -172,7 +178,10 @@ const menus = [
   {
     title: '组织架构',
     auth: '',
-    children: [{ title: '当前组织架构', path: '/org', auth: '' }]
+    children: [
+      { title: '当前组织架构', path: '/org', auth: '' },
+      { title: '群组', path: '/org/group', auth: '' }
+    ]
   },
   {
     title: '系统管理',
@@ -263,6 +272,8 @@ const filteredMenus = computed(() =>
 const activeMenu = computed(() => {
   const path = route.path
   // 新建、编辑、详情等子路由不在菜单中，归约到对应列表页菜单项保持高亮
+  // 群组子路由归约到群组菜单项；必须先于下方 /org/ 归约判断，否则群组页会被误归约、误高亮「当前组织架构」
+  if (path.startsWith('/org/group')) return '/org/group'
   if (path.startsWith('/org/')) return '/org'
   if (path.startsWith('/role/')) return '/role'
   // 日程子路由归约到日程菜单项
@@ -820,6 +831,18 @@ function handleTabMgmtCommand(command) {
 }
 
 .calendar-btn:hover {
+  color: #409eff;
+  background-color: #ecf5ff;
+}
+
+/* —— 群组图标按钮：与铃铛/日程按钮同款外观 —— */
+.group-btn {
+  padding: 4px 6px;
+  min-height: 28px;
+  color: #606266;
+}
+
+.group-btn:hover {
   color: #409eff;
   background-color: #ecf5ff;
 }

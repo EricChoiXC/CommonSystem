@@ -5,13 +5,16 @@ import request from './index'
  *
  * 接口路径遵循 docs/系统模块/系统模块API接口设计文档.md 中「地址本选择 addressbook」
  * 分组约定（树选择、列表查询、目标回填数据），后端 Controller 已实现。
- * 另含组织架构管理（element）、角色管理（role）与权限预览（preview）接口。
+ * 另含组织架构管理（element）、角色管理（role）、群组管理（group）与权限预览（preview）接口。
  * 组织架构类型（org_element_type）、在岗状态（org_job_status）等码值由 dict 模块提供，
  * 见 src/utils/dict.js。
  */
 /**
  * 将地址本组件的 orgType 枚举转换为后端可用的类型数字数组
- * @param {string} orgType ALL | ORG | DEPT | ORGDEPT | PERSON | POST | PERSONPOST
+ * @param {string} orgType ALL | ORG | DEPT | ORGDEPT | PERSON | POST | PERSONPOST | ORGDEPTPOSTPERSON
+ *   其中 ORGDEPTPOSTPERSON 为群组「可见用户」选择的语义化别名，等价于 ALL（机构/部门/岗位/人员）。
+ *   注意：后端 org_element_type 另有 5=角色、6=群组 两类码值，但仅存在于后端，
+ *   resolveOrgTypes 的任何映射均不含 5/6。
  * @returns {number[]}
  */
 export function resolveOrgTypes(orgType) {
@@ -22,7 +25,8 @@ export function resolveOrgTypes(orgType) {
     ORGDEPT: [1, 2],
     PERSON: [3],
     POST: [4],
-    PERSONPOST: [3, 4]
+    PERSONPOST: [3, 4],
+    ORGDEPTPOSTPERSON: [1, 2, 3, 4]
   }
   return map[orgType] || map.ALL
 }
@@ -52,6 +56,26 @@ export function queryAddressBookList(data) {
  */
 export function loadAddressBook(data) {
   return request.post('/backend/sys/org/addressbook/load', data)
+}
+
+/**
+ * 地址本 - 「群组」页签左侧可见群组分页查询
+ * 仅返回按当前登录人可见性过滤后的群组（可见性过滤由后端处理）。
+ * @param {Object} data { body: { fieldName, fieldType, fieldIsAllViewer, fieldOwnerId }, pages: { pageNo, pageSize, needPage }, sortField, sortOrder }
+ * @returns {Promise<Object>} BaseResponse，data 为群组数组，总数经 metadata.total 返回
+ */
+export function queryAddressBookGroupList(data) {
+  return request.post('/backend/sys/org/addressbook/groupList', data)
+}
+
+/**
+ * 地址本 - 「群组」页签右侧群组成员查询
+ * @param {Object} body { groupId, orgTypes }
+ *   groupId 必传；orgTypes 为空时后端默认 [3]（仅人员）。
+ * @returns {Promise<Object>} BaseResponse，data 为组织架构元素数组
+ */
+export function queryAddressBookGroupUsers(body) {
+  return request.post('/backend/sys/org/addressbook/groupUsers', body)
 }
 
 /* ==================== 组织架构管理（element） ==================== */
@@ -172,6 +196,58 @@ export function updateRole(body) {
  */
 export function queryAuthOptions() {
   return request.get('/backend/sys/org/role/authOptions')
+}
+
+/* ==================== 群组管理（group） ==================== */
+
+/**
+ * 群组管理 - 列表分页查询
+ * @param {Object} data { body: { fieldName, fieldType, fieldIsAllViewer, fieldOwnerId }, pages: { pageNo, pageSize, needPage }, sortField, sortOrder }
+ *   body.fieldType 码值 org_group_type：COMMON=公共 / PERSONAL=个人（由 dict 模块提供）；
+ *   sortField 合法值：createTime / updateTime / name；sortOrder 合法值：asc / desc。
+ * @returns {Promise<Object>} BaseResponse，data 为群组数组，总数经 metadata.total 返回
+ */
+export function queryGroupList(data) {
+  return request.post('/backend/sys/org/group/list', data)
+}
+
+/**
+ * 群组管理 - 详情读取
+ * 除群组基本字段外，额外返回 userIds/userNames（成员）与 viewerIds/viewerNames（可见用户）。
+ * @param {string} fieldId 群组 ID
+ * @returns {Promise<Object>} BaseResponse，data 为群组对象
+ */
+export function loadGroup(fieldId) {
+  return request.get('/backend/sys/org/group/load', { params: { fieldId } })
+}
+
+/**
+ * 群组管理 - 新增
+ * @param {Object} body { fieldId, fieldName, fieldType, userIds, viewerIds, fieldEnable }
+ *   fieldOwnerId / fieldIsAllViewer 由后端按当前登录人与 viewerIds 派生，前端传值无效。
+ * @returns {Promise<Object>} BaseResponse
+ */
+export function saveGroup(body) {
+  return request.post('/backend/sys/org/group/save', body)
+}
+
+/**
+ * 群组管理 - 编辑
+ * @param {Object} body { fieldId, fieldName, fieldType, userIds, viewerIds, fieldEnable }
+ *   必须携带 fieldId。
+ * @returns {Promise<Object>} BaseResponse
+ */
+export function updateGroup(body) {
+  return request.patch('/backend/sys/org/group/update', body)
+}
+
+/**
+ * 群组管理 - 删除
+ * @param {string} fieldId 群组 ID
+ * @returns {Promise<Object>} BaseResponse
+ */
+export function deleteGroup(fieldId) {
+  return request.delete('/backend/sys/org/group/delete', { params: { fieldId } })
 }
 
 /* ==================== 权限预览（preview） ==================== */

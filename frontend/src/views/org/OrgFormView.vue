@@ -315,7 +315,8 @@ async function loadDictOptions() {
       getDictOptions('org_job_status', { number: true }),
       getDictOptions('gender', { number: true })
     ])
-    ORG_TYPE_OPTIONS.value = orgTypeOptions
+    // org_element_type 新增 5=角色、6=群组（仅后端使用，不可经本页创建），下拉仅保留 1~4
+    ORG_TYPE_OPTIONS.value = orgTypeOptions.filter((opt) => [1, 2, 3, 4].includes(Number(opt.value)))
     JOB_STATUS_OPTIONS.value = jobStatusOptions
     GENDER_OPTIONS.value = genderOptions
   } catch {
