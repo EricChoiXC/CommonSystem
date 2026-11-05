@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.i18n.mapper.SysI18nUserLanguageMapper">
+
+    <!--
+        多语言-用户语言(sys_i18n_user_language)映射
+        列清单与 V1_01_040__sys_i18n_schema.sql（分析报告附录 A 定稿）一致；
+        field_user_id 为主键（一人一条），无 field_id 公共列，不继承 IBaseMapper；
+        登录 upsert（存在更新、不存在插入）与删除语言改绑（D4：更新行不删行）由服务编排。
+    -->
+
+    <resultMap id="SysI18nUserLanguageResultMap" type="com.common.system.sys.i18n.model.SysI18nUserLanguage">
+        <id column="field_user_id" property="fieldUserId"/>
+        <result column="field_language_id" property="fieldLanguageId"/>
+    </resultMap>
+
+    <!-- 按用户查询语言登记（一人一条；无登记返回 null） -->
+    <select id="selectByUserId" parameterType="string" resultMap="SysI18nUserLanguageResultMap">
+        SELECT field_user_id, field_language_id
+        FROM sys_i18n_user_language
+        WHERE field_user_id = #{fieldUserId}
+    </select>
+
+    <!-- 插入用户语言登记（upsert「不存在则插入」分支） -->
+    <insert id="insert" parameterType="com.common.system.sys.i18n.model.SysI18nUserLanguage">
+        INSERT INTO sys_i18n_user_language (
+        field_user_id, field_language_id
+        ) VALUES (
+        #{model.fieldUserId}, #{model.fieldLanguageId}
+        )
+    </insert>
+
+    <!-- 更新用户语言登记（upsert「存在则更新」分支） -->
+    <update id="updateByUserId" parameterType="com.common.system.sys.i18n.model.SysI18nUserLanguage">
+        UPDATE sys_i18n_user_language
+        SET field_language_id = #{model.fieldLanguageId}
+        WHERE field_user_id = #{model.fieldUserId}
+    </update>
+
+    <!-- 已选指定语言的登记改绑为目标语言（D4：更新行不删行） -->
+    <update id="rebindLanguage">
+        UPDATE sys_i18n_user_language
+        SET field_language_id = #{targetLanguageId}
+        WHERE field_language_id = #{fieldLanguageId}
+    </update>
+
+</mapper>

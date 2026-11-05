@@ -1,0 +1,5 @@
+ROLE_LIST: ["SYS_I18N_ADMIN"]
+ROLE_MAP:
+  SYS_I18N_ADMIN:
+    NAME: "多语言管理员"
+    DESC: "可维护语言、资源与翻译并执行部署"

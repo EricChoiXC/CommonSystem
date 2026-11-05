@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.common.system.sys.i18n.mapper.SysI18nLanguageMapper">
+
+    <!--
+        多语言-语言(sys_i18n_language)映射
+        列清单与 V1_01_040__sys_i18n_schema.sql（分析报告附录 A 定稿）一致；
+        field_default 全局仅一条，互斥切换（clearDefault + 设新默认）由服务同事务完成；
+        默认语言禁止删除与停用（口径 A2）由服务层校验。
+    -->
+
+    <resultMap id="SysI18nLanguageResultMap" type="com.common.system.sys.i18n.model.SysI18nLanguage">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_enable" property="fieldEnable"/>
+        <result column="field_default" property="fieldDefault"/>
+        <result column="field_order" property="fieldOrder"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_code, field_name, field_enable, field_default, field_order
+    </sql>
+
+    <insert id="insert" parameterType="com.common.system.sys.i18n.model.SysI18nLanguage">
+        INSERT INTO sys_i18n_language (
+        field_id, field_code, field_name, field_enable, field_default, field_order
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldCode}, #{model.fieldName}, #{model.fieldEnable},
+        #{model.fieldDefault}, #{model.fieldOrder}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.common.system.sys.i18n.model.SysI18nLanguage">
+        UPDATE sys_i18n_language
+        <set>
+            <if test="model.fieldCode != null">field_code = #{model.fieldCode},</if>
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldEnable != null">field_enable = #{model.fieldEnable},</if>
+            <if test="model.fieldDefault != null">field_default = #{model.fieldDefault},</if>
+            <if test="model.fieldOrder != null">field_order = #{model.fieldOrder},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_i18n_language
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysI18nLanguageResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_i18n_language
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysI18nLanguageResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_i18n_language
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+            <if test="model.fieldDefault != null">AND field_default = #{model.fieldDefault}</if>
+        </where>
+        ORDER BY field_order ASC, field_code ASC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 全部语言（按 field_order 升序、field_code 升序稳定排序） -->
+    <select id="selectAll" resultMap="SysI18nLanguageResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_i18n_language
+        ORDER BY field_order ASC, field_code ASC
+    </select>
+
+    <!-- 按语言码查询（唯一性校验与启动同步使用） -->
+    <select id="selectByCode" parameterType="string" resultMap="SysI18nLanguageResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_i18n_language
+        WHERE field_code = #{fieldCode}
+    </select>
+
+    <!-- 当前默认语言（全局恰一条；无默认时返回 null） -->
+    <select id="selectDefault" resultMap="SysI18nLanguageResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_i18n_language
+        WHERE field_default = 1
+        LIMIT 1
+    </select>
+
+    <!-- 清除全部默认标记（互斥切换第一步，与设新默认同事务） -->
+    <update id="clearDefault">
+        UPDATE sys_i18n_language
+        SET field_default = 0
+        WHERE field_default = 1
+    </update>
+
+    <!-- 统计语言总数（启动同步「无记录时初始化」判定） -->
+    <select id="countAll" resultType="long">
+        SELECT COUNT(1)
+        FROM sys_i18n_language
+    </select>
+
+    <!-- 轻量加载：本表名称列即 field_name，返回 id 与名称 -->
+    <select id="loadModel" parameterType="string" resultMap="SysI18nLanguageResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_i18n_language
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

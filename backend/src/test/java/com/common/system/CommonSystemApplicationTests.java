@@ -10,6 +10,14 @@ import com.common.system.sys.att.mapper.SysAttMainMapper;
 import com.common.system.sys.att.mapper.SysAttOperationMapper;
 import com.common.system.sys.dict.mapper.SysDictItemMapper;
 import com.common.system.sys.dict.mapper.SysDictTypeMapper;
+import com.common.system.sys.i18n.mapper.SysI18nKeyMapper;
+import com.common.system.sys.i18n.mapper.SysI18nLanguageMapper;
+import com.common.system.sys.i18n.mapper.SysI18nTranslationMapper;
+import com.common.system.sys.i18n.mapper.SysI18nUserLanguageMapper;
+import com.common.system.sys.i18n.model.SysI18nKey;
+import com.common.system.sys.i18n.model.SysI18nLanguage;
+import com.common.system.sys.i18n.model.SysI18nTranslation;
+import com.common.system.sys.i18n.model.SysI18nUserLanguage;
 import com.common.system.sys.notify.mapper.SysNotifyTodoMapper;
 import com.common.system.sys.notify.mapper.SysNotifyTodoTargetMapper;
 import com.common.system.sys.log.mapper.SysLogOperationMapper;
@@ -295,6 +303,56 @@ class CommonSystemApplicationTests {
 		@Bean
 		SysOrgUserPwdHistoryMapper sysOrgUserPwdHistoryMapper() {
 			return Mockito.mock(SysOrgUserPwdHistoryMapper.class);
+		}
+
+		/* ==================== 多语言模块 Mapper（i18n，4 个） ==================== */
+
+		@Bean
+		SysI18nLanguageMapper sysI18nLanguageMapper() {
+			SysI18nLanguageMapper mapper = Mockito.mock(SysI18nLanguageMapper.class);
+			// 多语言模块 Dao/服务依赖本 Mapper；测试上下文（无真实数据库）默认
+			// "语言表为空、按码查询不存在、插入成功"，保证后续启动同步（I18N2-BE-002）
+			// 走"不存在、插入成功"分支而不真实写库。
+			Mockito.when(mapper.selectByCode(Mockito.anyString())).thenReturn(new SysI18nLanguage());
+			Mockito.when(mapper.selectDefault()).thenReturn(new SysI18nLanguage());
+			Mockito.when(mapper.countAll()).thenReturn(1L);
+			Mockito.when(mapper.insert(Mockito.any())).thenReturn(1);
+			Mockito.when(mapper.update(Mockito.any())).thenReturn(1);
+			return mapper;
+		}
+
+		@Bean
+		SysI18nKeyMapper sysI18nKeyMapper() {
+			SysI18nKeyMapper mapper = Mockito.mock(SysI18nKeyMapper.class);
+			// 资源登记默认"不存在、插入成功"，同步幂等分支不真实写库。
+			Mockito.when(mapper.selectByModelAndKey(Mockito.anyString(), Mockito.anyString())).thenReturn(new SysI18nKey());
+			Mockito.when(mapper.countByModelAndKey(Mockito.anyString(), Mockito.anyString())).thenReturn(1L);
+			Mockito.when(mapper.insert(Mockito.any())).thenReturn(1);
+			Mockito.when(mapper.update(Mockito.any())).thenReturn(1);
+			return mapper;
+		}
+
+		@Bean
+		SysI18nTranslationMapper sysI18nTranslationMapper() {
+			SysI18nTranslationMapper mapper = Mockito.mock(SysI18nTranslationMapper.class);
+			// 翻译默认"已存在（人工编辑过）"，避免同步覆盖分支真实写库。
+			Mockito.when(mapper.selectByKeyAndLanguage(Mockito.anyString(), Mockito.anyString()))
+					.thenReturn(new SysI18nTranslation());
+			Mockito.when(mapper.insert(Mockito.any())).thenReturn(1);
+			Mockito.when(mapper.update(Mockito.any())).thenReturn(1);
+			Mockito.when(mapper.updateIfNotEdited(Mockito.any())).thenReturn(0);
+			return mapper;
+		}
+
+		@Bean
+		SysI18nUserLanguageMapper sysI18nUserLanguageMapper() {
+			SysI18nUserLanguageMapper mapper = Mockito.mock(SysI18nUserLanguageMapper.class);
+			// 用户语言登记默认"已存在"，登录 upsert 走"存在则更新"分支不真实写库。
+			Mockito.when(mapper.selectByUserId(Mockito.anyString())).thenReturn(new SysI18nUserLanguage());
+			Mockito.when(mapper.insert(Mockito.any(SysI18nUserLanguage.class))).thenReturn(1);
+			Mockito.when(mapper.updateByUserId(Mockito.any())).thenReturn(1);
+			Mockito.when(mapper.rebindLanguage(Mockito.anyString(), Mockito.anyString())).thenReturn(0);
+			return mapper;
 		}
 	}
 
