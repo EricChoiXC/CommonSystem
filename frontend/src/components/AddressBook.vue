@@ -33,7 +33,7 @@
         <el-button type="primary" @click="handleSearch">查询</el-button>
       </div>
 
-      <!-- 中层：页签（组织架构树 / 查询，showRole 时附角色页签），数据均受 orgType 过滤 -->
+      <!-- 中层：页签（组织架构树 / 查询，showRole 时附角色页签，showGroup 时附群组页签），数据均受 orgType 过滤 -->
       <el-tabs v-model="activeTab" class="ab-tabs" @tab-change="handleTabChange">
         <!-- 页签一：组织架构树，左侧树导航 + 右侧列表选中 -->
         <el-tab-pane label="组织架构树" name="tree">
@@ -138,6 +138,66 @@
             @size-change="loadRoleList"
           />
         </el-tab-pane>
+
+        <!-- 页签四：群组，仅 showGroup 且 orgType 含人员(3) 时渲染；左侧可见群组列表（点击选中群组，非选值），右侧展示该群组成员人员表格 -->
+        <el-tab-pane v-if="groupTabVisible" label="群组" name="group">
+          <div class="ab-group-panel">
+            <div class="ab-group-left">
+              <div class="ab-group-toolbar">
+                <el-button @click="handleGroupRefresh">刷新</el-button>
+              </div>
+              <div class="ab-group-list" v-loading="groupLoading">
+                <template v-if="groupList.length">
+                  <div
+                    v-for="item in groupList"
+                    :key="item.fieldId"
+                    class="ab-group-item"
+                    :class="{ 'ab-group-item-active': currentGroup && currentGroup.fieldId === item.fieldId }"
+                    @click="handleGroupClick(item)"
+                  >
+                    <span class="ab-group-name">{{ item.fieldName }}</span>
+                    <span class="ab-group-meta">
+                      <el-tag v-if="item.fieldType === 'PERSONAL'" size="small" type="info">个人</el-tag>
+                      <span v-if="item.userCount != null" class="ab-group-count">{{ item.userCount }}人</span>
+                    </span>
+                  </div>
+                </template>
+                <el-empty v-else description="暂无群组" :image-size="60" />
+              </div>
+              <el-pagination
+                v-model:current-page="groupPage"
+                v-model:page-size="groupPageSize"
+                :total="groupTotal"
+                layout="total, prev, pager, next, sizes"
+                :page-sizes="[10, 20, 50, 100]"
+                @current-change="loadGroupList"
+                @size-change="loadGroupList"
+              />
+            </div>
+            <div class="ab-group-right">
+              <template v-if="currentGroup">
+                <el-table
+                  ref="groupTableRef"
+                  :data="groupUserList"
+                  v-loading="groupUserLoading"
+                  height="320"
+                  row-key="fieldId"
+                  :row-class-name="rowClassName"
+                  @row-click="handleRowClick"
+                  @selection-change="handleGroupSelectionChange"
+                >
+                  <el-table-column v-if="multi" type="selection" width="45" />
+                  <el-table-column prop="fieldName" label="名称" min-width="150" show-overflow-tooltip />
+                  <el-table-column prop="fieldCode" label="编码" min-width="120" show-overflow-tooltip />
+                  <el-table-column label="类型" width="90">
+                    <template #default="{ row }">{{ orgTypeText(row.fieldOrgType) }}</template>
+                  </el-table-column>
+                </el-table>
+              </template>
+              <el-empty v-else description="请选择左侧群组" />
+            </div>
+          </div>
+        </el-tab-pane>
       </el-tabs>
 
       <!-- 下层：已选项展示 + 确认 / 取消 -->
@@ -166,7 +226,13 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { queryAddressBookList, queryAddressBookTree, resolveOrgTypes } from '@/api/org'
+import {
+  queryAddressBookList,
+  queryAddressBookTree,
+  queryAddressBookGroupList,
+  queryAddressBookGroupUsers,
+  resolveOrgTypes
+} from '@/api/org'
 import { getDictTextMap } from '@/utils/dict'
 
 /**
@@ -174,7 +240,8 @@ import { getDictTextMap } from '@/utils/dict'
  * 弹窗分上中下三层：上层关键字查询、中层组织架构树/查询（可选角色）页签、下层已选项与确认取消。
  * 查询页签与树页签右侧可选列表受 orgType / limitRange 过滤；
  * 左侧树仅作导航，固定展示机构/部门/岗位（不含人员），与当前可选类型无关；
- * 「角色」页签仅 showRole 时渲染（角色无层级，无左侧树，仅一张分页表格）。
+ * 「角色」页签仅 showRole 时渲染（角色无层级，无左侧树，仅一张分页表格）；
+ * 「群组」页签仅 showGroup 且 orgType 含人员(3) 时渲染：左侧可见群组列表，点选群组后右侧加载其成员人员表格（按群组批量选人，结果为人员）。
  */
 const props = defineProps({
   /** 关联的 id 值字段，必填 */
@@ -199,7 +266,9 @@ const props = defineProps({
   /** 是否禁用（只读展示不可打开选择弹窗），默认 false */
   disabled: { type: Boolean, default: false },
   /** 是否显示「角色」页签（角色单选/多选，结果为角色 fieldId / 名称），默认 false */
-  showRole: { type: Boolean, default: false }
+  showRole: { type: Boolean, default: false },
+  /** 是否显示群组页签（按群组批量选人，结果为人员 fieldId/名称），默认 false */
+  showGroup: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:fieldId', 'update:fieldName'])
 
@@ -215,6 +284,9 @@ const defaultExpandedKeys = [ROOT_NODE_ID]
 const treeProps = { label: 'fieldName', children: 'children' }
 const orgTypes = computed(() => resolveOrgTypes(props.orgType))
 
+/** 「群组」页签是否渲染：showGroup 且当前 orgType 可选人员(3)时展示（按群组批量选人） */
+const groupTabVisible = computed(() => props.showGroup && orgTypes.value.includes(3))
+
 /**
  * 左侧树固定展示的导航类型：机构(1)/部门(2)/岗位(4)。
  * 人员(3) 作为叶子可选目标只在右侧列表展示，不作为树导航节点；
@@ -226,6 +298,7 @@ const TREE_ORG_TYPES = [1, 2, 4]
 const treeTableRef = ref(null)
 const queryTableRef = ref(null)
 const roleTableRef = ref(null)
+const groupTableRef = ref(null)
 
 // 树页签：左侧树 + 右侧下级列表
 const rightList = ref([])
@@ -249,18 +322,33 @@ const roleLoaded = ref(false)
 /** 角色页签固定查询的组织架构类型：5 = 角色 */
 const ROLE_ORG_TYPES = [5]
 
+// 群组页签（showGroup 且 orgType 含人员时）：左侧可见群组分页列表 + 右侧成员人员表格
+const groupList = ref([])
+const groupLoading = ref(false)
+const groupPage = ref(1)
+const groupPageSize = ref(20)
+const groupTotal = ref(0)
+/** 群组页签是否已加载过：首次切到该页签时才加载，避免打开弹窗即请求群组数据 */
+const groupLoaded = ref(false)
+/** 当前选中的群组（点击左侧群组行后记录，右侧展示其成员；仅用于定位加载，非选值） */
+const currentGroup = ref(null)
+// 群组页签：右侧成员人员列表与加载状态
+const groupUserList = ref([])
+const groupUserLoading = ref(false)
+
 // 已选项（下层展示）
 const selected = ref([])
 const selectedBackup = ref([])
 
 /**
- * 多选模式下各页签（组织架构树/查询/角色）各自维护勾选行；
+ * 多选模式下各页签（组织架构树/查询/角色/群组成员）各自维护勾选行；
  * 单独记录每个页签的勾选，再按 fieldId 合并到 selected，
  * 避免跨页签勾选互相覆盖（先勾树侧再勾查询/角色侧不丢前选）。
  */
 const treeSelectedRows = ref([])
 const querySelectedRows = ref([])
 const roleSelectedRows = ref([])
+const groupSelectedRows = ref([])
 
 /**
  * 各页签表格实例 → 勾选行记录的映射表：restoreTableSelection 恢复勾选后
@@ -269,7 +357,8 @@ const roleSelectedRows = ref([])
 const TABLE_SELECTION_REFS = new Map([
   [treeTableRef, treeSelectedRows],
   [queryTableRef, querySelectedRows],
-  [roleTableRef, roleSelectedRows]
+  [roleTableRef, roleSelectedRows],
+  [groupTableRef, groupSelectedRows]
 ])
 
 /**
@@ -316,14 +405,21 @@ function openDialog() {
   treeSelectedRows.value = []
   querySelectedRows.value = []
   roleSelectedRows.value = []
+  groupSelectedRows.value = []
   // 重置角色页签加载标记：每次打开弹窗后首次切到角色页签都重新加载，避免展示上次会话的旧数据
   roleLoaded.value = false
+  // 重置群组页签：清空选中群组与成员列表、重置加载标记（与 roleLoaded 同模式）
+  currentGroup.value = null
+  groupUserList.value = []
+  groupLoaded.value = false
   dialogVisible.value = true
   loadRightList(null)
   if (activeTab.value === 'query') {
     loadQueryList()
   } else if (activeTab.value === 'role') {
     loadRoleList()
+  } else if (activeTab.value === 'group') {
+    loadGroupList()
   }
 }
 
@@ -441,10 +537,108 @@ function handleRoleRefresh() {
   loadRoleList()
 }
 
-/** 页签切换：首次进入角色页签时才加载角色数据（tab-change 参数为页签 name） */
+/** 群组页签独立刷新：回第 1 页按当前关键字重新加载左侧群组列表（工具条与角色页签 ab-role-toolbar 一致） */
+function handleGroupRefresh() {
+  groupPage.value = 1
+  loadGroupList()
+}
+
+/** 群组页签：左侧可见群组分页查询（复用上层关键字输入框的关键字，可见性过滤由后端处理） */
+async function loadGroupList() {
+  groupLoading.value = true
+  try {
+    const res = await queryAddressBookGroupList({
+      body: { keyword: keyword.value },
+      pages: {
+        pageNo: groupPage.value,
+        pageSize: groupPageSize.value,
+        needPage: true
+      }
+    })
+    groupList.value = res.data || []
+    // 后端未返回 total 时以当前页条数兜底
+    groupTotal.value = (res.metadata && res.metadata.total) || groupList.value.length
+    groupLoaded.value = true
+    // 刷新后当前选中群组不在可见列表中时清除选中态（右侧随之回到空态提示）
+    if (currentGroup.value && !groupList.value.some((g) => g.fieldId === currentGroup.value.fieldId)) {
+      currentGroup.value = null
+      groupUserList.value = []
+      groupSelectedRows.value = []
+    }
+  } catch (error) {
+    ElMessage.error(error.message || '群组列表加载失败')
+  } finally {
+    groupLoading.value = false
+  }
+}
+
+/** 群组页签左侧群组行点击：选中该群组并加载右侧成员（不是选值） */
+function handleGroupClick(item) {
+  const changed = !currentGroup.value || currentGroup.value.fieldId !== item.fieldId
+  currentGroup.value = item
+  if (changed) {
+    // 切换群组：重置成员列表与成员勾选记录（成员按 fieldId 合并进 selected，已选的不会丢，
+    // 成员加载完成后由 restoreTableSelection 按已选项恢复新群组数据中的勾选）
+    groupUserList.value = []
+    groupSelectedRows.value = []
+  }
+  loadGroupUsers()
+}
+
+/** 群组页签：加载当前选中群组的启用成员人员列表（orgTypes 按当前可选类型传入，类型求交为后端语义） */
+async function loadGroupUsers() {
+  if (!currentGroup.value) {
+    return
+  }
+  // 记录本次请求的群组：等待期间用户切换群组时丢弃过期响应，避免成员列表与高亮群组错位
+  const groupId = currentGroup.value.fieldId
+  groupUserLoading.value = true
+  try {
+    const res = await queryAddressBookGroupUsers({
+      groupId,
+      orgTypes: orgTypes.value
+    })
+    if (!currentGroup.value || currentGroup.value.fieldId !== groupId) {
+      return
+    }
+    groupUserList.value = res.data || []
+  } catch (error) {
+    if (!currentGroup.value || currentGroup.value.fieldId !== groupId) {
+      return
+    }
+    // 群组不可见（无权查看该群组）等后端错误统一提示
+    ElMessage.error(error.message || '群组成员加载失败')
+    groupUserList.value = []
+  } finally {
+    groupUserLoading.value = false
+    restoreTableSelection(groupTableRef, groupUserList.value)
+  }
+}
+
+/**
+ * 多选：群组页签成员勾选变化（用户操作时），逻辑同树/查询/角色页签。
+ */
+function handleGroupSelectionChange(rows) {
+  if (!props.multi || restoring) {
+    return
+  }
+  const picked = rows.map((row) => pick(row))
+  const nowIds = new Set(picked.map((r) => r.fieldId))
+  const removed = groupSelectedRows.value.filter((r) => !nowIds.has(r.fieldId))
+  groupSelectedRows.value = picked
+  if (removed.length) {
+    const removedIds = new Set(removed.map((r) => r.fieldId))
+    selected.value = selected.value.filter((s) => !removedIds.has(s.fieldId))
+  }
+  mergeSelection()
+}
+
+/** 页签切换：首次进入角色/群组页签时才加载对应数据（tab-change 参数为页签 name） */
 function handleTabChange(name) {
   if (name === 'role' && !roleLoaded.value) {
     loadRoleList()
+  } else if (name === 'group' && !groupLoaded.value) {
+    loadGroupList()
   }
 }
 
@@ -514,8 +708,8 @@ function handleRoleSelectionChange(rows) {
 }
 
 /**
- * 合并各页签（组织架构树/查询/角色）的勾选到已选项：以现有 selected 为基础并入页签勾选（只增不减）。
- * 已选项一旦选中，不因表格数据刷新（切树节点/翻页/重新查询）丢失；
+ * 合并各页签（组织架构树/查询/角色/群组成员）的勾选到已选项：以现有 selected 为基础并入页签勾选（只增不减）。
+ * 已选项一旦选中，不因表格数据刷新（切树节点/翻页/重新查询/切换群组）丢失；
  * 用户主动取消勾选的行由 selection-change 处理器先移出 selected 再合并。
  */
 function mergeSelection() {
@@ -523,7 +717,12 @@ function mergeSelection() {
   for (const item of selected.value) {
     merged.set(item.fieldId, item)
   }
-  for (const item of [...treeSelectedRows.value, ...querySelectedRows.value, ...roleSelectedRows.value]) {
+  for (const item of [
+    ...treeSelectedRows.value,
+    ...querySelectedRows.value,
+    ...roleSelectedRows.value,
+    ...groupSelectedRows.value
+  ]) {
     merged.set(item.fieldId, item)
   }
   selected.value = [...merged.values()]
@@ -593,6 +792,7 @@ function removeSelected(item) {
   uncheck(treeTableRef, rightList.value)
   uncheck(queryTableRef, queryList.value)
   uncheck(roleTableRef, roleList.value)
+  uncheck(groupTableRef, groupUserList.value)
 }
 
 /** 确认：回写 fieldId / fieldName 并触发回调 */
@@ -659,6 +859,82 @@ function handleClear() {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 8px;
+}
+
+/* 群组页签：左侧可见群组列表 + 右侧成员表格双栏（结构同树页签 ab-tree-panel） */
+.ab-group-panel {
+  display: flex;
+  gap: 12px;
+}
+
+.ab-group-left {
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 群组页签工具条：独立「刷新」按钮（与角色页签 ab-role-toolbar 一致） */
+.ab-group-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.ab-group-list {
+  height: 320px;
+  overflow: auto;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+}
+
+.ab-group-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.ab-group-item:hover {
+  background-color: var(--el-fill-color-light);
+}
+
+/* 高亮当前选中的群组 */
+.ab-group-item-active {
+  background-color: var(--el-color-primary-light-9);
+}
+
+.ab-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ab-group-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ab-group-count {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.ab-group-right {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 左侧栏较窄：群组列表分页允许换行避免溢出 */
+.ab-group-left :deep(.el-pagination) {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  margin-top: 8px;
 }
 
 .ab-bottom {
