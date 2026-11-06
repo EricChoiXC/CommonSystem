@@ -16,7 +16,7 @@ import lombok.EqualsAndHashCode;
  */
 @Data
 @EqualsAndHashCode(callSuper = false)
-@Schema(description = "翻译矩阵查询请求体：body.fieldModel 指定模块")
+@Schema(description = "翻译矩阵查询请求体：顶层 fieldModel 指定模块（与 body / pages 平级）")
 public class SysI18nTranslationListRequest extends BaseRequest<Object> {
 
     /** 所属模块（相对 i18n/ 的资源子目录层级名，如 org、process/template） */

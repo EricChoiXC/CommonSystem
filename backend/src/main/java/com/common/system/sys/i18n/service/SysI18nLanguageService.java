@@ -85,6 +85,8 @@ public class SysI18nLanguageService extends BaseService<SysI18nLanguage, SysI18n
             throw new IllegalArgumentException("语言码已存在: " + code);
         }
         SysI18nLanguage model = new SysI18nLanguage();
+        // 采纳前端经 /initID 生成的 fieldId；为空时 BaseModel.setFieldId 自动兜底生成（IDUtil.initID）
+        model.setFieldId(body.getFieldId());
         model.setFieldCode(code);
         model.setFieldName(body.getFieldName().trim());
         // field_default 不接受请求写入：新增语言一律非默认

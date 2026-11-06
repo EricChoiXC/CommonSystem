@@ -114,6 +114,30 @@ class SysI18nLanguageServiceTest {
     }
 
     @Test
+    void saveAdoptsRequestedFieldId() {
+        // 前端经 /initID 生成 fieldId 随 body 提交，后端必须采纳（联调发现的回归：漏采纳导致 field_id 为空写库失败）
+        when(languageDao.selectByCode("fr_FR")).thenReturn(null);
+
+        SysI18nLanguage body = language(ID_FR, "fr_FR", "Français", null, null, null);
+        service.save(body);
+
+        verify(languageDao).insert(argThat(model ->
+                ID_FR.equals(model.getFieldId()) && "fr_FR".equals(model.getFieldCode())));
+    }
+
+    @Test
+    void saveGeneratesFieldIdWhenMissing() {
+        // fieldId 缺省时由 BaseModel.setFieldId 兜底生成 32 位 ID（IDUtil.initID）
+        when(languageDao.selectByCode("fr_FR")).thenReturn(null);
+
+        SysI18nLanguage body = language(null, "fr_FR", "Français", null, null, null);
+        service.save(body);
+
+        verify(languageDao).insert(argThat(model ->
+                null != model.getFieldId() && 32 == model.getFieldId().length()));
+    }
+
+    @Test
     void updateRejectsDisablingDefaultLanguage() {
         // A2：默认语言禁止停用
         SysI18nLanguage body = language(ID_ZH, null, null, false, null, null);

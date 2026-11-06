@@ -152,12 +152,13 @@ async function handleLogin() {
       fieldLoginName: form.loginName,
       fieldPassword: form.password
     }
-    // D3 登录语言登记契约：所选语言码随登录 body 提交，后端登录成功后 upsert 用户语言表；
-    // 未选择（列表加载失败）时不携带，行为与既有登录完全一致（零回归）
+    // D3 登录语言登记契约：fieldLanguage 与 body 平级（请求顶层，SysOrgLoginRequest.fieldLanguage），
+    // 后端登录成功后 upsert 用户语言表；未选择（列表加载失败）时不携带，行为与既有登录完全一致（零回归）
+    const payload = { body }
     if (selectedLanguage.value) {
-      body.fieldLanguage = selectedLanguage.value
+      payload.fieldLanguage = selectedLanguage.value
     }
-    const res = await login({ body })
+    const res = await login(payload)
     const token = res.metadata && res.metadata['X-Login-Token']
     userStore.setLogin(res.data, token)
 

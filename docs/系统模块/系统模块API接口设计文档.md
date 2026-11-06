@@ -249,6 +249,33 @@
 - 维护类接口仅码值字典管理员可调用。
 - 读取、查询型接口不设权，但需要保留启用状态过滤能力。
 
+### 4.8 多语言模块
+
+#### 4.8.1 模块目标与接口边界
+
+- 提供语言清单维护、翻译矩阵维护、翻译部署、前端语言包与用户语言登记能力（v1.1 新增，模块前缀 `/backend/sys/i18n`）。
+- 权限码 `SYS_I18N_ADMIN`（多语言管理员），`I18nResolver` 按 ACTION 分支判定；`SYS_ADMIN` 由 `BaseResolver` 自动放行。
+
+#### 4.8.2 模块接口分组
+
+| 接口组 | 路径与方法 | 鉴权 |
+| --- | --- | --- |
+| 语言维护 | `language/list` GET（免鉴权）、`language/save` POST、`language/update` PATCH、`language/delete?fieldId=` DELETE、`language/setDefault` PATCH | 维护四接口仅 SYS_I18N_ADMIN |
+| 模块聚合 | `model/list` GET | 登录即可 |
+| 翻译维护 | `translation/list` POST（顶层 `fieldModel`）、`translation/update` PATCH（批量明细）、`translation/reset` PATCH（key + language）、`translation/export` POST（文件流）、`translation/import` POST（multipart） | 仅 SYS_I18N_ADMIN |
+| 部署 | `deploy/run` POST | 仅 SYS_I18N_ADMIN |
+| 前端语言包 | `/locales/{code}.json` GET | 免鉴权 |
+| 用户语言 | `user/language/update` PATCH（body 仅 `fieldLanguage`） | 登录即可 |
+
+#### 4.8.3 当前冻结的接口方向
+
+- 请求体形状：`language/update` / `setDefault` 为 `{ body: { fieldId, … } }`；`translation/list` 的 `fieldModel` 为请求顶层字段（与 `body` / `pages` 平级）；登录契约的 `fieldLanguage` 亦为请求顶层字段（D3）。
+- `setDefault` 互斥切换（同事务先清旧默认再设新默认，全局恰一条）；默认语言禁止删除与停用；删除语言级联删翻译、用户语言登记改绑默认语言（D4）。
+- 翻译更新仅对提交明细写值并置人工编辑标记；重置清标记后以资源文件当前值覆盖，该语言无对应资源文件时直接删除记录。
+- 导入为固定覆盖导入：仅按文件实际包含的 (key, language) 更新；未登记 key、无效语言码列跳过且不插入资源项。
+- `deploy/run` 执行与启动同规则的「资源 → DB 同步」并刷新缓存，返回同步资源数与各语言翻译条数；语言包为动态接口无产物落盘（D2），未启用或未知语言码返回 `BAD_REQUEST` 错误信息，不输出空包。
+- 免鉴权入口（`language/list`、`/locales/**`）与登录接口一致，以 `@SecurityRequirements` 标注无安全要求；文件流接口以 `APPLICATION_OCTET_STREAM_VALUE` + `format="binary"` 标注。
+
 ## 5. 待确认事项
 
 - 组织架构模块中“角色分配”和“角色权限”的需求表述存在表名映射不一致，需在详细设计任务中确认接口术语。
