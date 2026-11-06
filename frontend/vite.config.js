@@ -17,6 +17,11 @@ export default defineConfig({
       '/backend': {
         target: 'http://localhost:8080',
         changeOrigin: true
+      },
+      // 前端语言包动态接口（D2 决策）：GET /locales/{code}.json 免鉴权
+      '/locales': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
       }
     }
   },

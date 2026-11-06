@@ -237,6 +237,24 @@ const routes = [
         component: () => import('@/views/process/ExampleDetailView.vue'),
         meta: { title: '流程实例详情', parent: '系统管理', group: '流程管理', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN', 'SYS_PROCESS_EXAMPLE_VIEWER'], tab: 'name' }
       },
+      {
+        path: 'i18nLanguage',
+        name: 'I18nLanguageManage',
+        component: () => import('@/views/i18n/I18nLanguageManageView.vue'),
+        meta: { title: '语言管理', parent: '系统管理', group: '多语言管理', auth: 'SYS_I18N_ADMIN' }
+      },
+      {
+        path: 'i18nTranslation',
+        name: 'I18nTranslationManage',
+        component: () => import('@/views/i18n/I18nTranslationManageView.vue'),
+        meta: { title: '翻译维护', parent: '系统管理', group: '多语言管理', auth: 'SYS_I18N_ADMIN' }
+      },
+      {
+        path: 'i18nDeploy',
+        name: 'I18nDeploy',
+        component: () => import('@/views/i18n/I18nDeployView.vue'),
+        meta: { title: '翻译部署', parent: '系统管理', group: '多语言管理', auth: 'SYS_I18N_ADMIN' }
+      },
     ]
   },
   {

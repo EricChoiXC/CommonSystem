@@ -231,8 +231,13 @@ public class SysI18nTranslationService {
     /**
      * 批量更新翻译：仅对提交的变更记录写 field_message 并置人工编辑标记
      * （field_update_time = now），完成后刷新受影响语言的缓存。
-     * <p>空明细列表视为无改动（幂等返回 0）；明细按翻译记录主键 fieldId 定位，
-     * 记录不存在视为参数错误（同事务整体回滚）。</p>
+     * <p>空明细列表视为无改动（幂等返回 0）；明细二选一定位（I18N4-FE-001 前端矩阵契约）：</p>
+     * <ul>
+     * <li>fieldId：按翻译记录主键定位，记录不存在视为参数错误；</li>
+     * <li>fieldKey + fieldLanguage：按 (key, language) 定位，DB 无记录时补建
+     *     （矩阵空格首次编辑；key 未在 sys_i18n_key 登记视为参数错误，D5）。</li>
+     * </ul>
+     * <p>全部改动同事务整体回滚。</p>
      *
      * @param request 批量更新请求（details 为本次改动项）
      * @return 实际更新条数
@@ -245,16 +250,13 @@ public class SysI18nTranslationService {
         }
         Set<String> languages = new LinkedHashSet<>();
         for (SysI18nTranslationUpdateRequest.Detail detail : request.getDetails()) {
-            if (null == detail || StringUtil.isEmpty(detail.getFieldId())) {
-                throw new IllegalArgumentException("改动明细 fieldId 不能为空");
+            if (null == detail) {
+                throw new IllegalArgumentException("改动明细不能为空");
             }
-            SysI18nTranslation exist = translationDao.selectById(detail.getFieldId());
-            if (null == exist) {
-                throw new IllegalArgumentException("翻译记录不存在: " + detail.getFieldId());
-            }
-            translationDao.updateMessageEdited(detail.getFieldId(), detail.getFieldMessage());
-            if (StringUtil.isNotEmpty(exist.getFieldLanguage())) {
-                languages.add(exist.getFieldLanguage());
+            if (StringUtil.isNotEmpty(detail.getFieldId())) {
+                applyUpdateById(detail, languages);
+            } else {
+                applyUpdateByKeyAndLanguage(detail, languages);
             }
         }
         if (!languages.isEmpty()) {
@@ -262,6 +264,49 @@ public class SysI18nTranslationService {
         }
         log.info("i18n translations updated: count={}, languages={}", request.getDetails().size(), languages);
         return request.getDetails().size();
+    }
+
+    /**
+     * 按翻译记录主键定位的明细写入：记录必须存在（矩阵中已有翻译记录的格子）。
+     */
+    private void applyUpdateById(SysI18nTranslationUpdateRequest.Detail detail, Set<String> languages) {
+        SysI18nTranslation exist = translationDao.selectById(detail.getFieldId());
+        if (null == exist) {
+            throw new IllegalArgumentException("翻译记录不存在: " + detail.getFieldId());
+        }
+        translationDao.updateMessageEdited(detail.getFieldId(), detail.getFieldMessage());
+        if (StringUtil.isNotEmpty(exist.getFieldLanguage())) {
+            languages.add(exist.getFieldLanguage());
+        }
+    }
+
+    /**
+     * 按 (key, language) 定位的明细写入：DB 无记录时补建（矩阵空格首次编辑，
+     * 与导入的「文件包含该格但 DB 无记录」分支同规则）；key 未登记（sys_i18n_key 无此 key）
+     * 视为参数错误（D5：key 仅随资源扫描产生，不插入资源项）。
+     */
+    private void applyUpdateByKeyAndLanguage(SysI18nTranslationUpdateRequest.Detail detail, Set<String> languages) {
+        String fieldKey = detail.getFieldKey();
+        String fieldLanguage = detail.getFieldLanguage();
+        if (StringUtil.isEmpty(fieldKey) || StringUtil.isEmpty(fieldLanguage)) {
+            throw new IllegalArgumentException("改动明细 fieldId 为空时 fieldKey 与 fieldLanguage 不能为空");
+        }
+        if (null == keyDao.selectByKey(fieldKey)) {
+            throw new IllegalArgumentException("资源项未登记: " + fieldKey);
+        }
+        SysI18nTranslation exist = translationDao.selectByKeyAndLanguage(fieldKey, fieldLanguage);
+        if (null == exist) {
+            SysI18nTranslation model = new SysI18nTranslation();
+            model.initFieldId();
+            model.setFieldKey(fieldKey);
+            model.setFieldLanguage(fieldLanguage);
+            model.setFieldMessage(detail.getFieldMessage());
+            model.setFieldUpdateTime(new Date());
+            translationDao.insert(model);
+        } else {
+            translationDao.updateMessageEdited(exist.getFieldId(), detail.getFieldMessage());
+        }
+        languages.add(fieldLanguage);
     }
 
     /* ==================== 重置 ==================== */

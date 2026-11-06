@@ -55,6 +55,32 @@
             <path d="M6 1.9a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2zM.8 13.5c0-2.9 2.3-5.2 5.2-5.2s5.2 2.3 5.2 5.2H.8zM12.4 3.5a2.1 2.1 0 1 1 0 4.2 2.1 2.1 0 0 1 0-4.2zM9.6 14.5c.1-2 1-3.7 2.5-4.7 1.9.6 3.3 2.4 3.3 4.7H9.6z" fill="currentColor"/>
           </svg>
         </el-button>
+        <!-- 语言切换下拉：仅改前端 locale + localStorage 记忆，不调用户语言接口、不落库（任务清单 I18N6-FE-002） -->
+        <el-dropdown
+          class="language-dropdown"
+          trigger="click"
+          @command="handleLanguageCommand"
+        >
+          <el-button class="language-btn" size="small" text :title="t('frontend.header.language.switch')">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="18" height="18">
+              <path d="M4.55 3.07A7.99 7.99 0 0 1 8 2.2a8 8 0 1 1 0 16 7.99 7.99 0 0 1-3.45-.79L4.55 17.4zm-.35 1.13L2.6 9h3.5l1.1-4.8zM8 3.8L6.6 9H2.75A6.4 6.4 0 0 1 8 3.8zM9.4 9l1.4 5.2A6.42 6.42 0 0 1 8 15.6 6.4 6.4 0 0 1 2.75 9H9.4z" fill="none"/>
+              <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm5.5 6h-2.06a10.7 10.7 0 0 0-.83-3.4A5.52 5.52 0 0 1 13.5 7zM8 2.5c.62 0 1.5 1.4 1.87 3.5H6.13C6.5 3.9 7.38 2.5 8 2.5zM2.5 8c0-.51.07-1 .2-1.5h2.56A12 12 0 0 0 5.13 10H2.7A5.48 5.48 0 0 1 2.5 8zm1.9 3.5h1.2c.2.9.48 1.72.83 2.4A5.52 5.52 0 0 1 4.4 11.5zM8 13.5c-.62 0-1.5-1.4-1.87-3.5h3.74C9.5 12.1 8.62 13.5 8 13.5zm1.57-1.1c.35-.68.63-1.5.83-2.4h1.2a5.52 5.52 0 0 1-2.03 2.4zm1.3-3.9h-1.14c.05-.52.07-1.05.07-1.5s-.02-.98-.07-1.5h2.56c.13.5.2.99.2 1.5s-.07 1-.2 1.5z" fill="currentColor"/>
+            </svg>
+            <span class="language-btn-text">{{ currentLanguageName }}</span>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                v-for="lang in languageOptions"
+                :key="lang.fieldCode"
+                :command="lang.fieldCode"
+                :disabled="lang.fieldCode === languageStore.current"
+              >
+                {{ lang.fieldName }}（{{ lang.fieldCode }}）
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-avatar :size="26" class="header-avatar">{{ avatarText }}</el-avatar>
         <span class="header-username">{{ userName }}</span>
         <span class="header-dept">{{ deptName }}</span>
@@ -145,19 +171,52 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElNotification } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { useNotifyStore } from '@/stores/notify'
+import { useLanguageStore } from '@/stores/language'
 import { hasAuth } from '@/utils/auth'
 import { logout } from '@/api/sys'
 import { loadAddressBook } from '@/api/org'
 import { queryTodayCalendar } from '@/api/calendar'
 import { getInitInfo } from '@/api/common'
+import { listLanguages } from '@/api/i18n'
 import { useSse } from '@/utils/useSse'
 import { consumeTabsToClose, TABS_STORAGE_KEY } from '@/utils/tabs'
+import { useI18n } from 'vue-i18n'
 import request from '@/api/index'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const notifyStore = useNotifyStore()
+const languageStore = useLanguageStore()
+const { t } = useI18n()
+
+/* ========== 顶部栏语言切换（不落库，仅 locale + localStorage） ========== */
+
+/** 启用语言选项（免鉴权 language/list，fieldEnable=true）；加载失败时下拉为空、按钮仅显示当前语言名 */
+const languageOptions = ref([])
+
+const currentLanguageName = computed(() => {
+  const hit = languageOptions.value.find((lang) => lang.fieldCode === languageStore.current)
+  return hit ? hit.fieldName : languageStore.current
+})
+
+async function loadLanguageOptions() {
+  try {
+    const res = await listLanguages({ fieldEnable: 'true' })
+    languageOptions.value = res.data || []
+  } catch {
+    languageOptions.value = []
+  }
+}
+
+/** 切换语言：懒加载语言包 → vue-i18n locale → Element Plus locale（App.vue 联动）→ localStorage */
+async function handleLanguageCommand(code) {
+  try {
+    await languageStore.setLanguage(code)
+  } catch {
+    ElMessage.error(t('frontend.common.loadFailed'))
+  }
+}
 
 /** 登出时清空标签页记录，避免下一个用户登录后看到上一用户残留的页签 */
 function clearVisitedTabs() {
@@ -244,6 +303,15 @@ const menus = [
         children: [
           { title: '公共配置', path: '/setting', auth: '' }
         ]
+      },
+      {
+        title: '多语言管理',
+        auth: 'SYS_I18N_ADMIN',
+        children: [
+          { title: '语言管理', path: '/i18nLanguage', auth: '' },
+          { title: '翻译维护', path: '/i18nTranslation', auth: '' },
+          { title: '翻译部署', path: '/i18nDeploy', auth: '' }
+        ]
       }
     ]
   }
@@ -292,6 +360,7 @@ const activeMenu = computed(() => {
   if (path.startsWith('/taskHistory/')) return '/taskHistory'
   // 流程模板新建/编辑/详情为模板管理列表的子页面，归约到模板管理菜单项
   if (path.startsWith('/processTemplate/')) return '/processTemplate'
+  // 多语言三个页面均为叶子路径（弹窗编辑无子路由），无需归约
   return path
 })
 
@@ -393,6 +462,8 @@ async function checkForceChangePwd() {
 onMounted(async () => {
   // 读取应用名称回填 LOGO
   loadApplicationName()
+  // 加载顶部栏语言切换下拉选项
+  loadLanguageOptions()
   // 检查是否需要强制修改密码
   checkForceChangePwd()
   const parentId = userStore.userInfo && userStore.userInfo.fieldParentId
@@ -850,6 +921,33 @@ function handleTabMgmtCommand(command) {
 .group-btn:hover {
   color: #409eff;
   background-color: #ecf5ff;
+}
+
+/* —— 语言切换下拉：与铃铛/日程/群组按钮同款外观，附加当前语言名 —— */
+.language-dropdown {
+  margin: 0 4px;
+}
+
+.language-btn {
+  padding: 4px 6px;
+  min-height: 28px;
+  color: #606266;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.language-btn:hover {
+  color: #409eff;
+  background-color: #ecf5ff;
+}
+
+.language-btn-text {
+  font-size: 13px;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* —— 日程弹出框 —— */

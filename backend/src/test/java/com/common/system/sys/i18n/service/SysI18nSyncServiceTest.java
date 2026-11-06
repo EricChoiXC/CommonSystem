@@ -343,7 +343,8 @@ class SysI18nSyncServiceTest {
 
     @Test
     void syncsRealClasspathOrgBundleEndToEnd() {
-        // 端到端（mock Dao）：以真实扫描结果跑同步，验证 org 模块 3 个 key + 两语言翻译
+        // 端到端（mock Dao）：以真实扫描结果跑同步，验证 org 模块 3 个 key + 两语言翻译。
+        // i18n/frontend 资源模块同批被扫描（A1 前端文案资源集），translation 断言按 org. 前缀限定。
         enableBothLanguages();
         mockEmptyDatabase();
         when(cacheService.cacheTranslations(any())).thenReturn(6);
@@ -352,9 +353,11 @@ class SysI18nSyncServiceTest {
 
         // zh_CN 与 en_US 各 3 条翻译插入，key 登记在 org 模块下
         verify(translationDao, org.mockito.Mockito.times(3)).insert(argThat(model ->
-                SysI18nSyncService.DEFAULT_LANGUAGE_CODE.equals(model.getFieldLanguage())));
+                SysI18nSyncService.DEFAULT_LANGUAGE_CODE.equals(model.getFieldLanguage())
+                        && model.getFieldKey().startsWith("org.")));
         verify(translationDao, org.mockito.Mockito.times(3)).insert(argThat(model ->
-                SysI18nSyncService.INIT_LANGUAGE_CODE_EN.equals(model.getFieldLanguage())));
+                SysI18nSyncService.INIT_LANGUAGE_CODE_EN.equals(model.getFieldLanguage())
+                        && model.getFieldKey().startsWith("org.")));
         verify(keyDao, org.mockito.Mockito.times(3)).insert(argThat(model ->
                 "org".equals(model.getFieldModel())));
         verify(cacheService).cacheTranslations(eq(List.of("zh_CN", "en_US")));

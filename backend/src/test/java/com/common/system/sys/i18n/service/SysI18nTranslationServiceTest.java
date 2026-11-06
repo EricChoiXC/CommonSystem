@@ -270,6 +270,82 @@ class SysI18nTranslationServiceTest {
                 && codes.contains("zh_CN") && codes.contains("en_US") && 2 == codes.size()));
     }
 
+    @Test
+    void updateBatchByKeyAndLanguageUpdatesExistingRecord() {
+        // (key, language) 定位 + DB 已有记录：按记录主键写人工编辑标记（I18N4-FE-001 矩阵契约）
+        SysI18nTranslation exist = translation("org.title", "zh_CN", "旧标题");
+        when(keyDao.selectByKey("org.title")).thenReturn(key(KEY_ID_1, "org.title", "org"));
+        when(translationDao.selectByKeyAndLanguage("org.title", "zh_CN")).thenReturn(exist);
+
+        SysI18nTranslationUpdateRequest request = new SysI18nTranslationUpdateRequest();
+        SysI18nTranslationUpdateRequest.Detail detail = new SysI18nTranslationUpdateRequest.Detail();
+        detail.setFieldKey("org.title");
+        detail.setFieldLanguage("zh_CN");
+        detail.setFieldMessage("新标题");
+        request.setDetails(List.of(detail));
+
+        int updated = service.updateBatch(request);
+
+        assertEquals(1, updated);
+        verify(translationDao).updateMessageEdited(exist.getFieldId(), "新标题");
+        verify(translationDao, never()).insert(any());
+        verify(cacheService).cacheTranslations(List.of("zh_CN"));
+    }
+
+    @Test
+    void updateBatchByKeyAndLanguageInsertsMissingRecord() {
+        // (key, language) 定位 + DB 无记录：补建翻译记录并置人工编辑标记（矩阵空格首次编辑）
+        when(keyDao.selectByKey("org.title")).thenReturn(key(KEY_ID_1, "org.title", "org"));
+        when(translationDao.selectByKeyAndLanguage("org.title", "en_US")).thenReturn(null);
+
+        SysI18nTranslationUpdateRequest request = new SysI18nTranslationUpdateRequest();
+        SysI18nTranslationUpdateRequest.Detail detail = new SysI18nTranslationUpdateRequest.Detail();
+        detail.setFieldKey("org.title");
+        detail.setFieldLanguage("en_US");
+        detail.setFieldMessage("Title");
+        request.setDetails(List.of(detail));
+
+        int updated = service.updateBatch(request);
+
+        assertEquals(1, updated);
+        verify(translationDao).insert(argThat(model -> null != model
+                && "org.title".equals(model.getFieldKey())
+                && "en_US".equals(model.getFieldLanguage())
+                && "Title".equals(model.getFieldMessage())
+                && null != model.getFieldUpdateTime()));
+        verify(translationDao, never()).updateMessageEdited(anyString(), anyString());
+        verify(cacheService).cacheTranslations(List.of("en_US"));
+    }
+
+    @Test
+    void updateBatchByKeyAndLanguageRejectsUnregisteredKey() {
+        // key 未登记（sys_i18n_key 无此 key）视为参数错误，不插入（D5：key 仅随资源扫描产生）
+        when(keyDao.selectByKey("ghost.key")).thenReturn(null);
+
+        SysI18nTranslationUpdateRequest request = new SysI18nTranslationUpdateRequest();
+        SysI18nTranslationUpdateRequest.Detail detail = new SysI18nTranslationUpdateRequest.Detail();
+        detail.setFieldKey("ghost.key");
+        detail.setFieldLanguage("zh_CN");
+        detail.setFieldMessage("x");
+        request.setDetails(List.of(detail));
+
+        assertThrows(IllegalArgumentException.class, () -> service.updateBatch(request));
+        verify(translationDao, never()).insert(any());
+        verify(translationDao, never()).updateMessageEdited(anyString(), anyString());
+    }
+
+    @Test
+    void updateBatchByKeyAndLanguageRejectsMissingKeyOrLanguage() {
+        // fieldId 为空时 fieldKey 与 fieldLanguage 均不能为空
+        SysI18nTranslationUpdateRequest request = new SysI18nTranslationUpdateRequest();
+        SysI18nTranslationUpdateRequest.Detail noLanguage = new SysI18nTranslationUpdateRequest.Detail();
+        noLanguage.setFieldKey("org.title");
+        noLanguage.setFieldMessage("x");
+        request.setDetails(List.of(noLanguage));
+        assertThrows(IllegalArgumentException.class, () -> service.updateBatch(request));
+        verify(translationDao, never()).insert(any());
+    }
+
     /* ==================== reset ==================== */
 
     @Test
