@@ -47,4 +47,9 @@ public interface SysOrgUserMapper extends IBaseMapper<SysOrgUser> {
 
     List<SysOrgUser> selectListWithFields(@Param("model") SysOrgUser model, @Param("pages") Pages pages, @Param("visibility") String visibility);
 
+    /**
+     * 列表总数统计：与 selectListWithFields 同条件（计数与可见字段裁剪无关），供 metadata.total 返回
+     */
+    long countListWithFields(@Param("model") SysOrgUser model);
+
 }
