@@ -320,4 +320,13 @@ public class SysOrgUserService extends BaseService<SysOrgUser, SysOrgUserDao> {
     public List<SysOrgUser> selectListWithFields(SysOrgUser criteria, Pages pages, String visibleFields) {
         return getBaseDao().selectListWithFields(criteria, pages, visibleFields);
     }
+
+    /**
+     * 列表总数统计：与 selectListWithFields 同条件，供列表接口 metadata.total 返回
+     * @param criteria 查询条件，与 selectListWithFields 一致
+     * @return 满足条件的总条数
+     */
+    public long countListWithFields(SysOrgUser criteria) {
+        return getBaseDao().countListWithFields(criteria);
+    }
 }

@@ -252,13 +252,14 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
 
     /**
      * 列表查询：POST /backend/sys/org/user/list
+     * 总数经 metadata.total 返回，与其他分页列表接口保持一致。
      *
      * @param request 用户列表请求（body 为查询条件，pages 为分页）
-     * @return 统一响应，data 为按当前用户可见性裁剪字段后的用户列表
+     * @return 统一响应，data 为按当前用户可见性裁剪字段后的用户列表，metadata.total 为总数
      */
     @PostMapping("/list")
     @Operation(summary = "用户列表查询", description = "鉴权动作 sys.org.user.list；请求体 "
-            + "{ body: 查询条件, pages }，返回字段按当前用户可见性裁剪")
+            + "{ body: 查询条件, pages }，返回字段按当前用户可见性裁剪，总数经 metadata.total 返回")
     public BaseResponse<List<SysOrgUser>> selectList(@RequestBody SysOrgUserRequest request) {
         SysOrgUser criteria = request.getBody();
         if (null == criteria) {
@@ -268,13 +269,14 @@ public class SysOrgUserController extends BaseCrudController<SysOrgUser, SysOrgU
         if (null == pages) {
             pages = new Pages();
         }
-        AuthorizationContext context = new AuthorizationContext(ACTION_LOAD);
+        AuthorizationContext context = new AuthorizationContext(ACTION_LIST);
         authorize(context);
         String visibleFields = getBaseResolver().loadVisibleResult(context);
         if (StringUtil.isEmpty(visibleFields)) {
             return BaseResponse.failure("E_NOT_FOUND", "未找到该用户");
         }
         List<SysOrgUser> list = getBaseService().selectListWithFields(criteria, pages, visibleFields);
-        return BaseResponse.success(list, null);
+        long total = getBaseService().countListWithFields(criteria);
+        return BaseResponse.success(list, Map.of("total", total));
     }
 }

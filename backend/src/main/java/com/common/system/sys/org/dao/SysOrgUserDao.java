@@ -84,4 +84,11 @@ public class SysOrgUserDao extends BaseDao<SysOrgUser, SysOrgUserMapper> {
     public List<SysOrgUser> selectListWithFields(SysOrgUser criteria, Pages pages, String visibleFields) {
         return getBaseMapper().selectListWithFields(criteria, pages, visibleFields);
     }
+
+    /**
+     * 列表总数统计：与 selectListWithFields 同条件，供 metadata.total 返回
+     */
+    public long countListWithFields(SysOrgUser criteria) {
+        return getBaseMapper().countListWithFields(criteria);
+    }
 }

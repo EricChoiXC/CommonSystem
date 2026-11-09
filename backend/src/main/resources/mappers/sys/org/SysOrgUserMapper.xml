@@ -142,11 +142,8 @@
         WHERE u.field_id = #{fieldId}
     </select>
 
-    <select id="selectList" resultMap="SysOrgUserResultMap">
-        SELECT
-        <include refid="BaseColumns"/>
-        FROM sys_org_user u
-        LEFT JOIN sys_org_element e ON e.field_id = u.field_id
+    <!-- 列表查询条件：selectList / selectListWithFields / countListWithFields 共用 -->
+    <sql id="ListWhereClause">
         <where>
             <if test="model.fieldId != null and model.fieldId != ''">AND u.field_id = #{model.fieldId}</if>
             <if test="model.fieldCode != null and model.fieldCode != ''">AND e.field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
@@ -156,6 +153,14 @@
             <if test="model.fieldEmail != null and model.fieldEmail != ''">AND u.field_email LIKE CONCAT('%', #{model.fieldEmail}, '%')</if>
             <if test="model.fieldEnable != null">AND e.field_enable = #{model.fieldEnable}</if>
         </where>
+    </sql>
+
+    <select id="selectList" resultMap="SysOrgUserResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_user u
+        LEFT JOIN sys_org_element e ON e.field_id = u.field_id
+        <include refid="ListWhereClause"/>
         ORDER BY e.field_create_time DESC
         <if test="pages.needPage">
             <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
@@ -175,20 +180,20 @@
         </choose>
         FROM sys_org_user u
         LEFT JOIN sys_org_element e ON e.field_id = u.field_id
-        <where>
-            <if test="model.fieldId != null and model.fieldId != ''">AND u.field_id = #{model.fieldId}</if>
-            <if test="model.fieldCode != null and model.fieldCode != ''">AND e.field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
-            <if test="model.fieldName != null and model.fieldName != ''">AND e.field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
-            <if test="model.fieldLoginName != null and model.fieldLoginName != ''">AND u.field_login_name LIKE CONCAT('%', #{model.fieldLoginName}, '%')</if>
-            <if test="model.fieldPhone != null and model.fieldPhone != ''">AND u.field_phone LIKE CONCAT('%', #{model.fieldPhone}, '%')</if>
-            <if test="model.fieldEmail != null and model.fieldEmail != ''">AND u.field_email LIKE CONCAT('%', #{model.fieldEmail}, '%')</if>
-            <if test="model.fieldEnable != null">AND e.field_enable = #{model.fieldEnable}</if>
-        </where>
+        <include refid="ListWhereClause"/>
         ORDER BY e.field_create_time DESC
         <if test="pages.needPage">
             <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
             LIMIT #{pages.pageSize} OFFSET #{offset}
         </if>
+    </select>
+
+    <!-- 列表总数统计：与 selectListWithFields 同条件，供 metadata.total 返回（计数与可见字段裁剪无关） -->
+    <select id="countListWithFields" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_org_user u
+        LEFT JOIN sys_org_element e ON e.field_id = u.field_id
+        <include refid="ListWhereClause"/>
     </select>
 
     <!--
