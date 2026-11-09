@@ -130,7 +130,7 @@ public class SysStartupTask implements ApplicationRunner {
      * 第一个启动任务：确保内置管理员用户存在。
      * <p>查询 sys_org_user 中 field_id = '0000...0'（'0' 补足 32 位）的用户，
      * 不存在则创建：field_name=管理员、field_code=admin、field_login_name=admin、
-     * field_password=admin（由 {@link SysOrgUserService#insert} 以 BCrypt 加密后入库）。</p>
+     * field_password=123456（由 {@link SysOrgUserService#insert} 以 BCrypt 加密后入库）。</p>
      */
     private void initAdminUser() {
         if (null != sysOrgUserService.selectById(ADMIN_USER_ID)) {
@@ -142,7 +142,7 @@ public class SysStartupTask implements ApplicationRunner {
         admin.setFieldName("管理员");
         admin.setFieldCode("admin");
         admin.setFieldLoginName("admin");
-        admin.setFieldPassword("admin");
+        admin.setFieldPassword("123456");
         admin.setFieldOrgType(ORG_TYPE_USER);
         admin.setFieldLevel(1);
         admin.setFieldIsVirtual(false);

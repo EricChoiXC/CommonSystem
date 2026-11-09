@@ -78,7 +78,7 @@ class SysStartupTaskTest {
                         && "管理员".equals(user.getFieldName())
                         && "admin".equals(user.getFieldCode())
                         && "admin".equals(user.getFieldLoginName())
-                        && "admin".equals(user.getFieldPassword())));
+                        && "123456".equals(user.getFieldPassword())));
     }
 
     @Test
