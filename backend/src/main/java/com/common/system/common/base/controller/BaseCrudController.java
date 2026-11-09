@@ -2,19 +2,38 @@ package com.common.system.common.base.controller;
 
 import com.common.system.common.base.model.BaseModel;
 import com.common.system.common.base.model.BaseRequest;
+import com.common.system.common.base.model.BaseResponse;
+import com.common.system.common.base.model.ImportResultVo;
 import com.common.system.common.base.model.Pages;
 import com.common.system.common.base.resolver.BaseResolver;
 import com.common.system.common.base.service.IBaseService;
+import com.common.system.common.base.service.ImportExportService;
+import com.common.system.common.base.service.ImportRowHandler;
 import com.common.system.common.exception.AuthorizationException;
 import com.common.system.common.resolver.AuthorizationContext;
 import com.common.system.common.resolver.AuthorizationRejectedEvent;
+import com.common.system.common.utils.ImportExportUtils;
 import com.common.system.common.utils.StringUtil;
 import com.common.system.common.utils.UserUtil;
 import com.common.system.sys.org.model.SysOrgUser;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * @author Eric
@@ -30,14 +49,35 @@ public class BaseCrudController<
                 R extends BaseResolver>
         extends BaseController<T, S> {
 
+    /** params JSON 解析器（静态复用：仅解析 Map，无日期等定制需求） */
+    private static final ObjectMapper PARAMS_MAPPER = new ObjectMapper();
+
     private final R baseResolver;
 
     private final ApplicationEventPublisher eventPublisher;
 
+    /** 导入导出公共编排层；null = 未接入模块（exportExcel / importExcel 守卫抛错） */
+    private final ImportExportService importExportService;
+
     protected BaseCrudController(S baseService, R baseResolver, ApplicationEventPublisher eventPublisher) {
+        this(baseService, baseResolver, eventPublisher, null);
+    }
+
+    /**
+     * 四参构造：接入导入导出公共通道的模块传入 ImportExportService，
+     * 未接入模块传 null（既有三参构造委托本构造，既有模块零改动可编译）。
+     *
+     * @param baseService         模块业务服务
+     * @param baseResolver        模块鉴权解析器（必填）
+     * @param eventPublisher      鉴权拒绝事件发布器（必填）
+     * @param importExportService 导入导出公共编排层；null = 未接入
+     */
+    protected BaseCrudController(S baseService, R baseResolver, ApplicationEventPublisher eventPublisher,
+                                 ImportExportService importExportService) {
         super(baseService);
         this.baseResolver = Objects.requireNonNull(baseResolver, "baseResolver must not be null");
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher must not be null");
+        this.importExportService = importExportService;
     }
 
     protected final R getBaseResolver() {
@@ -126,5 +166,101 @@ public class BaseCrudController<
         } catch (RuntimeException e) {
             // 忽略：审计失败不得阻断鉴权
         }
+    }
+
+    /* ==================== 导入导出公共通道（6.6 契约，不含鉴权） ==================== */
+
+    /**
+     * 公共导出：全量查询 → 转导出 VO → 码值转换 + Excel 写出 → 文件流响应。
+     * <p>全量查询口径：request 为 null 时无条件查询（criteria / pages 均传 null，
+     * mapper 对二者均容忍：字段条件均为动态 if、分页仅 pages 非空且 needPage=true
+     * 时生效）；否则 criteria = request.getBody()（可空，等同无条件）、pages 恒为
+     * null（导出无分页）。文件名 = {fileNamePrefix}_{yyyyMMddHHmmss}.xlsx。</p>
+     * <p>公共方法不含鉴权：authorize 留在各 Controller 方法入口；不给本方法加
+     * Swagger 注解（OpenAPI 注解留各模块 Controller 方法）。</p>
+     *
+     * @param request       列表查询请求（null 时无条件全量；body 作 criteria）
+     * @param fileNamePrefix 导出文件名前缀
+     * @param exportVoClass  带 @Export 注解的导出 VO 类
+     * @param converter      实体列表 → 导出 VO 列表转换函数
+     * @return xlsx 文件流响应（attachment）
+     */
+    protected ResponseEntity<Resource> exportExcel(BaseRequest<?> request, String fileNamePrefix,
+            Class<?> exportVoClass, Function<List<T>, List<?>> converter) {
+        requireImportExport();
+        // BaseRequest<?> 的 getBody() 为 capture 类型，无法直接赋给泛型 T；调用方保证与实体类型一致
+        @SuppressWarnings("unchecked")
+        T criteria = null == request ? null : (T) request.getBody();
+        List<T> rows = getBaseService().selectList(criteria, null);
+        List<?> exportRows = converter.apply(rows);
+        byte[] bytes = importExportService.export(exportRows, exportVoClass);
+        return toExcelResponse(bytes, fileNamePrefix + "_"
+                + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")) + ".xlsx");
+    }
+
+    /**
+     * 公共导入：multipart file + params → 编排导入（解析 / 通用校验 / 码值回转 /
+     * rowHandler 模块校验 / 分批 insert）→ 统一响应。
+     * <p>params 为 JSON 对象字符串（如 {"ignoreError":true}）；null / 空白串视为
+     * 空 Map；非法 JSON 抛 {@link IllegalArgumentException}("导入配置解析失败")。</p>
+     *
+     * @param file         上传的 xlsx 文件
+     * @param params       导入参数 JSON 字符串（公共开关 ignoreError；fullUpdate 透传）
+     * @param importVoClass 带 @Export 注解的导入 VO 类
+     * @param rowHandler   模块行级业务校验扩展点；null 时跳过模块校验
+     * @param toEntity     VO → 实体转换函数
+     * @param <V>          导入 VO 类型
+     * @return 统一响应，data 为导入结果（total / success / failed / errors）
+     */
+    protected <V> BaseResponse<ImportResultVo> importExcel(MultipartFile file, String params,
+            Class<V> importVoClass, ImportRowHandler<V> rowHandler, Function<V, T> toEntity) {
+        requireImportExport();
+        Map<String, Object> paramMap = parseParams(params);
+        ImportResultVo result = importExportService.importExcel(file, paramMap, importVoClass,
+                rowHandler, toEntity, getBaseService());
+        return BaseResponse.success(result, null);
+    }
+
+    /**
+     * 公共模板：空模板文件流响应；文件名 = {fileNamePrefix}_template.xlsx。
+     * <p>不守卫：模板走静态 {@link ImportExportUtils}，不需要
+     * {@link ImportExportService}（6.6 原文）。</p>
+     *
+     * @param fileNamePrefix 模板文件名前缀
+     * @param voClass        带 @Export 注解的导入导出 VO 类
+     * @return xlsx 文件流响应（attachment，仅标题行）
+     */
+    protected ResponseEntity<Resource> exportTemplate(String fileNamePrefix, Class<?> voClass) {
+        byte[] bytes = ImportExportUtils.template(voClass);
+        return toExcelResponse(bytes, fileNamePrefix + "_template.xlsx");
+    }
+
+    /** 守卫：模块未接入导入导出公共通道时抛出，提示由四参构造传 Service 接入 */
+    private void requireImportExport() {
+        if (null == importExportService) {
+            throw new IllegalStateException("当前模块未接入导入导出公共通道");
+        }
+    }
+
+    /** params JSON 解析：null / 空白串 → 空 Map；非法 JSON 抛「导入配置解析失败」 */
+    private static Map<String, Object> parseParams(String params) {
+        if (null == params || params.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return PARAMS_MAPPER.readValue(params,
+                    PARAMS_MAPPER.getTypeFactory().constructMapType(LinkedHashMap.class, String.class, Object.class));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("导入配置解析失败", e);
+        }
+    }
+
+    /** xlsx 文件流响应：对齐 i18n 先例（URLEncoder + filename*=UTF-8'' + octet-stream） */
+    private static ResponseEntity<Resource> toExcelResponse(byte[] bytes, String fileName) {
+        String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded)
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(new ByteArrayResource(bytes));
     }
 }

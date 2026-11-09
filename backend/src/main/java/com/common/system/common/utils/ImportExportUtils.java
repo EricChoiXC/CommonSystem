@@ -2,6 +2,8 @@ package com.common.system.common.utils;
 
 import com.alibaba.excel.EasyExcel;
 import com.common.system.common.base.annotation.Export;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -44,6 +46,8 @@ import java.util.Set;
  */
 public final class ImportExportUtils {
 
+    private static final Logger log = LoggerFactory.getLogger(ImportExportUtils.class);
+
     private ImportExportUtils() {
     }
 
@@ -63,8 +67,8 @@ public final class ImportExportUtils {
 
     /**
      * 将列表数据导出为 xlsx 字节（带字典映射重载，供 ImportExportService 传映射）。
-     * <p>dict 字段按 dictMappings 转换为显示值；映射中无对应项时原样写码值
-     * （不失败、不抛错——上层 Service 记 warn，工具层保持静默原样）。</p>
+     * <p>dict 字段按 dictMappings 转换为显示值；映射中无对应项时记 warn 日志
+     * （字段名 / 码值 / 字典名）后原样写码值（不失败、不抛错）。</p></p>
      *
      * @param list         数据列表；null 或空列表时仅含标题行
      * @param clazz        带 @Export 注解的导出 VO 类
@@ -102,6 +106,29 @@ public final class ImportExportUtils {
      * @return 解析出的 VO 列表（文件无数据行时为空列表）
      */
     public static <T> List<T> explain(InputStream in, Class<T> clazz) {
+        List<RowData<T>> rows = explainWithRows(in, clazz);
+        List<T> result = new ArrayList<>(rows.size());
+        for (RowData<T> rowData : rows) {
+            result.add(rowData.getRow());
+        }
+        return result;
+    }
+
+    /**
+     * 解析 xlsx 为带行上下文的列表（固定 VO 通道）。
+     * <p>表头比对口径与 {@link #explain(InputStream, Class)} 完全一致（第一行标题
+     * 与 @Export 标题逐一比对，缺失列 / 多余列 / 标题文本不一致均抛
+     * {@link IllegalArgumentException}）；按「标题文本 → 字段」映射解析，不依赖
+     * 固定列下标。除解析后的 VO 外，同步返回文件行号（从 2 起，1 为标题行）与
+     * 各 @Export 列的原始单元格文本（String 字段已赋值到 VO，非 String 字段
+     * 保持 null，原始文本供编排层做必填 / 日期校验与时间对象回写）。</p>
+     *
+     * @param in    xlsx 输入流
+     * @param clazz 带 @Export 注解的导入 VO 类
+     * @param <T>   VO 类型
+     * @return 带行上下文的解析结果列表（文件无数据行时为空列表）
+     */
+    public static <T> List<RowData<T>> explainWithRows(InputStream in, Class<T> clazz) {
         List<ColumnMeta> columns = resolveColumns(clazz);
         List<Map<Integer, String>> rows = readAllRows(in);
         if (rows.isEmpty()) {
@@ -111,10 +138,11 @@ public final class ImportExportUtils {
         checkHeader(expectedTitles, rows.get(0));
         // 标题文本 → 文件实际列下标（同名标题取先出现者）
         Map<String, Integer> titleIndex = indexTitles(rows.get(0));
-        List<T> result = new ArrayList<>();
+        List<RowData<T>> result = new ArrayList<>();
         for (int i = 1; i < rows.size(); i++) {
             Map<Integer, String> raw = rows.get(i);
             T bean = newInstance(clazz);
+            Map<String, String> rawByField = new LinkedHashMap<>();
             for (ColumnMeta column : columns) {
                 Integer col = titleIndex.get(column.title);
                 if (null == col) {
@@ -122,11 +150,59 @@ public final class ImportExportUtils {
                     continue;
                 }
                 String text = raw.get(col);
-                setFieldValue(bean, column.field, null == text ? "" : text);
+                String normalized = null == text ? "" : text;
+                setFieldValue(bean, column.field, normalized);
+                rawByField.put(column.field.getName(), normalized);
             }
-            result.add(bean);
+            // Excel 行号：表头是第 1 行，数据行下标 i（0 起）对应第 i + 1 行（从 2 起）
+            result.add(new RowData<>(bean, i + 1, rawByField));
         }
         return result;
+    }
+
+    /**
+     * 解析结果：VO + 文件行号 + 各列原始文本（供编排层做时间 / 必填校验与时间对象回写）。
+     *
+     * @param <T> 解析后的 VO 类型
+     */
+    public static class RowData<T> {
+
+        /** 解析后的 VO（String 字段已赋值，Date / LocalDateTime 等非 String 字段保持 null） */
+        private final T row;
+
+        /** 文件行号，从 2 起（1 为标题行） */
+        private final int rowNo;
+
+        /** @Export 字段名（Java 字段名）→ 原始单元格文本（缺失 / null 单元格归一为空串） */
+        private final Map<String, String> rawByField;
+
+        /**
+         * 全参构造
+         *
+         * @param row        解析后的 VO
+         * @param rowNo      文件行号，从 2 起（1 为标题行）
+         * @param rawByField @Export 字段名 → 原始单元格文本
+         */
+        public RowData(T row, int rowNo, Map<String, String> rawByField) {
+            this.row = row;
+            this.rowNo = rowNo;
+            this.rawByField = rawByField;
+        }
+
+        /** 获取解析后的 VO */
+        public T getRow() {
+            return row;
+        }
+
+        /** 获取文件行号（从 2 起，1 为标题行） */
+        public int getRowNo() {
+            return rowNo;
+        }
+
+        /** 获取 @Export 字段名 → 原始单元格文本映射 */
+        public Map<String, String> getRawByField() {
+            return rawByField;
+        }
     }
 
     /**
@@ -367,8 +443,15 @@ public final class ImportExportUtils {
             return text;
         }
         String display = mapping.get(text);
-        // 映射中无对应项：原样写码值，静默不抛错（上层 Service 记 warn）
-        return null == display ? text : display;
+        if (null == display) {
+            // 映射中无对应项：原样写码值，不失败不抛错；空值单元格静默，非空码值记 warn 便于排查字典缺失
+            if (null != text && !text.isEmpty()) {
+                log.warn("导出码值转换: 字段 [{}] 的码值 [{}] 在字典 [{}] 中无对应启用项, 原样写出",
+                        column.field.getName(), text, column.dict);
+            }
+            return text;
+        }
+        return display;
     }
 
     /** 读取属性值（getXxx / isXxx），无 getter 或读取失败返回 null */

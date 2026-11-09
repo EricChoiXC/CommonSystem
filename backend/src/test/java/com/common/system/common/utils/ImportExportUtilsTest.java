@@ -599,6 +599,56 @@ class ImportExportUtilsTest {
         assertTrue(modelMap.isEmpty());
     }
 
+    /* ==================== explainWithRows:带行上下文解析 ==================== */
+
+    @Test
+    void explainWithRowsReturnsRowNoFromTwoAndRawTexts() {
+        byte[] bytes = ImportExportUtils.export(List.of(
+                orderVo("C001", "张三", "备注A"),
+                orderVo("C002", "李四", "备注B")), OrderVo.class);
+
+        List<ImportExportUtils.RowData<OrderVo>> rows =
+                ImportExportUtils.explainWithRows(new ByteArrayInputStream(bytes), OrderVo.class);
+
+        assertEquals(2, rows.size());
+        // 文件行号从 2 起（1 为标题行）
+        assertEquals(2, rows.get(0).getRowNo());
+        assertEquals(3, rows.get(1).getRowNo());
+        // rawByField 含全部 @Export 列的原始文本（按列序声明字段）
+        Map<String, String> rawFirst = rows.get(0).getRawByField();
+        assertEquals(4, rawFirst.size());
+        assertEquals("C001", rawFirst.get("fieldCode"));
+        assertEquals("张三", rawFirst.get("fieldName"));
+        assertEquals("备注A", rawFirst.get("fieldRemark"));
+        assertEquals("", rawFirst.get("fieldMemo"));
+    }
+
+    @Test
+    void explainWithRowsRowMatchesExplainResult() {
+        byte[] bytes = ImportExportUtils.export(List.of(orderVo("C001", "张三", "备注")), OrderVo.class);
+
+        List<OrderVo> explained = ImportExportUtils.explain(new ByteArrayInputStream(bytes), OrderVo.class);
+        List<ImportExportUtils.RowData<OrderVo>> withRows =
+                ImportExportUtils.explainWithRows(new ByteArrayInputStream(bytes), OrderVo.class);
+
+        // 抽取 row 与 explain 解析结果一致（String 字段赋值口径相同）
+        assertEquals(1, explained.size());
+        assertEquals(1, withRows.size());
+        OrderVo row = withRows.get(0).getRow();
+        assertEquals(explained.get(0).getFieldCode(), row.getFieldCode());
+        assertEquals(explained.get(0).getFieldName(), row.getFieldName());
+        assertEquals(explained.get(0).getFieldRemark(), row.getFieldRemark());
+        assertEquals(explained.get(0).getFieldMemo(), row.getFieldMemo());
+    }
+
+    @Test
+    void explainWithRowsEmptyDataReturnsEmptyList() {
+        byte[] bytes = ImportExportUtils.template(OrderVo.class);
+        List<ImportExportUtils.RowData<OrderVo>> rows =
+                ImportExportUtils.explainWithRows(new ByteArrayInputStream(bytes), OrderVo.class);
+        assertTrue(rows.isEmpty(), "template 仅标题行 → 无数据行返回空列表");
+    }
+
     /* ==================== 读回辅助（测试自用） ==================== */
 
     private static Map<String, String> mapOf(String... pairs) {
