@@ -45,6 +45,7 @@ import {
   uploadAttachment,
   viewAttachment
 } from '@/api/attachment'
+import { downloadBlob } from '@/utils/download'
 
 /**
  * 附件组件：提供附件的上传、列表展示、预览、下载与删除
@@ -184,25 +185,14 @@ async function handlePreview(row) {
   }
 }
 
-/** 下载：以附件原名保存文件 */
+/** 下载：以附件原名保存文件（文件名解析与临时 <a> 保存统一走公共下载工具） */
 async function handleDownload(row) {
   try {
     const response = await downloadAttachment(row.fieldId)
-    saveBlob(response.data, row.fieldName || 'download')
+    downloadBlob(response, row.fieldName || 'download')
   } catch (error) {
     ElMessage.error(error.message || '下载失败')
   }
-}
-
-function saveBlob(blob, filename) {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
 }
 
 /** 删除：二次确认后调用删除接口（后端校验上传者本人或附件管理员） */

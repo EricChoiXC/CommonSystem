@@ -8,6 +8,7 @@ import DateTimePicker from './DateTimePicker.vue'
 import Selector from './Selector.vue'
 import TreeSelector from './TreeSelector.vue'
 import CateTableSelector from './CateTableSelector.vue'
+import ImportDialog from './ImportDialog.vue'
 import ProcessApprovalPanel from './process/ProcessApprovalPanel.vue'
 
-export { AddressBook, Attachment, DateTimePicker, Selector, TreeSelector, CateTableSelector, ProcessApprovalPanel }
+export { AddressBook, Attachment, DateTimePicker, Selector, TreeSelector, CateTableSelector, ImportDialog, ProcessApprovalPanel }
