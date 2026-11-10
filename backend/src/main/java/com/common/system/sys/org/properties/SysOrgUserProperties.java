@@ -14,8 +14,7 @@ public class SysOrgUserProperties {
     public static final String ACTION_LIST = "sys.org.user.list";
     public static final String ACTION_CHANGE_PWD = "sys.org.user.changePwd";
     public static final String ACTION_CHECK_PWD_CHANGE = "sys.org.user.checkPwdChange";
-    public static final String ACTION_EXPORT = "sys.org.user.export";
-    public static final String ACTION_IMPORT = "sys.org.user.import";
+    // 导入导出已迁移至 SysOrgElementProperties，见 v1.2 组织架构导入导出
     public static final String ACTION_LOGIN = "sys.org.user.login";
     public static final String ACTION_LOGOUT = "sys.org.user.logout";
 
