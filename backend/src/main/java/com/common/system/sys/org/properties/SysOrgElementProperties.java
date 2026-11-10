@@ -11,7 +11,10 @@ import java.util.Set;
  *              权限规则遵循 docs/设计文档/sys/org/组织架构核心业务设计.md：
  *              查询/普通信息读取不设权（仅要求登录且账号启用）；
  *              新建/删除需要 SYS_ORG_ADMIN / SYS_ORG_ELEMENT_ADMIN / SYS_ORG_ELEMENT_ADD；
- *              编辑/启停用需要 SYS_ORG_ADMIN / SYS_ORG_ELEMENT_ADMIN / SYS_ORG_ELEMENT_EDIT。
+ *              编辑/启停用需要 SYS_ORG_ADMIN / SYS_ORG_ELEMENT_ADMIN / SYS_ORG_ELEMENT_EDIT；
+ *              导出/下载模板需要 SYS_ORG_ADMIN / SYS_ORG_ELEMENT_ADMIN / SYS_ORG_ELEMENT_EXPORT；
+ *              导入需要 SYS_ORG_ADMIN / SYS_ORG_ELEMENT_ADMIN / SYS_ORG_ELEMENT_IMPORT
+ *              （v1.2 组织架构导入导出，见 docs/v1_2-用户管理中心/组织架构列表页面与导入导出改造方案.md）。
  */
 public class SysOrgElementProperties {
 
@@ -21,11 +24,16 @@ public class SysOrgElementProperties {
     public static final String ACTION_UPDATE = "sys.org.element.update";
     public static final String ACTION_ENABLE = "sys.org.element.enable";
     public static final String ACTION_DELETE = "sys.org.element.delete";
+    public static final String ACTION_EXPORT = "sys.org.element.export";
+    public static final String ACTION_IMPORT = "sys.org.element.import";
+    public static final String ACTION_TEMPLATE = "sys.org.element.template";
 
     public static final String ROLE_SYS_ORG_ADMIN = "SYS_ORG_ADMIN";
     public static final String ROLE_SYS_ORG_ELEMENT_ADMIN = "SYS_ORG_ELEMENT_ADMIN";
     public static final String ROLE_SYS_ORG_ELEMENT_ADD = "SYS_ORG_ELEMENT_ADD";
     public static final String ROLE_SYS_ORG_ELEMENT_EDIT = "SYS_ORG_ELEMENT_EDIT";
+    public static final String ROLE_SYS_ORG_ELEMENT_EXPORT = "SYS_ORG_ELEMENT_EXPORT";
+    public static final String ROLE_SYS_ORG_ELEMENT_IMPORT = "SYS_ORG_ELEMENT_IMPORT";
 
     /** 组织架构类型：1=机构 2=部门 3=人员 4=岗位 5=角色 6=群组 */
     public static final int ORG_TYPE_ORG = 1;

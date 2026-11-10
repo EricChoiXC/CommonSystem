@@ -16,7 +16,10 @@ import static com.common.system.sys.org.properties.SysOrgElementProperties.*;
  * @description 组织架构元素(element)维护接口的专属 resolver：
  *              查询/普通信息读取不设权（仅要求已登录且账号启用）；
  *              新建/删除需 SYS_ORG_ADMIN / SYS_ORG_ELEMENT_ADMIN / SYS_ORG_ELEMENT_ADD；
- *              编辑/启停用需 SYS_ORG_ADMIN / SYS_ORG_ELEMENT_ADMIN / SYS_ORG_ELEMENT_EDIT。
+ *              编辑/启停用需 SYS_ORG_ADMIN / SYS_ORG_ELEMENT_ADMIN / SYS_ORG_ELEMENT_EDIT；
+ *              导出/下载模板需 SYS_ORG_ADMIN / SYS_ORG_ELEMENT_ADMIN / SYS_ORG_ELEMENT_EXPORT；
+ *              导入需 SYS_ORG_ADMIN / SYS_ORG_ELEMENT_ADMIN / SYS_ORG_ELEMENT_IMPORT
+ *              （v1.2 组织架构导入导出）。
  *              角色权限码取 sys_org_role.field_code（如 SYS_ORG_ADMIN）；
  *              系统管理员（SYS_ADMIN）自动包含所有权限，由
  *              {@link BaseResolver#hasAnyRole} 统一放行。
@@ -39,6 +42,10 @@ public class ElementResolver extends BaseResolver {
                     ROLE_SYS_ORG_ADMIN, ROLE_SYS_ORG_ELEMENT_ADMIN, ROLE_SYS_ORG_ELEMENT_ADD);
             case ACTION_UPDATE, ACTION_ENABLE -> hasAnyRole(user,
                     ROLE_SYS_ORG_ADMIN, ROLE_SYS_ORG_ELEMENT_ADMIN, ROLE_SYS_ORG_ELEMENT_EDIT);
+            case ACTION_EXPORT, ACTION_TEMPLATE -> hasAnyRole(user,
+                    ROLE_SYS_ORG_ADMIN, ROLE_SYS_ORG_ELEMENT_ADMIN, ROLE_SYS_ORG_ELEMENT_EXPORT);
+            case ACTION_IMPORT -> hasAnyRole(user,
+                    ROLE_SYS_ORG_ADMIN, ROLE_SYS_ORG_ELEMENT_ADMIN, ROLE_SYS_ORG_ELEMENT_IMPORT);
             default -> false;
         };
     }
