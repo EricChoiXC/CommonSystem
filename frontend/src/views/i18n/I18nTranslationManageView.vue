@@ -43,7 +43,7 @@
         <el-button :disabled="!filters.fieldModel" @click="handleExport">
           {{ t('frontend.i18n.translation.export') }}
         </el-button>
-        <el-button v-if="isI18nAdmin" :disabled="!filters.fieldModel" @click="triggerImport">
+        <el-button v-if="isI18nAdmin" :disabled="!filters.fieldModel" @click="importDialogVisible = true">
           {{ t('frontend.i18n.translation.import') }}
         </el-button>
         <el-button
@@ -125,13 +125,16 @@
       {{ t('frontend.common.total', { total: matrixRows.length }) }}
     </div>
 
-    <!-- 隐藏文件选择：导入 .xlsx -->
-    <input
-      ref="importInputRef"
-      type="file"
-      accept=".xlsx"
-      style="display: none"
-      @change="handleImportFile"
+    <!-- 导入弹窗（公共组件）：i18n 无模板下载接口与导入配置（方案假设 A3），
+         不传 templatePath / configFields 传空，公共开关由组件内置展示；
+         导入结果公共字段由组件内置渲染，扩展字段（跳过项）由页面补充提示 -->
+    <ImportDialog
+      v-model="importDialogVisible"
+      :title="t('frontend.i18n.translation.import')"
+      :config-fields="[]"
+      :result="importResult"
+      @confirm="handleConfirmImport"
+      @update:model-value="handleImportDialogClose"
     />
 
     <!-- 提交确认弹窗：仅列出本次改动项 -->
@@ -200,6 +203,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { hasAuth } from '@/utils/auth'
+import { ImportDialog } from '@/components'
+import { downloadBlob } from '@/utils/download'
 import {
   listModels,
   listTranslationMatrix,
@@ -214,7 +219,8 @@ import {
  * 行 = 资源 key（field_key 升序），列 = 启用语言（field_order 升序）；
  * 单元格直接编辑，提交时 diff「加载快照 vs 当前值」→ 确认弹窗列出改动项 → 批量提交；
  * 操作列「重置」按资源行 × 语言（选定语言后二次确认，调 reset 接口）；
- * 工具区导出（全量 xlsx 文件流）与导入（固定覆盖导入，导入前二次确认）。
+ * 工具区导出（全量 xlsx 文件流，downloadBlob 公共下载）与导入（公共 ImportDialog 弹窗，
+ * 固定覆盖导入，方案设计 9.2 节前端对齐）。
  */
 const { t } = useI18n()
 
@@ -376,57 +382,54 @@ async function confirmReset() {
 async function handleExport() {
   try {
     const response = await exportTranslations(filters.fieldModel)
-    // 文件流下载：Content-Disposition attachment; filename*=UTF-8''translations_{model}.xlsx
-    const blob = new Blob([response.data])
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `translations_${filters.fieldModel}.xlsx`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+    // 文件流下载走公共工具：解析 Content-Disposition 的 filename*（后端带时间戳命名），
+    // fallbackName 仅在响应头解析不到时兜底（方案设计 9.2 节导出下载对齐）
+    downloadBlob(response, `translations_${filters.fieldModel}.xlsx`)
   } catch (error) {
     ElMessage.error(error.message || t('frontend.common.loadFailed'))
   }
 }
 
-const importInputRef = ref(null)
+/* ========== 导入（公共 ImportDialog） ========== */
 
-function triggerImport() {
-  importInputRef.value?.click()
+const importDialogVisible = ref(false)
+/** 导入结果（SysI18nTranslationImportResultVo，继承公共 ImportResultVo）：
+ * 公共字段 total / success / failed / errors 由 ImportDialog 内置渲染；
+ * 扩展字段 skippedKeys / skippedLanguages 由页面在确认回调中补充提示 */
+const importResult = ref(null)
+
+/**
+ * 弹窗确认导入：调 i18n 既有 importTranslations（接口不收 params，不走 common#importExcel）。
+ * 成功：结果存入 importResult 供弹窗结果区渲染，跳过项（扩展字段）追加提示，刷新矩阵；
+ * 失败：统一 ElMessage.error，弹窗保持打开便于重选文件。
+ * @param {{ file: File, params: Object }} payload ImportDialog 确认回调（params 后端不消费）
+ */
+async function handleConfirmImport({ file }) {
+  try {
+    const res = await importTranslations(file)
+    importResult.value = res.data || null
+    const result = importResult.value || {}
+    const skippedKeys = result.skippedKeys || []
+    const skippedLanguages = result.skippedLanguages || []
+    if (skippedKeys.length > 0 || skippedLanguages.length > 0) {
+      let message = t('frontend.i18n.translation.importResult', { count: result.success || 0 })
+      if (skippedKeys.length > 0) {
+        message += t('frontend.i18n.translation.importSkippedKeys', { keys: skippedKeys.join(', ') })
+      }
+      if (skippedLanguages.length > 0) {
+        message += t('frontend.i18n.translation.importSkippedLanguages', { languages: skippedLanguages.join(', ') })
+      }
+      ElMessage({ type: 'success', message, duration: 6000, showClose: true })
+    }
+    loadMatrix()
+  } catch (error) {
+    ElMessage.error(error.message || t('frontend.common.loadFailed'))
+  }
 }
 
-function handleImportFile(event) {
-  const file = event.target.files && event.target.files[0]
-  // 允许重复选择同一文件：选择后立即重置 input 值
-  event.target.value = ''
-  if (!file) return
-  ElMessageBox.confirm(
-    t('frontend.i18n.translation.confirm.importText'),
-    t('frontend.i18n.translation.confirm.importTitle'),
-    { type: 'warning' }
-  )
-    .then(async () => {
-      try {
-        const res = await importTranslations(file)
-        const result = res.data || {}
-        const skippedKeys = result.skippedKeys || []
-        const skippedLanguages = result.skippedLanguages || []
-        let message = t('frontend.i18n.translation.importResult', { count: result.updated || 0 })
-        if (skippedKeys.length > 0) {
-          message += t('frontend.i18n.translation.importSkippedKeys', { keys: skippedKeys.join(', ') })
-        }
-        if (skippedLanguages.length > 0) {
-          message += t('frontend.i18n.translation.importSkippedLanguages', { languages: skippedLanguages.join(', ') })
-        }
-        ElMessage({ type: 'success', message, duration: 6000, showClose: true })
-        loadMatrix()
-      } catch (error) {
-        ElMessage.error(error.message || t('frontend.common.loadFailed'))
-      }
-    })
-    .catch(() => {})
+/** 弹窗关闭：清理结果区，下次打开不残留上次结果 */
+function handleImportDialogClose() {
+  importResult.value = null
 }
 
 onMounted(() => {

@@ -113,7 +113,8 @@ export function exportTranslations(fieldModel) {
 /**
  * 导入翻译（multipart 上传 xlsx，固定覆盖导入）
  * @param {File} file 翻译 xlsx 文件（列头与导出一致）
- * @returns {Promise<Object>} BaseResponse，data 为 { updated, skippedKeys, skippedLanguages }
+ * @returns {Promise<Object>} BaseResponse，data 为 SysI18nTranslationImportResultVo
+ *   （继承公共 ImportResultVo：total/success/failed/errors + 扩展字段 skippedKeys/skippedLanguages）
  */
 export function importTranslations(file) {
   const formData = new FormData()
