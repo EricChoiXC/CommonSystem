@@ -31,4 +31,10 @@ public class SysOrgElement extends MainModel {
 
     /** 是否虚拟组织 */
     private boolean fieldIsVirtual;
+
+    /** 名称拼音全称(小写,后端按 field_name 自动生成) */
+    private String fieldPinyin;
+
+    /** 名称拼音简称(首字母小写,后端按 field_name 自动生成) */
+    private String fieldPinyinShort;
 }

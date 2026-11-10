@@ -19,6 +19,8 @@
         <id column="field_id" property="fieldId"/>
         <result column="field_code" property="fieldCode"/>
         <result column="field_name" property="fieldName"/>
+        <result column="field_pinyin" property="fieldPinyin"/>
+        <result column="field_pinyin_short" property="fieldPinyinShort"/>
         <result column="field_parent_id" property="fieldParentId"/>
         <result column="field_hierarchy" property="fieldHierarchy"/>
         <result column="field_level" property="fieldLevel"/>
@@ -32,7 +34,7 @@
     </resultMap>
 
     <sql id="BaseColumns">
-        field_id, field_code, field_name, field_parent_id,
+        field_id, field_code, field_name, field_pinyin, field_pinyin_short, field_parent_id,
         field_hierarchy, field_level, field_org_type, field_is_virtual,
         field_creator_id, field_create_time, field_updater_id, field_update_time, field_enable
     </sql>
@@ -41,7 +43,7 @@
         INSERT INTO sys_org_element (
         <include refid="BaseColumns"/>
         ) VALUES (
-        #{model.fieldId}, #{model.fieldCode}, #{model.fieldName}, #{model.fieldParentId},
+        #{model.fieldId}, #{model.fieldCode}, #{model.fieldName}, #{model.fieldPinyin}, #{model.fieldPinyinShort}, #{model.fieldParentId},
         #{model.fieldHierarchy}, #{model.fieldLevel}, #{model.fieldOrgType}, #{model.fieldIsVirtual},
         #{model.fieldCreatorId}, #{model.fieldCreateTime}, #{model.fieldUpdaterId}, #{model.fieldUpdateTime}, #{model.fieldEnable}
         )
@@ -52,6 +54,8 @@
         <set>
             <if test="model.fieldCode != null">field_code = #{model.fieldCode},</if>
             <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldPinyin != null">field_pinyin = #{model.fieldPinyin},</if>
+            <if test="model.fieldPinyinShort != null">field_pinyin_short = #{model.fieldPinyinShort},</if>
             <if test="model.fieldParentId != null">field_parent_id = #{model.fieldParentId},</if>
             <if test="model.fieldHierarchy != null">field_hierarchy = #{model.fieldHierarchy},</if>
             field_level = #{model.fieldLevel},
@@ -147,7 +151,7 @@
         field_password 永不返回；field_login_name 的可见性裁剪由 Service 层处理。
     -->
     <sql id="VoBaseColumns">
-        e.field_id, e.field_code, e.field_name, e.field_parent_id,
+        e.field_id, e.field_code, e.field_name, e.field_pinyin, e.field_pinyin_short, e.field_parent_id,
         e.field_hierarchy, e.field_level, e.field_org_type, e.field_is_virtual,
         e.field_creator_id, e.field_create_time, e.field_updater_id, e.field_update_time, e.field_enable,
         pe.field_name AS field_parent_name,
@@ -223,6 +227,8 @@
         <id column="field_id" property="fieldId"/>
         <result column="field_code" property="fieldCode"/>
         <result column="field_name" property="fieldName"/>
+        <result column="field_pinyin" property="fieldPinyin"/>
+        <result column="field_pinyin_short" property="fieldPinyinShort"/>
         <result column="field_parent_id" property="fieldParentId"/>
         <result column="field_parent_name" property="fieldParentName"/>
         <result column="field_hierarchy" property="fieldHierarchy"/>
