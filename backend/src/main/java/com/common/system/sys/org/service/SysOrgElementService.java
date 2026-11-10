@@ -400,6 +400,10 @@ public class SysOrgElementService {
         query.setParentId(normalizeParent(query.getParentId()));
         query.setFieldName(StringUtil.isEmpty(query.getFieldName()) ? null : query.getFieldName().trim());
         query.setFieldCode(StringUtil.isEmpty(query.getFieldCode()) ? null : query.getFieldCode().trim());
+        // flat 归一：仅 Boolean.TRUE 生效，其余（null / false）置 null，与树页现状行为完全一致
+        query.setFlat(Boolean.TRUE.equals(query.getFlat()) ? Boolean.TRUE : null);
+        // keyword 归一：trim 后空串置 null（含纯空白），不启用关键字过滤
+        query.setKeyword(StringUtil.isEmpty(query.getKeyword()) ? null : query.getKeyword().trim());
         return query;
     }
 

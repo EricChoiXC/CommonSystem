@@ -145,9 +145,11 @@
     </select>
 
     <!--
-        管理页查询列：公共字段取自 element 主表，父级名称 JOIN 主表自身，
+        管理页查询列：公共字段取自 element 主表，父级名称/编码 JOIN 主表自身(pe)，
         类型专有字段按 field_org_type 用 CASE 归一化（避免多扩展表同名列冲突），
-        负责人名称 LEFT JOIN sys_org_element（leader 关联机构/部门/岗位负责人用户）。
+        负责人名称/编码 LEFT JOIN sys_org_element（leader 关联机构/部门/岗位负责人用户），
+        创建人/修改人名称 LEFT JOIN sys_org_element（cu/uu 关联创建/修改人用户行）。
+        field_parent_code / field_leader_code 供导入导出 converter 取值，列表页不展示。
         field_password 永不返回；field_login_name 的可见性裁剪由 Service 层处理。
     -->
     <sql id="VoBaseColumns">
@@ -155,12 +157,16 @@
         e.field_hierarchy, e.field_level, e.field_org_type, e.field_is_virtual,
         e.field_creator_id, e.field_create_time, e.field_updater_id, e.field_update_time, e.field_enable,
         pe.field_name AS field_parent_name,
+        pe.field_code AS field_parent_code,
         CASE e.field_org_type
             WHEN 1 THEN o.field_leader_id
             WHEN 2 THEN d.field_leader_id
             WHEN 4 THEN p.field_leader_id
         END AS field_leader_id,
         leader.field_name AS field_leader_name,
+        leader.field_code AS field_leader_code,
+        cu.field_name AS field_creator_name,
+        uu.field_name AS field_updater_name,
         CASE e.field_org_type
             WHEN 1 THEN o.field_phone
             WHEN 2 THEN d.field_phone
@@ -192,6 +198,8 @@
                 WHEN 4 THEN p.field_leader_id
             END
         )
+        LEFT JOIN sys_org_element cu ON cu.field_id = e.field_creator_id
+        LEFT JOIN sys_org_element uu ON uu.field_id = e.field_updater_id
     </sql>
 
     <sql id="VoWhereClause">
@@ -199,8 +207,12 @@
             <!-- 角色(5)/群组(6) 不参与组织架构树，组织管理页列表永久排除；
                  与 SysOrgElementProperties.EXCLUDED_ORG_TYPES 保持一致（SQL 内无法引用常量） -->
             AND e.field_org_type NOT IN (5, 6)
-            <!-- parentId 为空表示根节点：仅返回 field_parent_id 为空（根级）的组织架构 -->
+            <!-- parentId：flat=true（全层级平铺，组织架构列表页用）时不拼 parent 条件，
+                 返回所有层级元素；parentId 非空时查询其直接下级；
+                 否则视为根节点：仅返回 field_parent_id 为空（根级）的组织架构（树页现状） -->
             <choose>
+                <when test="query.flat != null and query.flat">
+                </when>
                 <when test="query.parentId != null and query.parentId != ''">
                     AND e.field_parent_id = #{query.parentId}
                 </when>
@@ -208,6 +220,13 @@
                     AND (e.field_parent_id IS NULL OR e.field_parent_id = '')
                 </otherwise>
             </choose>
+            <!-- 单关键字：名称/编码/拼音/拼音首字母四列 OR 模糊匹配（组织架构列表页用） -->
+            <if test="query.keyword != null and query.keyword != ''">
+                AND ( e.field_name LIKE CONCAT('%', #{query.keyword}, '%')
+                   OR e.field_code LIKE CONCAT('%', #{query.keyword}, '%')
+                   OR e.field_pinyin LIKE CONCAT('%', #{query.keyword}, '%')
+                   OR e.field_pinyin_short LIKE CONCAT('%', #{query.keyword}, '%') )
+            </if>
             <if test="query.fieldName != null and query.fieldName != ''">
                 AND e.field_name LIKE CONCAT('%', #{query.fieldName}, '%')
             </if>
@@ -231,17 +250,21 @@
         <result column="field_pinyin_short" property="fieldPinyinShort"/>
         <result column="field_parent_id" property="fieldParentId"/>
         <result column="field_parent_name" property="fieldParentName"/>
+        <result column="field_parent_code" property="fieldParentCode"/>
         <result column="field_hierarchy" property="fieldHierarchy"/>
         <result column="field_level" property="fieldLevel"/>
         <result column="field_org_type" property="fieldOrgType"/>
         <result column="field_is_virtual" property="fieldIsVirtual"/>
         <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_creator_name" property="fieldCreatorName"/>
         <result column="field_create_time" property="fieldCreateTime"/>
         <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_updater_name" property="fieldUpdaterName"/>
         <result column="field_update_time" property="fieldUpdateTime"/>
         <result column="field_enable" property="fieldEnable"/>
         <result column="field_leader_id" property="fieldLeaderId"/>
         <result column="field_leader_name" property="fieldLeaderName"/>
+        <result column="field_leader_code" property="fieldLeaderCode"/>
         <result column="field_phone" property="fieldPhone"/>
         <result column="field_email" property="fieldEmail"/>
         <result column="field_address" property="fieldAddress"/>
