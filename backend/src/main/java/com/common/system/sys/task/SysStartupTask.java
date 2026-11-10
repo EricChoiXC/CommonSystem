@@ -8,6 +8,7 @@ import com.common.system.sys.org.enums.SysOrgAccountStatus;
 import com.common.system.sys.org.enums.SysOrgJobStatus;
 import com.common.system.sys.org.model.SysOrgUser;
 import com.common.system.sys.org.service.SysOrgAuthService;
+import com.common.system.sys.org.service.SysOrgElementService;
 import com.common.system.sys.org.service.SysOrgRoleService;
 import com.common.system.sys.org.service.SysOrgUserService;
 import com.common.system.sys.task.service.SysTaskSchedulerService;
@@ -38,6 +39,7 @@ public class SysStartupTask implements ApplicationRunner {
     private static final int ORG_TYPE_USER = 3;
 
     private final SysOrgUserService sysOrgUserService;
+    private final SysOrgElementService sysOrgElementService;
     private final SysOrgAuthService sysOrgAuthService;
     private final SysOrgRoleService sysOrgRoleService;
     private final ModelCacheService modelCacheService;
@@ -47,6 +49,7 @@ public class SysStartupTask implements ApplicationRunner {
     private final SysI18nSyncService sysI18nSyncService;
 
     public SysStartupTask(SysOrgUserService sysOrgUserService,
+                          SysOrgElementService sysOrgElementService,
                           SysOrgAuthService sysOrgAuthService,
                           SysOrgRoleService sysOrgRoleService,
                           ModelCacheService modelCacheService,
@@ -55,6 +58,7 @@ public class SysStartupTask implements ApplicationRunner {
                           SysDictService sysDictService,
                           SysI18nSyncService sysI18nSyncService) {
         this.sysOrgUserService = sysOrgUserService;
+        this.sysOrgElementService = sysOrgElementService;
         this.sysOrgAuthService = sysOrgAuthService;
         this.sysOrgRoleService = sysOrgRoleService;
         this.modelCacheService = modelCacheService;
@@ -82,6 +86,8 @@ public class SysStartupTask implements ApplicationRunner {
         syncDictFromYml();
         // 第八个启动任务：i18n 初始语言保证 + 扫描 resources/i18n/** 资源按覆盖规则同步 DB + 刷新翻译缓存
         syncI18nFromResources();
+        // 第九个启动任务：组织架构存量数据拼音列回填
+        backfillElementPinyin();
     }
 
     /**
@@ -91,6 +97,18 @@ public class SysStartupTask implements ApplicationRunner {
      */
     private void syncI18nFromResources() {
         sysI18nSyncService.syncFromResources();
+    }
+
+    /**
+     * 第九个启动任务：组织架构存量数据拼音回填。
+     * <p>调 {@link SysOrgElementService#backfillPinyin()}，对 field_pinyin / field_pinyin_short
+     * 存空的行按 field_name 重算，按 field_id 游标分批（每批 500），幂等可重跑。</p>
+     */
+    private void backfillElementPinyin() {
+        int count = sysOrgElementService.backfillPinyin();
+        if (count > 0) {
+            log.info("组织架构存量拼音回填完成，共回写 {} 行", count);
+        }
     }
 
     /**

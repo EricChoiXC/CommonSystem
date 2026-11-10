@@ -317,6 +317,28 @@
         WHERE field_id = #{fieldId}
     </update>
 
+    <!--
+        拼音存量回填游标查询：field_id 大于 lastId 且拼音两列存空的行（升序限量），
+        供 SysStartupTask 启动时分批回填；lastId 传空串从头开始。
+    -->
+    <select id="selectPinyinBackfillList" resultMap="SysOrgElementResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_org_element
+        WHERE field_id > #{lastId}
+          AND (field_pinyin IS NULL OR field_pinyin_short IS NULL)
+        ORDER BY field_id
+        LIMIT #{limit}
+    </select>
+
+    <!-- 拼音回写：仅更新 field_pinyin / field_pinyin_short 两列（含置 null），供存量回填使用 -->
+    <update id="updatePinyin">
+        UPDATE sys_org_element
+        SET field_pinyin = #{fieldPinyin},
+            field_pinyin_short = #{fieldPinyinShort}
+        WHERE field_id = #{fieldId}
+    </update>
+
     <select id="selectIdNameByIds" resultMap="SysOrgElementIdNameResultMap">
         SELECT field_id, field_name
         FROM sys_org_element

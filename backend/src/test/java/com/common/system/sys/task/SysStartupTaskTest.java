@@ -6,6 +6,7 @@ import com.common.system.sys.dict.service.SysDictService;
 import com.common.system.sys.i18n.service.SysI18nSyncService;
 import com.common.system.sys.org.model.SysOrgUser;
 import com.common.system.sys.org.service.SysOrgAuthService;
+import com.common.system.sys.org.service.SysOrgElementService;
 import com.common.system.sys.org.service.SysOrgRoleService;
 import com.common.system.sys.org.service.SysOrgUserService;
 import com.common.system.sys.task.service.SysTaskSchedulerService;
@@ -33,6 +34,7 @@ class SysStartupTaskTest {
     private static final String ADMIN_USER_ID = "0".repeat(32);
 
     private SysOrgUserService sysOrgUserService;
+    private SysOrgElementService sysOrgElementService;
     private SysOrgAuthService sysOrgAuthService;
     private SysOrgRoleService sysOrgRoleService;
     private ModelCacheService modelCacheService;
@@ -45,6 +47,7 @@ class SysStartupTaskTest {
     @BeforeEach
     void setUp() {
         sysOrgUserService = mock(SysOrgUserService.class);
+        sysOrgElementService = mock(SysOrgElementService.class);
         sysOrgAuthService = mock(SysOrgAuthService.class);
         sysOrgRoleService = mock(SysOrgRoleService.class);
         modelCacheService = mock(ModelCacheService.class);
@@ -52,9 +55,9 @@ class SysStartupTaskTest {
         commonSettingService = mock(CommonSettingService.class);
         sysDictService = mock(SysDictService.class);
         sysI18nSyncService = mock(SysI18nSyncService.class);
-        task = new SysStartupTask(sysOrgUserService, sysOrgAuthService, sysOrgRoleService,
-                modelCacheService, sysTaskSchedulerService, commonSettingService, sysDictService,
-                sysI18nSyncService);
+        task = new SysStartupTask(sysOrgUserService, sysOrgElementService, sysOrgAuthService,
+                sysOrgRoleService, modelCacheService, sysTaskSchedulerService, commonSettingService,
+                sysDictService, sysI18nSyncService);
     }
 
     @Test
@@ -94,5 +97,7 @@ class SysStartupTaskTest {
         verify(sysDictService).syncDictFromYml();
         // 第八个启动任务：i18n 资源同步被调用
         verify(sysI18nSyncService).syncFromResources();
+        // 第九个启动任务：组织架构存量拼音回填被调用
+        verify(sysOrgElementService).backfillPinyin();
     }
 }

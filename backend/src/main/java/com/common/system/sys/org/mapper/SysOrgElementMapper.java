@@ -76,6 +76,19 @@ public interface SysOrgElementMapper extends IBaseMapper<SysOrgElement> {
     int updateParentId(@Param("fieldId") String fieldId, @Param("parentId") String parentId);
 
     /**
+     * 拼音存量回填游标查询：取 field_id 大于 lastId 且拼音两列存空的行（升序限量），
+     * 供 SysStartupTask 启动时分批回填；lastId 传空串从头开始。
+     */
+    List<SysOrgElement> selectPinyinBackfillList(@Param("lastId") String lastId, @Param("limit") int limit);
+
+    /**
+     * 拼音回写：仅更新 field_pinyin / field_pinyin_short 两列（含置 null），供存量回填使用。
+     */
+    int updatePinyin(@Param("fieldId") String fieldId,
+                     @Param("fieldPinyin") String fieldPinyin,
+                     @Param("fieldPinyinShort") String fieldPinyinShort);
+
+    /**
      * 轻量批量查询：仅返回 field_id、field_name（不过滤启用状态），
      * 供父级名称/负责人名称等关联信息回填使用。
      */

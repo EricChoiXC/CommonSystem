@@ -83,6 +83,21 @@ public class SysOrgElementDao extends BaseDao<SysOrgElement, SysOrgElementMapper
     }
 
     /**
+     * 拼音存量回填游标查询：取 field_id 大于 lastId 且拼音两列存空的行（升序限量），
+     * 供 SysStartupTask 启动时分批回填；lastId 传空串从头开始
+     */
+    public List<SysOrgElement> selectPinyinBackfillList(String lastId, int limit) {
+        return getBaseMapper().selectPinyinBackfillList(lastId, limit);
+    }
+
+    /**
+     * 拼音回写：仅更新 field_pinyin / field_pinyin_short 两列（含置 null）
+     */
+    public int updatePinyin(String fieldId, String fieldPinyin, String fieldPinyinShort) {
+        return getBaseMapper().updatePinyin(fieldId, fieldPinyin, fieldPinyinShort);
+    }
+
+    /**
      * 轻量批量查询（不过滤启用状态），供父级名称/负责人名称回填
      */
     public List<SysOrgElement> selectIdNameByIds(List<String> ids) {

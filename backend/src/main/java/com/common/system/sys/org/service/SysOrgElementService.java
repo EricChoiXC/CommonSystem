@@ -2,6 +2,7 @@ package com.common.system.sys.org.service;
 
 import com.common.system.common.base.model.Pages;
 import com.common.system.common.utils.PasswordUtil;
+import com.common.system.common.utils.PinyinUtil;
 import com.common.system.common.utils.StringUtil;
 import com.common.system.common.utils.UserUtil;
 import com.common.system.sys.org.dao.SysOrgDeptDao;
@@ -43,6 +44,9 @@ import static com.common.system.sys.org.properties.SysOrgElementProperties.*;
  */
 @Service
 public class SysOrgElementService {
+
+    /** 拼音回填分批大小（按 field_id 游标推进） */
+    private static final int PINYIN_BACKFILL_BATCH_SIZE = 500;
 
     private final SysOrgElementDao elementDao;
     private final SysOrgOrgDao orgDao;
@@ -102,6 +106,9 @@ public class SysOrgElementService {
     @Transactional
     public SysOrgElementVo save(SysOrgElementVo vo) {
         validateCommon(vo);
+        // 名称拼音列由后端按 field_name 统一重算（幂等），前端不传、用户不可改
+        vo.setFieldPinyin(PinyinUtil.toPinyin(vo.getFieldName()));
+        vo.setFieldPinyinShort(PinyinUtil.toPinyinShort(vo.getFieldName()));
         int orgType = vo.getFieldOrgType();
         SysOrgUser current = UserUtil.getCurrentUser();
         Date now = new Date();
@@ -145,6 +152,9 @@ public class SysOrgElementService {
     @Transactional
     public SysOrgElementVo update(SysOrgElementVo vo) {
         validateCommon(vo);
+        // 名称拼音列由后端按 field_name 统一重算（幂等），前端不传、用户不可改
+        vo.setFieldPinyin(PinyinUtil.toPinyin(vo.getFieldName()));
+        vo.setFieldPinyinShort(PinyinUtil.toPinyinShort(vo.getFieldName()));
         int orgType = vo.getFieldOrgType();
         SysOrgElement exist = elementDao.selectById(vo.getFieldId());
         if (null == exist) {
@@ -262,6 +272,39 @@ public class SysOrgElementService {
             }
             default -> elementDao.deleteById(id);
         }
+    }
+
+    /**
+     * 存量数据拼音回填：对 field_pinyin / field_pinyin_short 存空的行按 field_name 重算并写回。
+     * <p>按 field_id 升序游标分批（每批 {@link #PINYIN_BACKFILL_BATCH_SIZE}），幂等可重跑，
+     * 不触碰已有拼音数据；名称无可转字符（拼音计算为 null）的行保持存空。</p>
+     *
+     * @return 实际回写行数
+     */
+    @Transactional
+    public int backfillPinyin() {
+        String lastId = "";
+        int total = 0;
+        while (true) {
+            List<SysOrgElement> batch = elementDao.selectPinyinBackfillList(lastId, PINYIN_BACKFILL_BATCH_SIZE);
+            if (batch.isEmpty()) {
+                break;
+            }
+            for (SysOrgElement element : batch) {
+                lastId = element.getFieldId();
+                String pinyin = PinyinUtil.toPinyin(element.getFieldName());
+                String pinyinShort = PinyinUtil.toPinyinShort(element.getFieldName());
+                if (null == pinyin && null == pinyinShort) {
+                    continue;
+                }
+                elementDao.updatePinyin(element.getFieldId(), pinyin, pinyinShort);
+                total++;
+            }
+            if (batch.size() < PINYIN_BACKFILL_BATCH_SIZE) {
+                break;
+            }
+        }
+        return total;
     }
 
     /* ==================== 私有方法 ==================== */
@@ -419,6 +462,8 @@ public class SysOrgElementService {
         user.setFieldId(vo.getFieldId());
         user.setFieldCode(vo.getFieldCode());
         user.setFieldName(vo.getFieldName());
+        user.setFieldPinyin(vo.getFieldPinyin());
+        user.setFieldPinyinShort(vo.getFieldPinyinShort());
         user.setFieldParentId(vo.getFieldParentId());
         user.setFieldHierarchy(vo.getFieldHierarchy());
         user.setFieldLevel(vo.getFieldLevel());
