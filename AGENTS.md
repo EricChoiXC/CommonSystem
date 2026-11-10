@@ -70,6 +70,7 @@ com.common.system.sys.{模块}
 | `/list`、`/save` | POST | `/backend/sys/org/element/list`、`/backend/sys/att/main/upload` |
 | `/update`、`/enable` | PATCH | `/backend/sys/org/element/update`、`/backend/sys/org/element/enable`（请求体 `{ fieldId, fieldEnable }`） |
 | `/delete?fieldId=` | DELETE | `/backend/sys/org/element/delete` |
+| `/export`、`/import`、`/template` | POST | `/backend/sys/dict/export`、`/backend/sys/dict/import`（multipart：`file` + `params`）、`/backend/sys/dict/template`（导入导出公共通道，先例 dict 试点） |
 
 单 `id` 或无参用 `GET`；含非 `id` 条件用 `POST`；更新只用 `PATCH`（禁 `PUT`）；删除用 `DELETE`。列表请求体 `{ body, pages: { pageNo, pageSize, needPage } }`，总数经 `metadata.total` 返回；响应统一 `BaseResponse`，异常交 `GlobalExceptionHandler`。
 

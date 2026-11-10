@@ -64,6 +64,7 @@
   - `/delete?fieldId=${id}` `DELETE`
   - `/import` `POST`
   - `/export` `POST`
+  - `/template` `POST`（导入模板下载，文件流，仅标题行）
   - `/download?fieldId=${id}` `GET`
 - 单 `id` 或无查询条件读取使用 `GET`。
 - 含复合查询条件的读取与检索使用 `POST`。
@@ -243,6 +244,7 @@
 | 字典主表维护 | `main` | 查询、读取、新建、编辑、删除、启停用 |
 | 字典明细维护 | `detail` | 明细查询、维护、排序 |
 | 字典只读服务 | `lookup` | 面向业务模块的无权限查询接口 |
+| 字典明细导入导出 | `export` POST（文件流）、`import` POST（multipart：`file` + `params`）、`template` POST（模板文件流） | v1.1 导入导出公共通道试点（`/backend/sys/dict/*`），鉴权动作 `sys.dict.itemExport` / `sys.dict.itemImport` / `sys.dict.itemTemplate`，仅 SYS_DICT_ADMIN |
 
 #### 4.7.3 当前冻结的接口方向
 
@@ -262,7 +264,7 @@
 | --- | --- | --- |
 | 语言维护 | `language/list` GET（免鉴权）、`language/save` POST、`language/update` PATCH、`language/delete?fieldId=` DELETE、`language/setDefault` PATCH | 维护四接口仅 SYS_I18N_ADMIN |
 | 模块聚合 | `model/list` GET | 登录即可 |
-| 翻译维护 | `translation/list` POST（顶层 `fieldModel`）、`translation/update` PATCH（批量明细）、`translation/reset` PATCH（key + language）、`translation/export` POST（文件流）、`translation/import` POST（multipart） | 仅 SYS_I18N_ADMIN |
+| 翻译维护 | `translation/list` POST（顶层 `fieldModel`）、`translation/update` PATCH（批量明细）、`translation/reset` PATCH（key + language）、`translation/export` POST（文件流，文件名 `translations_{model}_{yyyyMMddHHmmss}.xlsx`）、`translation/import` POST（multipart） | 仅 SYS_I18N_ADMIN |
 | 部署 | `deploy/run` POST | 仅 SYS_I18N_ADMIN |
 | 前端语言包 | `/locales/{code}.json` GET | 免鉴权 |
 | 用户语言 | `user/language/update` PATCH（body 仅 `fieldLanguage`） | 登录即可 |
