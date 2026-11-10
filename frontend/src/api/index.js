@@ -51,9 +51,38 @@ export function handleUnauthorized(message = '登录已过期，请重新登录'
 }
 
 // 响应拦截：统一解包 BaseResponse，code 非 SUCCESS 视为业务失败；
-// 凭证失效（UNAUTHORIZED / HTTP 401）时自动清理登录态并跳转登录页
+// 凭证失效（UNAUTHORIZED / HTTP 401）时自动清理登录态并跳转登录页；
+// blob 请求（responseType === 'blob'）按响应 Content-Type 区分文件流透传与 Blob 内 JSON 业务失败
 request.interceptors.response.use(
-  (response) => {
+  async (response) => {
+    // blob 请求分支：导出等文件下载走此通道。判定依据：HTTP 200 时若响应头 Content-Type
+    // 含 application/json，说明后端把业务失败 BaseResponse（JSON）包装在 Blob 里返回，
+    // 需解出 code / message 后复用与普通请求一致的统一处理；否则视为文件流。
+    if (response.config && response.config.responseType === 'blob') {
+      const contentType =
+        (response.headers && (response.headers['content-type'] || response.headers['Content-Type'])) || ''
+      if (String(contentType).includes('application/json')) {
+        // HTTP 200 + JSON：业务失败包在 Blob 里，解析后按既有 code 逻辑处理；
+        // Blob -> JSON 解析必须容错，解析失败按空响应处理走「请求失败」兜底
+        let res = null
+        try {
+          res = JSON.parse(await response.data.text())
+        } catch (e) {
+          res = null
+        }
+        if (res && res.code === 'UNAUTHORIZED') {
+          handleUnauthorized(res.message)
+          return Promise.reject(new Error(res.message || '登录已过期，请重新登录'))
+        }
+        if (res && res.code === 'SUCCESS') {
+          return res
+        }
+        const message = (res && res.message) || '请求失败'
+        return Promise.reject(new Error(message))
+      }
+      // 文件流：原样透传完整 AxiosResponse（不解包），调用方消费 response.data（Blob）
+      return response
+    }
     const res = response.data
     if (res && res.code === 'UNAUTHORIZED') {
       handleUnauthorized(res.message)
@@ -65,14 +94,31 @@ request.interceptors.response.use(
     const message = (res && res.message) || '请求失败'
     return Promise.reject(new Error(message))
   },
-  (error) => {
+  async (error) => {
+    // blob 请求出错时 error.response.data 可能是 Blob（HTTP 401 等错误体被 axios 按 blob 解析），
+    // 先把 Blob 还原为文本并尝试解析出 BaseResponse 的 message；
+    // 解析失败（非 JSON）回退为空，走下方既有兜底链，不影响普通请求的错误提示
+    let blobMessage = ''
+    if (error.response && error.response.data instanceof Blob) {
+      try {
+        const parsed = JSON.parse(await error.response.data.text())
+        if (parsed && typeof parsed.message === 'string') {
+          blobMessage = parsed.message
+        }
+      } catch (e) {
+        blobMessage = ''
+      }
+    }
     if (error.response && error.response.status === 401) {
       const message =
-        (error.response.data && error.response.data.message) || '登录已过期，请重新登录'
+        blobMessage ||
+        (error.response.data && error.response.data.message) ||
+        '登录已过期，请重新登录'
       handleUnauthorized(message)
       return Promise.reject(new Error(message))
     }
     const message =
+      blobMessage ||
       (error.response && error.response.data && error.response.data.message) ||
       error.message ||
       '网络错误'
