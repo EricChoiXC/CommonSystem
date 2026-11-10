@@ -15,6 +15,9 @@ import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
@@ -38,13 +41,17 @@ import static org.mockito.Mockito.when;
  *
  * @author Eric
  * @date 2026/11/5
- * @description 覆盖任务清单 I18N4-BE-002 验收标准：
+ * @description 覆盖任务清单 I18N4-BE-002 验收标准，并按 IE3-BE-001 扩展：
  *              <ul>
  *              <li>导出：EasyExcel 动态头（资源名 + 启用语言按 field_order 升序），
- *                  导出文件经 EasyExcel 读回核对（round-trip 基础）；</li>
+ *                  导出文件经 EasyExcel 读回核对（round-trip 基础）；导出文件名带时间戳
+ *                  （translations_{model}_{yyyyMMddHHmmss}.xlsx，IE3-BE-001）；</li>
  *              <li>导入：仅按文件实际包含的 (key, language) 写入并置人工编辑标记
  *                  （field_update_time 非空）；未登记 key 跳过且不插入资源项（D5）、
- *                  无效语言码列跳过；导入后刷新缓存；空文件拒绝。</li>
+ *                  无效语言码列跳过；导入后刷新缓存；空文件拒绝；</li>
+ *              <li>导入结果公共结构（Q6 继承 ImportResultVo）：total = 文件实际包含的
+ *                  (key, language) 格数、success = 实际写入格数、failed = 跳过格数汇总、
+ *                  errors 按跳过 key / 语言逐项生成。</li>
  *              </ul>
  */
 class SysI18nTranslationExcelTest {
@@ -150,6 +157,19 @@ class SysI18nTranslationExcelTest {
         assertThrows(IllegalArgumentException.class, () -> service.export(" "));
     }
 
+    @Test
+    void exportFileNameContainsGenerationTimestamp() {
+        // IE3-BE-001：文件名带时间戳 translations_{model}_{yyyyMMddHHmmss}.xlsx
+        String fileName = service.buildExportFileName("org");
+        assertTrue(fileName.matches("translations_org_\\d{14}\\.xlsx"),
+                "文件名应形如 translations_org_yyyyMMddHHmmss.xlsx，实际: " + fileName);
+        // 时间戳可反解析且与生成时刻同一天同一时刻（容差 1 分钟，跨秒进位）
+        String timestamp = fileName.substring("translations_org_".length(), fileName.length() - ".xlsx".length());
+        LocalDateTime parsed = LocalDateTime.parse(timestamp, DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+        assertTrue(Duration.between(parsed, LocalDateTime.now()).abs().getSeconds() <= 60,
+                "时间戳应为生成时刻附近，实际: " + parsed);
+    }
+
     /* ==================== 导入 ==================== */
 
     @Test
@@ -167,7 +187,12 @@ class SysI18nTranslationExcelTest {
 
         SysI18nTranslationImportResultVo result = service.importTranslations(toUpload(bytes));
 
-        assertEquals(2, result.getUpdated());
+        // 公共字段（IE3-BE-001）：文件实际包含 2 格，全部写入，无跳过
+        assertEquals(2, result.getTotal());
+        assertEquals(2, result.getSuccess());
+        assertEquals(0, result.getFailed());
+        assertNotNull(result.getErrors());
+        assertTrue(result.getErrors().isEmpty(), "全量写入时无错误明细，实际: " + result.getErrors());
         // 已有记录：固定覆盖并置人工编辑标记（field_update_time 由 SQL 置 now）
         verify(translationDao).updateMessageEdited(TRANS_ID, "新标题");
         // 无记录的格：插入且 field_update_time 非空（导入视为人工编辑）
@@ -198,9 +223,22 @@ class SysI18nTranslationExcelTest {
 
         SysI18nTranslationImportResultVo result = service.importTranslations(toUpload(bytes));
 
-        assertEquals(1, result.getUpdated());
+        // 公共字段（IE3-BE-001）：文件 4 格（org.title×zh_CN/xx_XX + ghost.key×zh_CN/xx_XX），
+        // 成功 1 格（org.title×zh_CN），跳过 3 格（ghost.key 2 格 + org.title×xx_XX 1 格）
+        assertEquals(1, result.getSuccess());
+        assertEquals(4, result.getTotal());
+        assertEquals(3, result.getFailed());
+        // 自有字段：跳过 key / 语言列表不变
         assertEquals(List.of("ghost.key"), result.getSkippedKeys());
         assertEquals(List.of("xx_XX"), result.getSkippedLanguages());
+        // errors：按跳过 key / 语言逐项生成（field = key 或语言码，message = 跳过原因）
+        assertEquals(2, result.getErrors().size());
+        assertTrue(result.getErrors().stream().anyMatch(e -> "ghost.key".equals(e.getField())
+                && null != e.getMessage() && !e.getMessage().isEmpty()),
+                "未登记 key 应有错误明细，实际: " + result.getErrors());
+        assertTrue(result.getErrors().stream().anyMatch(e -> "xx_XX".equals(e.getField())
+                && null != e.getMessage() && !e.getMessage().isEmpty()),
+                "无效语言列应有错误明细，实际: " + result.getErrors());
         // D5：不插入资源项
         verify(keyDao, never()).insert(any(SysI18nKey.class));
         // 无效语言列不写翻译

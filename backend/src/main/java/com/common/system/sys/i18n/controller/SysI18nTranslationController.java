@@ -1,6 +1,7 @@
 package com.common.system.sys.i18n.controller;
 
 import com.common.system.common.base.model.BaseResponse;
+import com.common.system.common.base.model.ImportResultVo;
 import com.common.system.common.resolver.AuthorizationContext;
 import com.common.system.common.resolver.AuthorizationHelper;
 import com.common.system.sys.i18n.properties.SysI18nProperties;
@@ -10,7 +11,6 @@ import com.common.system.sys.i18n.request.SysI18nTranslationUpdateRequest;
 import com.common.system.sys.i18n.resolver.I18nResolver;
 import com.common.system.sys.i18n.service.SysI18nTranslationService;
 import com.common.system.sys.i18n.response.SysI18nModelVo;
-import com.common.system.sys.i18n.response.SysI18nTranslationImportResultVo;
 import com.common.system.sys.i18n.response.SysI18nTranslationMatrixVo;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -168,7 +168,8 @@ public class SysI18nTranslationController {
         authorizationHelper.authorize(baseResolver, new AuthorizationContext(ACTION_TRANSLATION_EXPORT));
         String fieldModel = null == request ? null : request.getFieldModel();
         byte[] bytes = translationService.export(fieldModel);
-        String fileName = URLEncoder.encode("translations_" + fieldModel + ".xlsx", StandardCharsets.UTF_8);
+        String fileName = URLEncoder.encode(translationService.buildExportFileName(fieldModel),
+                StandardCharsets.UTF_8);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + fileName)
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
@@ -179,16 +180,23 @@ public class SysI18nTranslationController {
      * 导入翻译：POST /backend/sys/i18n/translation/import（multipart 上传 xlsx）
      * 固定覆盖导入：仅按文件实际包含的 (key, language) 写入；未登记 key、无效语言码列
      * 跳过且不插入资源项（D5）；导入记录写人工编辑标记，导入后刷新缓存。
+     * 结果结构迁移公共契约（Q6）：声明 BaseResponse<ImportResultVo>，实际返回子类
+     * SysI18nTranslationImportResultVo（公共字段 total/success/failed/errors + 扩展字段）。
      *
      * @param file 翻译 xlsx 文件（列头与导出一致）
-     * @return 统一响应，data 为导入结果（更新条数 + 跳过项反馈）
+     * @return 统一响应，data 为导入结果（ImportResultVo 子类实例）
      */
     @PostMapping("/translation/import")
     @Operation(summary = "导入翻译", description = "鉴权动作 " + SysI18nProperties.ACTION_TRANSLATION_IMPORT
             + "（仅 SYS_I18N_ADMIN）；multipart 上传 xlsx（列头与导出一致，支持 round-trip），"
             + "固定覆盖导入：仅按文件实际包含的 (key, language) 写入并置人工编辑标记；"
-            + "未登记 key 与无效语言码列跳过且不插入资源项；导入后刷新缓存")
-    public BaseResponse<SysI18nTranslationImportResultVo> translationImport(
+            + "未登记 key 与无效语言码列跳过且不插入资源项；导入后刷新缓存；"
+            + "返回公共导入结果 total/success/failed/errors（实际为子类，含 skippedKeys/skippedLanguages 扩展）")
+    @ApiResponse(responseCode = "200", description = "导入结果：data 为 SysI18nTranslationImportResultVo"
+            + "（ImportResultVo 子类，公共字段 total/success/failed/errors + skippedKeys/skippedLanguages 扩展）",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = ImportResultVo.class)))
+    public BaseResponse<ImportResultVo> translationImport(
             @Parameter(description = "翻译 xlsx 文件", required = true) @RequestParam("file") MultipartFile file) {
         authorizationHelper.authorize(baseResolver, new AuthorizationContext(ACTION_TRANSLATION_IMPORT));
         return BaseResponse.success(translationService.importTranslations(file), null);

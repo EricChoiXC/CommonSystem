@@ -1,6 +1,7 @@
 package com.common.system.sys.i18n.service;
 
 import com.alibaba.excel.EasyExcel;
+import com.common.system.common.base.model.ImportResultVo;
 import com.common.system.common.utils.StringUtil;
 import com.common.system.common.utils.YmlResourceUtil;
 import com.common.system.sys.i18n.dao.SysI18nKeyDao;
@@ -23,6 +24,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -63,6 +66,9 @@ public class SysI18nTranslationService {
 
     /** 模块中文名键（与 ModelCacheService 读取口径一致） */
     private static final String KEY_MODEL_NAME = "MODEL_NAME";
+
+    /** 导出文件名时间戳格式（translations_{model}_{yyyyMMddHHmmss}.xlsx） */
+    private static final DateTimeFormatter EXPORT_FILE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     private final SysI18nKeyDao keyDao;
     private final SysI18nTranslationDao translationDao;
@@ -375,6 +381,17 @@ public class SysI18nTranslationService {
     }
 
     /**
+     * 导出文件名：translations_{model}_{yyyyMMddHHmmss}.xlsx（带时间戳，时间取生成时刻）。
+     *
+     * @param fieldModel 模块名
+     * @return 导出文件名
+     */
+    public String buildExportFileName(String fieldModel) {
+        return "translations_" + fieldModel + "_"
+                + LocalDateTime.now().format(EXPORT_FILE_TIMESTAMP) + ".xlsx";
+    }
+
+    /**
      * 组装导出行：资源行（field_key 升序）× 启用语言列（field_order 升序）；
      * 无翻译的语言格以空串写出（保持 round-trip 行列对齐）。
      */
@@ -442,9 +459,18 @@ public class SysI18nTranslationService {
      * 并置人工编辑标记（field_update_time = now）；
      * 越界项一律跳过且不插入资源项（D5）：文件中出现但 sys_i18n_key 未登记的 key、
      * 无效（非启用）语言码的列分别记入 skippedKeys / skippedLanguages。
+     * <p>结果映射（公共方案 9.1 口径，Q6 继承 ImportResultVo）：</p>
+     * <ul>
+     * <li>total = 文件实际包含的 (key, language) 格数（EasyExcel 空单元格不入集合，
+     *     按解析到的有值格计，同一文件重复 (key, language) 只计一格）；</li>
+     * <li>success = 实际写入的翻译格数；</li>
+     * <li>failed = 跳过格数汇总：未登记 key 覆盖的全部格 + 已登记 key 中无效语言列覆盖的格；</li>
+     * <li>errors = 按跳过 key / 语言逐项生成（field = key 或语言码，message = 跳过原因，
+     *     row = 0 表示非行级跳过项）。</li>
+     * </ul>
      *
      * @param file    上传的 xlsx 文件
-     * @return 导入结果（更新条数 + 跳过项反馈）
+     * @return 导入结果（公共字段 total/success/failed/errors + 跳过项反馈）
      */
     @Transactional
     public SysI18nTranslationImportResultVo importTranslations(MultipartFile file) {
@@ -459,6 +485,8 @@ public class SysI18nTranslationService {
         result.setSkippedKeys(new ArrayList<>());
         result.setSkippedLanguages(new ArrayList<>());
         int updated = 0;
+        int skippedCells = 0;
+        int totalCells = 0;
         for (String code : languageCodes) {
             if (!enabledCodes.contains(code)) {
                 result.getSkippedLanguages().add(code);
@@ -468,15 +496,20 @@ public class SysI18nTranslationService {
         Map<String, Map<String, String>> cellByLanguage = sheet.cells;
         for (Map.Entry<String, Map<String, String>> entry : cellByLanguage.entrySet()) {
             String key = entry.getKey();
+            Map<String, String> cells = entry.getValue();
+            totalCells += cells.size();
             SysI18nKey registered = keyDao.selectByKey(key);
             if (null == registered) {
-                // 越界项：未登记 key 跳过，不插入资源项（D5）
+                // 越界项：未登记 key 跳过，不插入资源项（D5）；其覆盖的全部格计入跳过格数
                 result.getSkippedKeys().add(key);
+                skippedCells += cells.size();
                 continue;
             }
-            for (Map.Entry<String, String> cell : entry.getValue().entrySet()) {
+            for (Map.Entry<String, String> cell : cells.entrySet()) {
                 String code = cell.getKey();
                 if (!enabledCodes.contains(code)) {
+                    // 已登记 key × 无效语言列的格：计入跳过格数
+                    skippedCells++;
                     continue;
                 }
                 SysI18nTranslation exist = translationDao.selectByKeyAndLanguage(key, code);
@@ -496,12 +529,24 @@ public class SysI18nTranslationService {
                 updated++;
             }
         }
-        result.setUpdated(updated);
+        // 公共字段映射（9.1）：success = 原 updated 计数，failed = 跳过格数汇总
+        result.setTotal(totalCells);
+        result.setSuccess(updated);
+        result.setFailed(skippedCells);
+        // errors：按跳过 key / 语言逐项生成（field = key 或语言码，row = 0 表示非行级跳过项）
+        List<ImportResultVo.RowError> errors = new ArrayList<>();
+        for (String skippedKey : result.getSkippedKeys()) {
+            errors.add(new ImportResultVo.RowError(0, skippedKey, "资源项未登记，已跳过该 key 的全部翻译"));
+        }
+        for (String code : result.getSkippedLanguages()) {
+            errors.add(new ImportResultVo.RowError(0, code, "语言码未启用，已跳过该语言列的全部翻译"));
+        }
+        result.setErrors(errors);
         if (!enabledCodes.isEmpty()) {
             cacheService.cacheTranslations(new ArrayList<>(enabledCodes));
         }
-        log.info("i18n translations imported: updated={}, skippedKeys={}, skippedLanguages={}",
-                updated, result.getSkippedKeys(), result.getSkippedLanguages());
+        log.info("i18n translations imported: total={}, success={}, failed={}, skippedKeys={}, skippedLanguages={}",
+                totalCells, updated, skippedCells, result.getSkippedKeys(), result.getSkippedLanguages());
         return result;
     }
 
