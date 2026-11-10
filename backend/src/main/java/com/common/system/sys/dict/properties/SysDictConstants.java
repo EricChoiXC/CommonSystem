@@ -19,6 +19,12 @@ public class SysDictConstants {
     public static final String ACTION_ITEM_UPDATE = "sys.dict.itemUpdate";
     /** 删除码值项（仅 SYS_DICT_ADMIN） */
     public static final String ACTION_ITEM_DELETE = "sys.dict.itemDelete";
+    /** 导出码值项（仅 SYS_DICT_ADMIN） */
+    public static final String ACTION_ITEM_EXPORT = "sys.dict.itemExport";
+    /** 导入码值项（仅 SYS_DICT_ADMIN） */
+    public static final String ACTION_ITEM_IMPORT = "sys.dict.itemImport";
+    /** 下载码值项导入模板（仅 SYS_DICT_ADMIN） */
+    public static final String ACTION_ITEM_TEMPLATE = "sys.dict.itemTemplate";
     /** 通过类型编号获取码值项（登录即可，供前端和其他模块服务使用） */
     public static final String ACTION_ITEMS = "sys.dict.items";
 

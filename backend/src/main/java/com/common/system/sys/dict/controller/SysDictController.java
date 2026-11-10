@@ -1,18 +1,30 @@
 package com.common.system.sys.dict.controller;
 
 import com.common.system.common.base.controller.BaseCrudController;
+import com.common.system.common.base.model.BaseRequest;
 import com.common.system.common.base.model.BaseResponse;
+import com.common.system.common.base.model.ImportResultVo;
+import com.common.system.common.base.service.ImportExportService;
 import com.common.system.common.resolver.AuthorizationContext;
 import com.common.system.sys.dict.model.SysDictItem;
 import com.common.system.sys.dict.model.SysDictType;
+import com.common.system.sys.dict.request.SysDictItemImportVo;
 import com.common.system.sys.dict.request.SysDictItemsRequest;
 import com.common.system.sys.dict.resolver.DictResolver;
+import com.common.system.sys.dict.response.SysDictItemExportVo;
 import com.common.system.sys.dict.response.SysDictItemVo;
+import com.common.system.sys.dict.service.SysDictItemService;
 import com.common.system.sys.dict.service.SysDictService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.io.Resource;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -20,7 +32,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -34,7 +48,8 @@ import static com.common.system.sys.dict.properties.SysDictConstants.*;
  * @description 码值模块的请求入口：只负责接收请求、基础校验、执行最终鉴权并调用
  *              Service 返回统一响应。每个接口在执行核心业务逻辑前先通过 DictResolver
  *              完成鉴权：类型/码值项列表与「通过类型编号获取码值项」登录即可（页面全员可见），
- *              码值项新增/编辑/删除仅 SYS_DICT_ADMIN（或超管 SYS_ADMIN）。
+ *              码值项新增/编辑/删除、导入/导出/模板下载仅 SYS_DICT_ADMIN（或超管 SYS_ADMIN，
+ *              导入导出走公共导入导出通道）。
  *              接口路径遵循 /backend/{根模块}/{模块}/{次级模块}/{请求方法}。
  */
 @RestController
@@ -42,9 +57,13 @@ import static com.common.system.sys.dict.properties.SysDictConstants.*;
 @Tag(name = "码值", description = "码值管理：类型与码值项查询（登录即可）、码值项维护（仅 SYS_DICT_ADMIN）")
 public class SysDictController extends BaseCrudController<SysDictType, SysDictService, DictResolver> {
 
-    public SysDictController(SysDictService baseService, DictResolver baseResolver,
-                             ApplicationEventPublisher eventPublisher) {
-        super(baseService, baseResolver, eventPublisher);
+    /** 码值项行实体服务：公共导入导出通道的行数据查询与落库（行实体 ≠ Controller 泛型实体） */
+    private final SysDictItemService itemService;
+
+    public SysDictController(SysDictService baseService, SysDictItemService itemService, DictResolver baseResolver,
+                             ApplicationEventPublisher eventPublisher, ImportExportService importExportService) {
+        super(baseService, baseResolver, eventPublisher, importExportService);
+        this.itemService = itemService;
     }
 
     /**
@@ -142,5 +161,76 @@ public class SysDictController extends BaseCrudController<SysDictType, SysDictSe
         authorize(new AuthorizationContext(ACTION_ITEMS));
         String typeCode = null == request ? null : request.getTypeCode();
         return BaseResponse.success(getBaseService().itemsByTypeCode(typeCode), null);
+    }
+
+    /**
+     * 导出码值项：POST /backend/sys/dict/export
+     * 请求体 { body, params }（条件与 /list 同构；导出恒全量，body 作筛选条件）；
+     * 返回 xlsx 文件流，列 = 类型名称 / 显示值 / 码值 / 是否启用（yes_no 码值转换），
+     * 文件名 dict_items_{yyyyMMddHHmmss}.xlsx，导出文件 round-trip 可回传导入。
+     *
+     * @param request 列表查询请求（body 为筛选条件；null 视为无条件全量）
+     * @return 码值项 xlsx 文件流（attachment）
+     */
+    @PostMapping("/export")
+    @Operation(summary = "导出码值项", description = "鉴权动作 " + ACTION_ITEM_EXPORT
+            + "（仅 SYS_DICT_ADMIN）；请求体 { body, params }（条件与 itemList 同构，导出恒全量），"
+            + "返回 xlsx 文件流：列 = 类型名称 / 显示值 / 码值 / 是否启用，"
+            + "文件名 dict_items_{yyyyMMddHHmmss}.xlsx，round-trip 可回传导入")
+    @ApiResponse(responseCode = "200", description = "码值项 xlsx 文件流",
+            content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
+    public ResponseEntity<Resource> export(@RequestBody(required = false) BaseRequest<SysDictItem> request) {
+        authorize(new AuthorizationContext(ACTION_ITEM_EXPORT));
+        return exportExcel("dict_items", SysDictItemExportVo.class,
+                itemService.selectAll(null == request ? null : request.getBody()),
+                getBaseService().exportConverter());
+    }
+
+    /**
+     * 导入码值项：POST /backend/sys/dict/import（multipart/form-data）
+     * file 必填（.xlsx，列 = 类型名称 / 显示值 / 码值 / 是否启用，与模板一致）；
+     * params 可选 JSON（公共开关 ignoreError，默认 false：任一行失败整体抛出回滚）。
+     * 行级校验：类型名称存在且启用 + 同类型下码值唯一（既有 saveItem 同款口径）；
+     * 导入行固定人工码值 field_system = false、field_enable 空默认启用。
+     *
+     * @param file   码值项 xlsx 文件（列头与模板一致）
+     * @param params 导入配置 JSON（如 {"ignoreError":true}；可选，缺省 ignoreError=false）
+     * @return 统一响应，data 为导入结果（total / success / failed / errors）
+     */
+    @PostMapping("/import")
+    @Operation(summary = "导入码值项", description = "鉴权动作 " + ACTION_ITEM_IMPORT
+            + "（仅 SYS_DICT_ADMIN）；multipart/form-data：file（必填，.xlsx，列头与模板一致）+ "
+            + "params（可选 JSON，公共开关 ignoreError 默认 false，任一行失败整体回滚）；"
+            + "行级校验：类型名称存在且启用 + 同类型下码值唯一，导入行固定人工码值 field_system = false")
+    public BaseResponse<ImportResultVo> importItems(
+            @Parameter(description = "码值项 xlsx 文件（列头与模板一致）", required = true)
+            @RequestPart("file") MultipartFile file,
+            @Parameter(description = "导入配置 JSON（如 {\"ignoreError\":true}）；可选，缺省 ignoreError=false")
+            @RequestPart(value = "params", required = false) String params) {
+        authorize(new AuthorizationContext(ACTION_ITEM_IMPORT));
+        return importExcel(file, params, SysDictItemImportVo.class,
+                getBaseService().importRowHandler(), getBaseService().importToEntity(), itemService);
+    }
+
+    /**
+     * 下载码值项导入模板：POST /backend/sys/dict/template
+     * 请求体 { body, params }（与 /export 同构，模板不消费其内容）；返回仅含标题行的
+     * 空模板 xlsx 文件流，列 = 类型名称 / 显示值 / 码值 / 是否启用，
+     * 文件名 dict_items_template.xlsx。
+     *
+     * @param request 请求体（与 /export 同构；内容不消费，允许 null）
+     * @return 空模板 xlsx 文件流（attachment，仅标题行）
+     */
+    @PostMapping("/template")
+    @Operation(summary = "下载码值项导入模板", description = "鉴权动作 " + ACTION_ITEM_TEMPLATE
+            + "（仅 SYS_DICT_ADMIN）；请求体 { body, params }（与 /export 同构，内容不消费），"
+            + "返回仅含标题行的空模板 xlsx 文件流，文件名 dict_items_template.xlsx")
+    @ApiResponse(responseCode = "200", description = "码值项导入模板 xlsx 文件流",
+            content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
+    public ResponseEntity<Resource> template(@RequestBody(required = false) BaseRequest<SysDictItem> request) {
+        authorize(new AuthorizationContext(ACTION_ITEM_TEMPLATE));
+        return exportTemplate("dict_items", SysDictItemExportVo.class);
     }
 }

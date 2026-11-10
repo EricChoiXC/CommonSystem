@@ -35,7 +35,8 @@ public class DictResolver extends BaseResolver {
             return false;
         }
         return switch (context.getAction()) {
-            case ACTION_ITEM_SAVE, ACTION_ITEM_UPDATE, ACTION_ITEM_DELETE -> resolveDictAdmin();
+            case ACTION_ITEM_SAVE, ACTION_ITEM_UPDATE, ACTION_ITEM_DELETE,
+                    ACTION_ITEM_EXPORT, ACTION_ITEM_IMPORT, ACTION_ITEM_TEMPLATE -> resolveDictAdmin();
             default -> resolveLoggedIn();
         };
     }

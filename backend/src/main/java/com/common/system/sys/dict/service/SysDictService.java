@@ -1,12 +1,15 @@
 package com.common.system.sys.dict.service;
 
 import com.common.system.common.base.service.BaseService;
+import com.common.system.common.base.service.ImportRowHandler;
 import com.common.system.common.utils.StringUtil;
 import com.common.system.common.utils.YmlResourceUtil;
 import com.common.system.sys.dict.dao.SysDictItemDao;
 import com.common.system.sys.dict.dao.SysDictTypeDao;
 import com.common.system.sys.dict.model.SysDictItem;
 import com.common.system.sys.dict.model.SysDictType;
+import com.common.system.sys.dict.request.SysDictItemImportVo;
+import com.common.system.sys.dict.response.SysDictItemExportVo;
 import com.common.system.sys.dict.response.SysDictItemVo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,8 +18,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * 码值业务服务
@@ -81,6 +87,140 @@ public class SysDictService extends BaseService<SysDictType, SysDictTypeDao> {
             return List.of();
         }
         return itemDao.selectItemsByTypeCode(code);
+    }
+
+    /* ==================== 导入导出（公共通道，IE4-BE-001） ==================== */
+
+    /** yes_no 字典（common/dict.yml）的码值：1=是 / 0=否，field_enable 列转换用 */
+    private static final String ENABLE_CODE_YES = "1";
+    private static final String ENABLE_CODE_NO = "0";
+    private static final String ENABLE_NAME_YES = "是";
+    private static final String ENABLE_NAME_NO = "否";
+
+    /**
+     * 导出转换器：码值项实体列表 → 导出 VO 列表（BaseCrudController 公共导出通道）。
+     * <p>类型列写「类型名称」（人可读 + round-trip 按名称定位类型，见
+     * {@link #typeIdByName}）；field_enable 写 yes_no 码值（"1"/"0"），
+     * 显示值（是/否）转换由公共层 {@code @Export(dict = "yes_no")} 统一完成。</p>
+     *
+     * @return 转换函数（导出行实体列表 → 导出 VO 列表）
+     */
+    public Function<List<SysDictItem>, List<SysDictItemExportVo>> exportConverter() {
+        return this::toExportVos;
+    }
+
+    /**
+     * 导入行级业务校验（ImportRowHandler，公共导入第 4 步模块承接）：
+     * @Export(required) 非空与 yes_no 码值回转已由公共层完成，此处按既有 saveItem
+     * 同款口径校验模块业务规则——类型存在且启用 + 同类型下码值唯一（既有 save
+     * 仅这两条业务规则，不再新增）。
+     *
+     * @return 校验不通过的消息；通过返回 null
+     */
+    public ImportRowHandler<SysDictItemImportVo> importRowHandler() {
+        return this::validateImportRow;
+    }
+
+    /**
+     * 导入 VO → 行实体映射（BaseCrudController 公共导入通道 toEntity 参数）：
+     * 仅做列值搬运；field_id 由落库通道生成、field_system 由落库通道固定 false
+     * （见 SysDictItemService#insert，saveItem 硬性规则）。
+     *
+     * @return 转换函数（导入 VO → 码值项实体）
+     */
+    public Function<SysDictItemImportVo, SysDictItem> importToEntity() {
+        return this::toItemEntity;
+    }
+
+    /** 实体列表 → 导出 VO 列表（类型名称按 distinct 类型逐个回查） */
+    private List<SysDictItemExportVo> toExportVos(List<SysDictItem> items) {
+        List<SysDictItemExportVo> rows = new ArrayList<>(null == items ? 0 : items.size());
+        if (null == items) {
+            return rows;
+        }
+        Map<String, String> typeNames = typeNamesOf(items);
+        for (SysDictItem item : items) {
+            if (null == item) {
+                continue;
+            }
+            SysDictItemExportVo row = new SysDictItemExportVo();
+            row.setTypeName(typeNames.get(item.getFieldTypeId()));
+            row.setFieldName(item.getFieldName());
+            row.setFieldValue(item.getFieldValue());
+            row.setFieldEnable(enableCode(item.getFieldEnable()));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    /** 码值项类型名称映射（field_type_id → field_name）：已回查过的类型跳过 */
+    private Map<String, String> typeNamesOf(List<SysDictItem> items) {
+        Map<String, String> names = new HashMap<>();
+        for (SysDictItem item : items) {
+            String typeId = null == item ? null : item.getFieldTypeId();
+            if (null == typeId || typeId.isEmpty() || names.containsKey(typeId)) {
+                continue;
+            }
+            SysDictType type = getBaseDao().selectById(typeId);
+            if (null != type) {
+                names.put(typeId, type.getFieldName());
+            }
+        }
+        return names;
+    }
+
+    /** 行级校验：类型存在且启用 + 同类型下码值唯一（saveItem 同款口径；事务内可查见本批已插行，文件内重复码值同样命中） */
+    private String validateImportRow(SysDictItemImportVo row, int rowNo) {
+        String typeId = typeIdByName(row.getTypeName());
+        if (null == typeId) {
+            return "类型名称不存在或未启用: " + row.getTypeName();
+        }
+        SysDictItem exist = itemDao.selectByTypeIdAndValue(typeId, row.getFieldValue());
+        if (null != exist) {
+            return "该类型下已存在相同码值: " + row.getFieldValue();
+        }
+        return null;
+    }
+
+    /** 导入 VO → 码值项实体（列值搬运；类型在行级校验已确认存在，此处兜底拒绝） */
+    private SysDictItem toItemEntity(SysDictItemImportVo row) {
+        String typeId = typeIdByName(row.getTypeName());
+        if (null == typeId) {
+            throw new IllegalArgumentException("类型名称不存在或未启用: " + row.getTypeName());
+        }
+        SysDictItem item = new SysDictItem();
+        item.setFieldTypeId(typeId);
+        item.setFieldName(row.getFieldName());
+        item.setFieldValue(row.getFieldValue());
+        item.setFieldEnable(enableBoolean(row.getFieldEnable()));
+        return item;
+    }
+
+    /** 类型名称 → 类型 ID：精确匹配 field_name 且已启用；不存在或未启用返回 null */
+    private String typeIdByName(String typeName) {
+        if (StringUtil.isEmpty(typeName)) {
+            return null;
+        }
+        for (SysDictType type : getBaseDao().selectAll()) {
+            if (typeName.equals(type.getFieldName()) && Boolean.TRUE.equals(type.getFieldEnable())) {
+                return type.getFieldId();
+            }
+        }
+        return null;
+    }
+
+    /** field_enable 布尔 → yes_no 码值（"1"/"0"；null 防御写空串，列内容不缺列） */
+    private static String enableCode(Boolean enable) {
+        if (null == enable) {
+            return "";
+        }
+        return Boolean.TRUE.equals(enable) ? ENABLE_CODE_YES : ENABLE_CODE_NO;
+    }
+
+    /** 启用列导入归一："0"/「否」→ false；"1"/「是」/空/其它 → true（既有 enable 口径：非「否」一律启用） */
+    private static boolean enableBoolean(String value) {
+        String text = null == value ? "" : value.trim();
+        return !ENABLE_CODE_NO.equals(text) && !ENABLE_NAME_NO.equals(text);
     }
 
     /* ==================== 码值项维护（仅 SYS_DICT_ADMIN，非系统码值） ==================== */

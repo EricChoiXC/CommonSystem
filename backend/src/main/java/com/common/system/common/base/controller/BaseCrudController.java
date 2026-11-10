@@ -187,12 +187,36 @@ public class BaseCrudController<
      */
     protected ResponseEntity<Resource> exportExcel(BaseRequest<?> request, String fileNamePrefix,
             Class<?> exportVoClass, Function<List<T>, List<?>> converter) {
-        requireImportExport();
         // BaseRequest<?> 的 getBody() 为 capture 类型，无法直接赋给泛型 T；调用方保证与实体类型一致
         @SuppressWarnings("unchecked")
         T criteria = null == request ? null : (T) request.getBody();
         List<T> rows = getBaseService().selectList(criteria, null);
-        List<?> exportRows = converter.apply(rows);
+        return exportExcel(fileNamePrefix, exportVoClass, rows, converter);
+    }
+
+    /**
+     * 公共导出（行数据给定重载）：与 {@link #exportExcel(BaseRequest, String, Class, Function)}
+     * 唯一差异是数据行不经泛型实体查询、由调用方直接给定，供「导入导出行实体 ≠ Controller
+     * 泛型实体」的模块使用（dict 试点：泛型实体为 sys_dict_type，行实体为 sys_dict_item，
+     * 泛型实体查询与导入导出对象错位，IE4-BE-001 R3 契约缺口增量）。
+     * <p>转换 → 码值转换 + Excel 写出 → 文件流响应；文件名 = {fileNamePrefix}_{yyyyMMddHHmmss}.xlsx。
+     * 公共方法不含鉴权：authorize 留在各 Controller 方法入口；不给本方法加 Swagger 注解。</p>
+     *
+     * @param fileNamePrefix 导出文件名前缀
+     * @param exportVoClass  带 @Export 注解的导出 VO 类
+     * @param rows           数据行（行实体列表，通常由模块 Dao 全量查询）；null 视为仅标题行
+     * @param converter      行实体列表 → 导出 VO 列表转换函数
+     * @param <E>            行实体类型
+     * @param <R>            转换结果列表类型（Function 返回侧用独立类型变量声明，
+     *                       使 Function&lt;List&lt;E&gt;, List&lt;String&gt;&gt; 等具体返回类型可推断；
+     *                       若声明为 Function&lt;List&lt;E&gt;, List&lt;?&gt;&gt;，E 位于嵌套位置
+     *                       且返回侧为通配符，调用点无法推断 E）
+     * @return xlsx 文件流响应（attachment）
+     */
+    protected <E extends BaseModel, R extends List<?>> ResponseEntity<Resource> exportExcel(String fileNamePrefix,
+            Class<?> exportVoClass, List<E> rows, Function<List<E>, R> converter) {
+        requireImportExport();
+        List<?> exportRows = converter.apply(null == rows ? List.of() : rows);
         byte[] bytes = importExportService.export(exportRows, exportVoClass);
         return toExcelResponse(bytes, fileNamePrefix + "_"
                 + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")) + ".xlsx");
@@ -214,10 +238,32 @@ public class BaseCrudController<
      */
     protected <V> BaseResponse<ImportResultVo> importExcel(MultipartFile file, String params,
             Class<V> importVoClass, ImportRowHandler<V> rowHandler, Function<V, T> toEntity) {
+        return importExcel(file, params, importVoClass, rowHandler, toEntity, getBaseService());
+    }
+
+    /**
+     * 公共导入（落库 Service 给定重载）：与 {@link #importExcel(MultipartFile, String, Class,
+     * ImportRowHandler, Function)} 唯一差异是落库走调用方给定的 {@link IBaseService}，
+     * 供「导入导出行实体 ≠ Controller 泛型实体」的模块使用（dict 试点：泛型实体为
+     * sys_dict_type，行实体为 sys_dict_item，IE4-BE-001 R3 契约缺口增量）。
+     *
+     * @param file              上传的 xlsx 文件
+     * @param params            导入参数 JSON 字符串（公共开关 ignoreError；fullUpdate 透传）
+     * @param importVoClass     带 @Export 注解的导入 VO 类
+     * @param rowHandler        模块行级业务校验扩展点；null 时跳过模块校验
+     * @param toEntity          VO → 实体转换函数
+     * @param persistenceService 行实体落库服务（分批 insert）；通常为行实体所属模块的 Service
+     * @param <V>               导入 VO 类型
+     * @param <E>               行实体类型
+     * @return 统一响应，data 为导入结果（total / success / failed / errors）
+     */
+    protected <V, E extends BaseModel> BaseResponse<ImportResultVo> importExcel(MultipartFile file, String params,
+            Class<V> importVoClass, ImportRowHandler<V> rowHandler, Function<V, E> toEntity,
+            IBaseService<E> persistenceService) {
         requireImportExport();
         Map<String, Object> paramMap = parseParams(params);
         ImportResultVo result = importExportService.importExcel(file, paramMap, importVoClass,
-                rowHandler, toEntity, getBaseService());
+                rowHandler, toEntity, persistenceService);
         return BaseResponse.success(result, null);
     }
 
