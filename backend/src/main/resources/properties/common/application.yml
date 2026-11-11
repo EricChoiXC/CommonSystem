@@ -31,3 +31,5 @@ SETTING:
     login_phone_enable: false
     pwd_change_cycle: 0
     pwd_repeat_limit: 3
+    # 第三方账号绑定总开关（微信/QQ，默认关闭；管理员经系统设置页修改）
+    openid_bind_enable: false

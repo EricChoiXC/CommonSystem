@@ -74,7 +74,8 @@ const CONFIG_META = [
   { fieldKey: 'login_email_enable', fieldDesc: '允许邮箱登录', fieldType: 'bool', fieldDefaultValue: 'false' },
   { fieldKey: 'login_phone_enable', fieldDesc: '允许电话登录', fieldType: 'bool', fieldDefaultValue: 'false' },
   { fieldKey: 'pwd_change_cycle', fieldDesc: '定期更换密码周期（天）', fieldType: 'int', fieldDefaultValue: '0' },
-  { fieldKey: 'pwd_repeat_limit', fieldDesc: '不可重复设定密码次数', fieldType: 'int', fieldDefaultValue: '3' }
+  { fieldKey: 'pwd_repeat_limit', fieldDesc: '不可重复设定密码次数', fieldType: 'int', fieldDefaultValue: '3' },
+  { fieldKey: 'openid_bind_enable', fieldDesc: '开启第三方账号绑定（微信/QQ）', fieldType: 'bool', fieldDefaultValue: 'false' }
 ]
 
 const loading = ref(false)

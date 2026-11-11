@@ -1,6 +1,17 @@
 MODEL_KEY: "SYS-ORG"
 MODEL_NAME: "组织架构和权限模块"
 version: "1.0.0"
+# 第三方账号绑定 OAuth 凭证（部署级，不入设置页）：field_type=openid，
+# 启动经 CommonSettingService 同步入 common_setting（GET /common/setting/load 只返回 system 类型，凭证不下发前端）。
+# 环境变量覆盖见 application.properties 的 CS_ORG_* 桥接键（common.org.openid.*）。
+# 两层结构（SETTING.openid.*），禁三层嵌套。
+SETTING:
+  openid:
+    wechat_app_id: ""
+    wechat_app_secret: ""
+    qq_app_id: ""
+    qq_app_secret: ""
+    redirect_base: ""   # 回调基础地址，如 https://erp.example.com；redirect_uri = {redirect_base}/backend/sys/org/profile/openid/callback
 # 流程分类配置（process_template，由本模块自行维护）：
 # 二级配置项 key 即 sys_process_template.field_model_name 值；
 # name 为模板管理页分类显示名，class 为该分类流程对应的文档实体类，
