@@ -275,4 +275,15 @@
            OR field_openid->>'$.qq.openid' = #{openid}
     </select>
 
+    <!--
+        第三方账号绑定解绑（PF3-BE-002，方案 4.4）：双渠道均未绑定时整列置 NULL——
+        通用 update 对 field_openid 是 <if test="model.fieldOpenid != null"> 条件写，
+        null 值落不了 NULL，须经本语句显式置空。
+    -->
+    <update id="clearOpenid" parameterType="string">
+        UPDATE sys_org_user
+        SET field_openid = NULL
+        WHERE field_id = #{fieldId}
+    </update>
+
 </mapper>

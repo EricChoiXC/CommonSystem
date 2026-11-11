@@ -91,4 +91,20 @@ public class SysOrgUserDao extends BaseDao<SysOrgUser, SysOrgUserMapper> {
     public long countListWithFields(SysOrgUser criteria) {
         return getBaseMapper().countListWithFields(criteria);
     }
+
+    /**
+     * 第三方账号 openid 查重（PF3-BE-002，方案 4.4）：openid 全局唯一，绑定/换绑前
+     * 校验该 openid 是否已被其他用户绑定，计数 > 0 即拒绝（无本人豁免，方案 4.4 字面）
+     */
+    public long countDuplicateOpenid(String openid) {
+        return getBaseMapper().countDuplicateOpenid(openid);
+    }
+
+    /**
+     * 双渠道均未绑定时整列置 NULL（PF3-BE-002，方案 4.4 解绑）：通用 update 对
+     * field_openid 是 <if> 条件写（null 落不了 NULL），须经本包装走专用置 NULL SQL
+     */
+    public int clearOpenid(String fieldId) {
+        return getBaseMapper().clearOpenid(fieldId);
+    }
 }

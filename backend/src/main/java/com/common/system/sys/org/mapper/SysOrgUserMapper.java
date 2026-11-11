@@ -61,4 +61,13 @@ public interface SysOrgUserMapper extends IBaseMapper<SysOrgUser> {
      */
     long countListWithFields(@Param("model") SysOrgUser model);
 
+    /**
+     * 解绑后双渠道均未绑定时整列置 NULL（PF3-BE-002，方案 4.4）：通用 update 对
+     * field_openid 是 <if> 条件写（null 落不了 NULL），本语句专用显式置 NULL
+     *
+     * @param fieldId 人员ID（sys_org_user.field_id）
+     * @return 影响行数
+     */
+    int clearOpenid(@Param("fieldId") String fieldId);
+
 }
