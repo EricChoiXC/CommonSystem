@@ -281,3 +281,36 @@ export function previewTreeChildren(body) {
 export function loadProfile() {
   return request.get('/backend/sys/org/profile/load')
 }
+
+/**
+ * 个人资料 - 保存本人个人资料（个人资料页）
+ * 本人自助语义，无 userId 参数，操作对象由后端会话定位；
+ * data 含 fieldId（与会话用户一致性断言，前端取登录态 userStore.userInfo.fieldId 回传）
+ * + fieldName / fieldPhone / fieldEmail / fieldAddress / fieldGender / fieldBirthday；
+ * 登录名只读不接收（不在入参中，后端亦不更新）。
+ * @param {Object} data { fieldId, fieldName, fieldPhone, fieldEmail, fieldAddress, fieldGender, fieldBirthday }
+ * @returns {Promise<Object>} BaseResponse<Void>
+ */
+export function saveProfile(data) {
+  return request.post('/backend/sys/org/profile/save', data)
+}
+
+/**
+ * 个人资料 - 获取第三方账号绑定授权页跳转地址
+ * @param {Object} data { channel: 'wechat' | 'qq' }
+ * @returns {Promise<Object>} BaseResponse，data 为 { bindUrl }，
+ *   前端对 bindUrl 整页跳转（window.location.href）；
+ *   总开关关闭或渠道凭证未配置时后端报业务错误。
+ */
+export function getOpenidBindUrl(data) {
+  return request.post('/backend/sys/org/profile/openid/bindUrl', data)
+}
+
+/**
+ * 个人资料 - 解绑第三方账号
+ * @param {Object} data { channel: 'wechat' | 'qq' }
+ * @returns {Promise<Object>} BaseResponse<Void>；解绑未绑定渠道幂等成功
+ */
+export function unbindOpenid(data) {
+  return request.post('/backend/sys/org/profile/openid/unbind', data)
+}

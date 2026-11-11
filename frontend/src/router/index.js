@@ -94,6 +94,15 @@ const routes = [
         meta: { title: '群组详情', parent: '组织架构', tab: 'name' }
       },
       {
+        path: 'profile',
+        name: 'OrgProfile',
+        component: () => import('@/views/org/ProfileView.vue'),
+        // 本人自助页面（PF4-FE-002）：登录即可访问，无菜单归属（方案 4.5），
+        // 不设 parent（面包屑仅「个人资料」）与 auth（仅登录校验）；
+        // tab: 'name' 为工程通用写法，标签去重键取路由 name。
+        meta: { title: '个人资料', tab: 'name' }
+      },
+      {
         path: 'role',
         name: 'RoleManage',
         component: () => import('@/views/org/RoleManageView.vue'),
