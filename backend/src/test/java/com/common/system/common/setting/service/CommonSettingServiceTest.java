@@ -142,7 +142,7 @@ class CommonSettingServiceTest {
         verify(dao).insert(argThat(setting ->
                 "notify".equals(setting.getFieldType())
                         && "notify_handle_subject".equals(setting.getFieldKey())));
-        assertEquals(29, handled);
+        assertEquals(35, handled);
     }
 
     /* ==================== 内部读取 ==================== */
