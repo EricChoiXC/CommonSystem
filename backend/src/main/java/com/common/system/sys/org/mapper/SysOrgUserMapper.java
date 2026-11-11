@@ -43,6 +43,15 @@ public interface SysOrgUserMapper extends IBaseMapper<SysOrgUser> {
      */
     SysOrgUser selectByPhone(@Param("phone") String phone);
 
+    /**
+     * 第三方账号 openid 查重：openid 全局唯一，绑定/换绑前须校验该 openid
+     * 是否已被任何渠道（微信/QQ）的其他用户绑定（见开发方案 4.1 节）
+     *
+     * @param openid 待校验的第三方 openid
+     * @return 已绑定该 openid 的用户数（0 表示可用）
+     */
+    long countDuplicateOpenid(@Param("openid") String openid);
+
     SysOrgUser selectByIdWithFields(@Param("fieldId") String id, @Param("visibility") String visibility);
 
     List<SysOrgUser> selectListWithFields(@Param("model") SysOrgUser model, @Param("pages") Pages pages, @Param("visibility") String visibility);

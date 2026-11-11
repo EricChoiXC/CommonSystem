@@ -102,7 +102,7 @@ com.common.system.sys.{模块}
 > `docs/开发规范.md`「三：系统统一规范」中的字段清单写作 `field_updator_id` 是笔误，迁移脚本与实体均为 **`field_updater_id`**。
 > 流水/日志类表只增不改，不设 `field_enable` / `field_update_time` / `field_updater_id`（先例 `sys_log_operation`、`sys_task_history`）。
 
-**迁移**：目录 `db/migration/`，命名 `V{大版本}_{小版本}_{序号}__{英文下划线描述}.sql`。当前最新为 `V1_01_041`，新脚本从 `V1_01_042` 起递增，不得复用或跳回旧序号；改表结构必须同时补脚本。与 ERP 工程合并部署时，`V1_01_020` 等 ERP 专属脚本保留在 ERP 侧执行，本仓库不得重复引入，包名反向替换规则见 [docs/迁移说明.md](D:/Program/CommonSystem/docs/迁移说明.md)。
+**迁移**：目录 `db/migration/`，命名 `V{大版本}_{小版本}_{序号}__{英文下划线描述}.sql`。当前最新为 `V1_01_042`，新脚本从 `V1_01_043` 起递增，不得复用或跳回旧序号；改表结构必须同时补脚本。与 ERP 工程合并部署时，`V1_01_020` 等 ERP 专属脚本保留在 ERP 侧执行，本仓库不得重复引入，包名反向替换规则见 [docs/迁移说明.md](D:/Program/CommonSystem/docs/迁移说明.md)。
 
 **树形表**：当前只有 `sys_org_element` 一张。字段为 `field_parent_id`（根级 `NULL`）、`field_hierarchy`（`/id1/id2/`）、`field_level`，前两者建索引（`idx_org_element_parent`、`idx_org_element_hierarchy`）。保存时由 `SysOrgElementService#rebuildHierarchy` 计算层级，父级变更后递归修正子树（`rebuildChildren`）；新父级不能是自身或后代（按 `hierarchy` 前缀判定）。`updateEnable` 只更新自身一行、**不级联后代**——若需级联停用，先补需求文档与前端提示再改 Service 与 SQL。
 

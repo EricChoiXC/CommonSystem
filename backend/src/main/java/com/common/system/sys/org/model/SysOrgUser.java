@@ -50,6 +50,9 @@ public class SysOrgUser extends SysOrgElement {
     /** 最后修改密码时间 */
     private Date fieldLastChgPwdTime;
 
+    /** 第三方账号绑定信息(JSON字符串，结构见 SysOrgUserOpenidDo) */
+    private String fieldOpenid;
+
     /** 角色 */
     private List<SysOrgRole> roles;
     /** 权限Code */
