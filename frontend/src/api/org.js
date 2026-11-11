@@ -269,3 +269,15 @@ export function previewRole(elementId) {
 export function previewTreeChildren(body) {
   return request.post('/backend/sys/org/preview/treeChildren', body)
 }
+
+/* ==================== 个人资料（profile） ==================== */
+
+/**
+ * 个人资料 - 加载本人个人资料（个人资料页/顶栏头像）：
+ * 本人自助语义，无 userId 参数，操作对象由后端会话定位；
+ * data 含基础资料 + avatarAttId + openid 绑定状态 + 渠道开关。
+ * @returns {Promise<Object>} BaseResponse，data 为本人个人资料对象
+ */
+export function loadProfile() {
+  return request.get('/backend/sys/org/profile/load')
+}

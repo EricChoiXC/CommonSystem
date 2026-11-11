@@ -1,6 +1,6 @@
 <template>
   <div class="home-layout">
-    <!-- 顶部菜单栏：LOGO + 路由面包屑 + 用户信息/登出 -->
+    <!-- 顶部菜单栏：LOGO + 路由面包屑 + 用户信息下拉（个人信息/退出登录） -->
     <header class="layout-header">
       <div class="header-left">
         <!-- LOGO：显示系统应用名称，取后端 application.name（为空时回退默认应用名） -->
@@ -81,10 +81,21 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-avatar :size="26" class="header-avatar">{{ avatarText }}</el-avatar>
-        <span class="header-username">{{ userName }}</span>
-        <span class="header-dept">{{ deptName }}</span>
-        <el-button type="danger" size="small" plain @click="handleLogout">登出</el-button>
+        <!-- 用户区下拉(hover 触发):头像/姓名/部门为触发区,菜单项为 个人信息 + 退出登录 -->
+        <el-dropdown class="header-user" trigger="hover" @command="handleUserCommand">
+          <div class="header-user-trigger">
+            <img v-if="profileStore.avatarUrl" class="header-avatar-img" :src="profileStore.avatarUrl" alt="头像" />
+            <el-avatar v-else :size="26" class="header-avatar">{{ avatarText }}</el-avatar>
+            <span class="header-username">{{ userName }}</span>
+            <span class="header-dept">{{ deptName }}</span>
+          </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="profile">个人信息</el-dropdown-item>
+              <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </header>
 
@@ -171,10 +182,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElNotification } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { useNotifyStore } from '@/stores/notify'
+import { useProfileStore } from '@/stores/profile'
 import { useLanguageStore } from '@/stores/language'
 import { hasAuth } from '@/utils/auth'
 import { logout } from '@/api/sys'
-import { loadAddressBook } from '@/api/org'
+import { loadAddressBook, loadProfile } from '@/api/org'
 import { queryTodayCalendar } from '@/api/calendar'
 import { getInitInfo } from '@/api/common'
 import { listLanguages } from '@/api/i18n'
@@ -188,6 +200,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const notifyStore = useNotifyStore()
 const languageStore = useLanguageStore()
+const profileStore = useProfileStore()
 const { t } = useI18n()
 
 /* ========== 顶部栏语言切换（不落库，仅 locale + localStorage） ========== */
@@ -380,6 +393,35 @@ const avatarText = computed(() => (userName.value ? userName.value.charAt(0) : '
 // 所属部门：登录返回的用户信息不含部门名称，按父级组织 ID 经地址本 load 回填；
 // 未挂组织或查询失败时显示 '-'
 const deptName = ref('-')
+
+/* ========== 顶栏头像（PF4-FE-001） ========== */
+
+/**
+ * 顶栏头像加载：读本人个人资料取 avatarAttId，经 profileStore.applyAvatarAttId 统一处理
+ * （有头像→取 Blob 生成 blob URL 绑 <img>；无头像/请求失败→store 内置回退，首字符头像兜底，不影响主界面）
+ */
+async function loadHeaderAvatar() {
+  try {
+    const res = await loadProfile()
+    const attId = res && res.data && res.data.avatarAttId
+    profileStore.applyAvatarAttId(attId || null)
+  } catch {
+    // 资料接口失败不影响主界面：保持当前头像状态（首字符头像兜底）
+  }
+}
+
+/**
+ * 用户区下拉命令分发：个人信息→/profile（路由由 PF4-FE-002 落地，本任务仅跳转）；
+ * 退出登录→复用 handleLogout（与下拉菜单外的登出路径等价）
+ */
+function handleUserCommand(command) {
+  if (command === 'profile') {
+    router.push('/profile')
+  } else if (command === 'logout') {
+    handleLogout()
+  }
+}
+
 const todayCalendarList = ref([])
 const calendarPopoverRef = ref(null)
 
@@ -466,6 +508,8 @@ onMounted(async () => {
   loadLanguageOptions()
   // 检查是否需要强制修改密码
   checkForceChangePwd()
+  // 加载顶栏头像（本人个人资料 → avatarAttId → profileStore）
+  loadHeaderAvatar()
   const parentId = userStore.userInfo && userStore.userInfo.fieldParentId
   if (!parentId) return
   try {
@@ -522,6 +566,7 @@ async function handleLogout() {
     // 登出接口失败不阻塞本地登出，会话 token 一并清理
   }
   userStore.logout()
+  profileStore.reset() // 登出清头像缓存（revoke blob URL，会话级缓存登出失效）
   clearVisitedTabs()
   ElMessage.success('已退出登录')
   router.replace('/login')
@@ -826,6 +871,27 @@ function handleTabMgmtCommand(command) {
 .header-dept {
   font-size: 13px;
   color: #909399;
+}
+
+/* —— 用户区下拉(hover 触发):头像/姓名/部门为触发区,菜单项 个人信息/退出登录 —— */
+.header-user {
+  cursor: pointer;
+}
+
+/* 触发区内部布局:与 header-user-box 的 gap 保持一致(原头像/姓名/部门间为 10px) */
+.header-user-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* blob 头像图片:与 el-avatar 同规格(26px 圆形),裁剪填充防拉伸 */
+.header-avatar-img {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .layout-tabs {
