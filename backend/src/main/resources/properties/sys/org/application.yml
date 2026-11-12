@@ -11,7 +11,7 @@ SETTING:
     wechat_app_secret: ""
     qq_app_id: ""
     qq_app_secret: ""
-    redirect_base: ""   # 回调基础地址，如 https://erp.example.com；redirect_uri = {redirect_base}/backend/sys/org/profile/openid/callback
+    redirect_base: "http://localhost:5173"   # 回调基础地址；redirect_uri = {redirect_base}/backend/sys/org/profile/openid/callback。默认指向本机前端 dev server（npm run dev 5173），保证未显式配置时 callback/bindUrl 可用；生产部署必须经环境变量 CS_ORG_OAUTH_REDIRECT_BASE（或 common_setting 表 openid.redirect_base）覆盖为对外可达地址
 # 流程分类配置（process_template，由本模块自行维护）：
 # 二级配置项 key 即 sys_process_template.field_model_name 值；
 # name 为模板管理页分类显示名，class 为该分类流程对应的文档实体类，

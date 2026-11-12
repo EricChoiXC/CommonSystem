@@ -14,8 +14,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
+import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -49,7 +51,7 @@ import static org.mockito.Mockito.when;
  *              TTL 恰 300 秒、值 LinkedHashMap{userId, channel}）、微信/QQ 授权 URL 拼接
  *              （open.weixin.qq.com / graph.qq.com、redirect_uri urlencoded、凭证桥接键优先
  *              与 common_setting 表回退）；handleCallback state 取删一次性（缺失/过期回
- *              expired）、复验总开关（disabled）与凭证（unconfigured）、code 缺失与换号异常
+ *              expired；服务端不支持 GETDEL 时降级 GET+DEL 取删后分支语义不变），复验总开关（disabled）与凭证（unconfigured）、code 缺失与换号异常
  *              回 oauth_error、查重计数 > 0 即 dup（无本人豁免，update 不触碰）、微信/QQ
  *              成功路径覆写 field_openid（openid/unionid/nickname/bindTime 与另一渠道保留）
  *              并回跳 {redirect_base}/profile?bind={channel}:success；unbind 非法渠道、末渠道
@@ -286,6 +288,61 @@ class SysOrgProfileServiceOpenidTest {
         assertEquals(REDIRECT_BASE + "/profile?bind=expired", url);
         // 第三方异常回跳缺参：Controller 以 required=false 透传 null，同样按 expired 302 回跳
         assertEquals(REDIRECT_BASE + "/profile?bind=expired", service.handleCallback("auth-code", null));
+    }
+
+    @Test
+    void handleCallbackFallsBackToGetAndDeleteWhenGetdelUnsupported() {
+        // 低版本 Redis 服务端（<6.2）不识别 GETDEL：getAndDelete 抛 RedisSystemException，
+        // 降级 GET+DEL 两段取删后按既有分支继续（PF5-INT-001 联调缺陷修复回归）
+        when(valueOps.getAndDelete(anyString())).thenThrow(new RedisSystemException(
+                "Error in execution", new RuntimeException("ERR unknown command `GETDEL`")));
+        when(valueOps.get(anyString())).thenReturn(stateValue("wechat", USER_ID));
+        inject("redirectBase", REDIRECT_BASE);
+        enableBind(true);
+        bridgeWechat("wx-app-id", "wx-app-secret");
+        when(openidClient.exchangeWechat(anyString(), anyString(), anyString()))
+                .thenReturn(new OpenidClient.OpenidProfile("o-fb", null, "降级路径昵称"));
+        when(userDao.countDuplicateOpenid("o-fb")).thenReturn(0L);
+        when(userDao.selectById(USER_ID)).thenReturn(user(null));
+
+        String url = service.handleCallback("auth-code", "state-1");
+
+        assertEquals(REDIRECT_BASE + "/profile?bind=wechat:success", url);
+        // 降级路径取到 state 后删除该键（一次性语义保持），写库照常
+        verify(redisTemplate).delete(STATE_KEY_PREFIX + "state-1");
+        verify(userDao).update(any(SysOrgUser.class));
+    }
+
+    @Test
+    void handleCallbackFallbackTreatsMissingStateAsExpired() {
+        // 降级路径 GET 也取不到值：与原子路径同样回 expired，且不触发删除
+        when(valueOps.getAndDelete(anyString())).thenThrow(new RedisSystemException(
+                "Error in execution", new RuntimeException("ERR unknown command `GETDEL`")));
+        when(valueOps.get(anyString())).thenReturn(null);
+        inject("redirectBase", REDIRECT_BASE);
+
+        String url = service.handleCallback("auth-code", "stale-state");
+
+        assertEquals(REDIRECT_BASE + "/profile?bind=expired", url);
+        verify(redisTemplate, never()).delete(anyString());
+        verify(userDao, never()).countDuplicateOpenid(anyString());
+    }
+
+    @Test
+    void handleCallbackFallbackTreatsCorruptStateValueAsExpired() {
+        // state 值损坏（被外部改写 / 序列化格式不兼容）：回调为浏览器 302 导航，
+        // 按方案 4.4「任何失败均 302 带 fail_reason」降级为 expired，不落 JSON 错误页
+        when(valueOps.getAndDelete(anyString())).thenThrow(new SerializationException(
+                "Could not read JSON: missing type id property '@class'"));
+        when(valueOps.get(anyString())).thenThrow(new SerializationException(
+                "Could not read JSON: missing type id property '@class'"));
+        inject("redirectBase", REDIRECT_BASE);
+
+        String url = service.handleCallback("auth-code", "corrupt-state");
+
+        assertEquals(REDIRECT_BASE + "/profile?bind=expired", url);
+        verify(redisTemplate, never()).delete(anyString());
+        verify(userDao, never()).update(any(SysOrgUser.class));
     }
 
     @Test

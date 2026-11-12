@@ -131,6 +131,8 @@ class SysOrgProfileServiceTest {
         assertEquals("sys_org_user", modelCaptor.getValue().getFieldModelName());
         assertEquals(USER_ID, modelCaptor.getValue().getFieldModelId());
         assertEquals("profile", modelCaptor.getValue().getFieldKey());
+        // 只取启用附件：软删除（field_enable=0）的旧头像不得命中（PF5-INT-001 联调回归）
+        assertEquals(Boolean.TRUE, modelCaptor.getValue().getFieldEnable());
         // 单页单条：needPage=true、pageNo=1、pageSize=1
         Pages pages = pagesCaptor.getValue();
         assertTrue(pages.isNeedPage(), "needPage 应为 true");
@@ -281,6 +283,18 @@ class SysOrgProfileServiceTest {
     void saveRejectsFutureBirthday() {
         SysOrgProfileSaveRequest request = request();
         request.setFieldBirthday(daysFromToday(2));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.save(request));
+        assertEquals("生日不能晚于当天", ex.getMessage());
+    }
+
+    @Test
+    void saveRejectsBirthdayTomorrow() {
+        // 边界回归（PF5-INT-001）：date-only 经 JacksonConfig 解析为本地零点，
+        // 明天零点恰与「当天 23:59:59.999 时刻比较」边界重合——按本地日历日比较后必须拒绝
+        SysOrgProfileSaveRequest request = request();
+        request.setFieldBirthday(daysFromToday(1));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.save(request));

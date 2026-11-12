@@ -47,8 +47,11 @@
         WHERE field_id = #{model.fieldId}
     </update>
 
-    <!-- 软删除：置 field_is_delete = 1 -->
-    <update id="updateIsDelete" parameterType="string">
+    <!-- 软删除：置 field_is_delete = 1。
+         注意：勿写 parameterType="string"——@Param 传参为 (String fieldId, boolean isDelete)，
+         写死 string 会使 #{isDelete} 按 String 类型解析、Boolean 实参在参数绑定阶段
+         ClassCastException（PF5-INT-001 联调发现，与 SysAttMainMapper.updateEnable 同批修复）。 -->
+    <update id="updateIsDelete">
         UPDATE sys_att_file
         SET field_is_delete = #{isDelete}
         WHERE field_id = #{fieldId}

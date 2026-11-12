@@ -19,7 +19,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -123,6 +125,12 @@ public class SysOrgProfileService {
      */
     private static final DateTimeFormatter BIND_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /**
+     * 应用默认时区（Asia/Shanghai）：生日「不晚于当天」按本地日历日比较，
+     * 与 JacksonConfig 无时区字符串解析口径一致（date-only 解析为本地零点）
+     */
+    private static final ZoneId APP_ZONE = ZoneId.systemDefault();
 
     private final SysOrgUserDao userDao;
 
@@ -347,8 +355,7 @@ public class SysOrgProfileService {
      * 每步失败返回对应 bind 值（expired/disabled/unconfigured/oauth_error/dup/success）
      */
     private String resolveCallbackBindValue(String code, String state, String base) {
-        Object cached = redisTemplate.opsForValue()
-                .getAndDelete(STATE_KEY_PREFIX + (null == state ? "" : state));
+        Object cached = takeState(state);
         // GenericJackson2JsonRedisSerializer 反序列化回来为 LinkedHashMap 形态
         if (!(cached instanceof Map<?, ?> stateValue) || null == stateValue.get("userId")) {
             return "expired";
@@ -462,6 +469,43 @@ public class SysOrgProfileService {
     }
 
     /**
+     * 取删 state（方案 4.4「getAndDelete 原子取删」）：优先
+     * {@code opsForValue().getAndDelete()}（Redis 服务端 GETDEL 命令，≥6.2）。
+     * <ul>
+     * <li>低版本 Redis（如 5.0.x Windows 便携版）不识别 GETDEL 会抛
+     *     RedisCommandExecutionException（ERR unknown command `GETDEL`）——降级为
+     *     GET + DEL 两段取删：非原子（并发重放存在极小竞态窗口，与 6.4 查重并发
+     *     口径同等量级、内部系统可接受），换取对存量低版本 Redis 部署的兼容；</li>
+     * <li>state 值反序列化失败（键下值被外部改写、序列化格式不兼容等）——回调是
+     *     浏览器 302 导航，按方案 4.4「任何失败均 302 带 fail_reason，不返回 JSON
+     *     错误页」，统一按 state 不存在（expired）处理，不向浏览器抛 500；</li>
+     * </ul>
+     * 连接级故障（Redis 宕机）在两次调用中同样失败、异常上抛，不做静默吞没。
+     *
+     * @param state 回调携带的一次性 state（可为 null，统一落前缀键上取删）
+     * @return state 绑定值（LinkedHashMap 形态）；不存在/已过期/已消费/值不可读返回 null
+     */
+    private Object takeState(String state) {
+        String key = STATE_KEY_PREFIX + (null == state ? "" : state);
+        try {
+            return redisTemplate.opsForValue().getAndDelete(key);
+        } catch (DataAccessException | SerializationException e) {
+            log.warn("Redis GETDEL 取删 state 失败，降级 GET+DEL（建议升级 Redis ≥6.2）：{}", e.getMessage());
+            try {
+                Object cached = redisTemplate.opsForValue().get(key);
+                if (null != cached) {
+                    redisTemplate.delete(key);
+                }
+                return cached;
+            } catch (SerializationException se) {
+                // GETDEL 未执行（命令不支持）时 GET 可能读到损坏值：一次性语义按 expired 处理
+                log.warn("state 值反序列化失败，按 expired 处理：key={}", key);
+                return null;
+            }
+        }
+    }
+
+    /**
      * 凭证解析（方案 4.4 配置分层）：Spring Environment 桥接键优先（application.properties
      * 三段式环境变量覆盖），值为空回退 common_setting 表 SETTING.openid 段（下划线 key）；
      * 返回 trim 后的值，均未配置返回 null；未装配配置服务（单测裸构造）按未配置处理
@@ -568,7 +612,7 @@ public class SysOrgProfileService {
             throw new IllegalArgumentException("性别取值无效");
         }
         if (null != request.getFieldBirthday()
-                && request.getFieldBirthday().after(todayEnd())) {
+                && request.getFieldBirthday().toInstant().atZone(APP_ZONE).toLocalDate().isAfter(LocalDate.now())) {
             throw new IllegalArgumentException("生日不能晚于当天");
         }
     }
@@ -590,13 +634,17 @@ public class SysOrgProfileService {
      * 头像附件ID（方案 4.3）：sys_att_main 按 field_model_name='sys_org_user' +
      * field_model_id=当前用户 + field_key='profile' 过滤，field_create_time 降序取
      * 最新一条的 fieldId；未上传返回 null。附件过滤条件经 SysAttMainDao.selectListSorted，
-     * Pages 设 needPage=true/pageNo=1/pageSize=1 只取一条（本类不改附件模块任何文件）
+     * Pages 设 needPage=true/pageNo=1/pageSize=1 只取一条（本类不改附件模块任何文件）。
+     * 注意必须携带 fieldEnable=true 条件：selectListSorted 的 field_enable 为条件过滤，
+     * 不传则已删除（软删除 field_enable=0）的旧头像也会命中，导致「移除头像后 load
+     * 仍返回已删除附件ID」（PF5-INT-001 联调发现）
      */
     private String latestAvatarAttId(String userId) {
         SysAttMain criteria = new SysAttMain();
         criteria.setFieldModelName(SysOrgProfileProperties.ATT_MODEL_NAME);
         criteria.setFieldModelId(userId);
         criteria.setFieldKey(SysOrgProfileProperties.ATT_KEY_PROFILE);
+        criteria.setFieldEnable(true);
         Pages pages = new Pages();
         pages.setNeedPage(true);
         pages.setPageNo(1);
@@ -647,13 +695,6 @@ public class SysOrgProfileService {
      */
     protected boolean isQqEnabled() {
         return isBindEnabled() && hasText(credentialQqAppId()) && hasText(credentialQqAppSecret());
-    }
-
-    /**
-     * 当天 23:59:59.999 的 Date：生日不晚于当天按「早于该时刻」判定
-     */
-    private static Date todayEnd() {
-        return Date.from(LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant());
     }
 
     /**

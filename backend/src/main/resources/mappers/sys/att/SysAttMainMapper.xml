@@ -66,8 +66,12 @@
         WHERE field_id = #{model.fieldId}
     </update>
 
-    <!-- 软删除：置 field_enable = 0 -->
-    <update id="updateEnable" parameterType="string">
+    <!-- 软删除：置 field_enable = 0。
+         注意：勿写 parameterType="string"——@Param 传参为 (String fieldId, boolean enable)，
+         写死 string 会使 #{enable} 按 String 类型解析、Boolean 实参在参数绑定阶段
+         ClassCastException（PF5-INT-001 联调发现）；多 @Param 时省略 parameterType，
+         由 MyBatis 按实参类型解析。 -->
+    <update id="updateEnable">
         UPDATE sys_att_main
         SET field_enable = #{enable}
         WHERE field_id = #{fieldId}
