@@ -1,5 +1,8 @@
-ROLE_LIST: ["SYS_ADMIN"]
+ROLE_LIST: ["SYS_ADMIN", "SYS_MODULE_ADMIN"]
 ROLE_MAP:
   SYS_ADMIN:
     NAME: "系统管理员"
     DESC: "系统管理员"
+  SYS_MODULE_ADMIN:
+    NAME: "模块组管理员"
+    DESC: "维护模块组开关状态（系统管理-模块管理）"
