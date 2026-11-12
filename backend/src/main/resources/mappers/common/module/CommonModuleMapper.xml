@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eric.base.common.module.mapper.CommonModuleMapper">
+
+    <!--
+        模块组状态表(common_module_group)映射
+        字段命名遵循公共字段规范(field_ 前缀)，与 Java 属性直接 camel-case 对应；
+        列清单与 docs/v1_1-common/05-增加接口开关/接口开关机制数据库设计分册.md 及
+        V1_01_043__common_module_group_schema.sql 保持一致。
+        配置型表（与 common_setting 同）：无创建人/创建时间/更新人字段；
+        field_key 为全局唯一幂等同步键，一经发布不复用/不重命名（重命名视为新模块组）；
+        field_update_time 由数据库 DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        自动维护，所有写入语句均不显式触碰该列。
+    -->
+
+    <resultMap id="CommonModuleResultMap" type="com.eric.base.common.module.model.CommonModule">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_key" property="fieldKey"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_enable" property="fieldEnable"/>
+        <result column="field_remark" property="fieldRemark"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_key, field_name, field_enable, field_remark, field_update_time
+    </sql>
+
+    <!-- 插入（启动同步「不存在→插入」边界用；新导入默认开启，field_update_time 由数据库默认值生成） -->
+    <insert id="insert" parameterType="com.eric.base.common.module.model.CommonModule">
+        INSERT INTO common_module_group (
+        field_id, field_key, field_name, field_enable, field_remark
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldKey}, #{model.fieldName}, #{model.fieldEnable}, #{model.fieldRemark}
+        )
+    </insert>
+
+    <!--
+        通用更新（IBaseMapper 契约）：不更新 field_key（一经发布不可重命名，重命名视为新模块组），
+        field_update_time 由数据库 ON UPDATE 自动维护。
+    -->
+    <update id="update" parameterType="com.eric.base.common.module.model.CommonModule">
+        UPDATE common_module_group
+        <set>
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldEnable != null">field_enable = #{model.fieldEnable},</if>
+            <if test="model.fieldRemark != null">field_remark = #{model.fieldRemark},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM common_module_group
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="CommonModuleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM common_module_group
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="CommonModuleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM common_module_group
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldKey != null and model.fieldKey != ''">AND field_key = #{model.fieldKey}</if>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name = #{model.fieldName}</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+            <if test="model.fieldRemark != null and model.fieldRemark != ''">AND field_remark = #{model.fieldRemark}</if>
+        </where>
+        ORDER BY field_key ASC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name（模块组展示名称来源） -->
+    <resultMap id="CommonModuleLoadResultMap" type="com.eric.base.common.module.model.CommonModule">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="CommonModuleLoadResultMap">
+        SELECT field_id, field_name
+        FROM common_module_group
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 全量查询（状态缓存回源与启动同步比对用），按 field_key 排序 -->
+    <select id="selectAll" resultMap="CommonModuleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM common_module_group
+        ORDER BY field_key ASC
+    </select>
+
+    <!-- 按模块组标识查询（启动同步「不存在→插入」边界与注解校验用） -->
+    <select id="selectByKey" resultMap="CommonModuleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM common_module_group
+        WHERE field_key = #{fieldKey}
+        LIMIT 1
+    </select>
+
+    <!--
+        按模块组标识批量回写元信息：仅 field_name / field_remark，绝不动 field_enable
+        （启动同步幂等边界：已存在条目不回写开关状态）；modules 必须非空，空列表由调用方
+        跳过（与 insertGroupUsers 等先例一致）；field_update_time 由数据库 ON UPDATE 自动维护。
+    -->
+    <update id="batchUpdateMeta">
+        UPDATE common_module_group
+        SET field_name = CASE field_key
+        <foreach collection="modules" item="module">
+            WHEN #{module.fieldKey} THEN #{module.fieldName}
+        </foreach>
+        ELSE field_name END,
+        field_remark = CASE field_key
+        <foreach collection="modules" item="module">
+            WHEN #{module.fieldKey} THEN #{module.fieldRemark}
+        </foreach>
+        ELSE field_remark END
+        WHERE field_key IN
+        <foreach collection="modules" item="module" open="(" separator="," close=")">
+            #{module.fieldKey}
+        </foreach>
+    </update>
+
+    <!-- /enable 通道更新：仅更新 field_enable，field_update_time 由数据库 ON UPDATE 自动维护 -->
+    <update id="updateEnable">
+        UPDATE common_module_group
+        SET field_enable = #{fieldEnable}
+        WHERE field_id = #{fieldId}
+    </update>
+
+</mapper>

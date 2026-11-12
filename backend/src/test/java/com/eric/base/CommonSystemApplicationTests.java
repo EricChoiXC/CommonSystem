@@ -1,6 +1,8 @@
 package com.eric.base;
 
 import com.eric.base.common.utils.IDUtil;
+import com.eric.base.common.module.mapper.CommonModuleMapper;
+import com.eric.base.common.module.model.CommonModule;
 import com.eric.base.common.setting.mapper.CommonSettingMapper;
 import com.eric.base.sys.calendar.mapper.SysCalendarMainMapper;
 import com.eric.base.sys.calendar.mapper.SysCalendarPersonsMapper;
@@ -231,6 +233,18 @@ class CommonSystemApplicationTests {
 			Mockito.when(mapper.selectByTypeAndKey(Mockito.anyString(), Mockito.anyString())).thenReturn(null);
 			Mockito.when(mapper.insert(Mockito.any())).thenReturn(1);
 			Mockito.when(mapper.update(Mockito.any())).thenReturn(1);
+			return mapper;
+		}
+
+		@Bean
+		CommonModuleMapper commonModuleMapper() {
+			CommonModuleMapper mapper = Mockito.mock(CommonModuleMapper.class);
+			// 模块组 Dao(CommonModuleDao)依赖本 Mapper；Wave 1 启动同步落地前，测试上下文
+			// （无真实数据库）默认「按 key 查询不存在、全量为空、插入/回写成功」，不真实写库。
+			Mockito.when(mapper.selectByKey(Mockito.anyString())).thenReturn(null);
+			Mockito.when(mapper.selectAll()).thenReturn(java.util.Collections.emptyList());
+			Mockito.when(mapper.insert(Mockito.any(CommonModule.class))).thenReturn(1);
+			Mockito.when(mapper.update(Mockito.any(CommonModule.class))).thenReturn(1);
 			return mapper;
 		}
 
