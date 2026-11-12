@@ -15,7 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @date 2026/8/22
  * @description 锁定异常转换行为：鉴权/参数异常保留业务语义；
  *              重复键冲突返回业务提示（不泄露底层细节）；
- *              兜底异常返回通用文案（不回显 e.getMessage()，如 SQL 错误文本）。
+ *              兜底异常返回通用文案（不回显 e.getMessage()，如 SQL 错误文本）；
+ *              模块组关闭返回固定错误码 MODULE_DISABLED 与用户可读文案。
  */
 class GlobalExceptionHandlerTest {
 
@@ -26,6 +27,15 @@ class GlobalExceptionHandlerTest {
         BaseResponse<Void> response = handler.handleAuthorization(new AuthorizationException("FORBIDDEN", "no permission"));
         assertEquals("FORBIDDEN", response.getCode());
         assertEquals("no permission", response.getMessage());
+    }
+
+    @Test
+    void moduleDisabledReturnsFixedCodeAndMessage() {
+        ModuleDisabledException exception = new ModuleDisabledException("calendar");
+        assertEquals("calendar", exception.getModuleGroupKey());
+        BaseResponse<Void> response = handler.handleModuleDisabled(exception);
+        assertEquals("MODULE_DISABLED", response.getCode());
+        assertEquals("该模块未开启，请联系管理员", response.getMessage());
     }
 
     @Test

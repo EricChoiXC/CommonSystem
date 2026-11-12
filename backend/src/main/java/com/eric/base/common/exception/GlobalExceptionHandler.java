@@ -28,6 +28,15 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 模块组已关闭：@ModuleGroup 命中的模块组处于停用状态，
+     * 返回固定错误码与用户可读文案（不进入 Controller 与 resolver）
+     */
+    @ExceptionHandler(ModuleDisabledException.class)
+    public BaseResponse<Void> handleModuleDisabled(ModuleDisabledException e) {
+        return BaseResponse.failure("MODULE_DISABLED", e.getMessage());
+    }
+
+    /**
      * 参数校验失败 / 数据状态异常（如影响行数不符）
      */
     @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class})

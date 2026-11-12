@@ -16,9 +16,9 @@ import java.util.Objects;
 @Schema(description = "统一响应体：code / message / data / metadata")
 public class BaseResponse<T> {
 
-    /** 成功码：接口业务处理成功时固定返回，失败时返回错误码（如 UNAUTHORIZED、FORBIDDEN、BAD_REQUEST、E_NOT_FOUND） */
+    /** 成功码：接口业务处理成功时固定返回，失败时返回错误码（如 UNAUTHORIZED、FORBIDDEN、BAD_REQUEST、E_NOT_FOUND、MODULE_DISABLED） */
     @Schema(description = "响应码：成功固定为 SUCCESS；失败为 UNAUTHORIZED / FORBIDDEN / BAD_REQUEST / "
-            + "E_NOT_FOUND 等错误码", example = "SUCCESS")
+            + "E_NOT_FOUND / MODULE_DISABLED 等错误码", example = "SUCCESS")
     private final String code;
 
     /** 提示信息：成功为 success（或业务自定义文案），失败为可展示给用户的错误描述 */
