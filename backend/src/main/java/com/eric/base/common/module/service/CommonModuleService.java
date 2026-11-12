@@ -4,14 +4,22 @@ import com.eric.base.common.base.service.BaseService;
 import com.eric.base.common.module.annotation.ModuleGroup;
 import com.eric.base.common.module.dao.CommonModuleDao;
 import com.eric.base.common.module.model.CommonModule;
+import com.eric.base.common.module.properties.CommonModuleProperties;
 import com.eric.base.common.utils.IDUtil;
 import com.eric.base.common.utils.StringUtil;
 import com.eric.base.common.utils.YmlResourceUtil;
+import com.eric.base.sys.log.enums.SysLogResult;
+import com.eric.base.sys.log.enums.SysLogType;
+import com.eric.base.sys.log.service.LogRecord;
+import com.eric.base.sys.log.service.LogService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
@@ -28,15 +36,18 @@ import java.util.Set;
  *
  * @author Eric
  * @date 2026/11/12
- * @description 承载「模块组（module-group）」的启动期维护能力（不提供对外接口，管理面接口由
- *              CommonModuleController 承担）：
+ * @description 承载「模块组（module-group）」的启动期维护与管理面业务能力：
  *              <ul>
  *              <li>启动时扫描各模块 moduleGroup.yml 的 module-group 段，将模块组增量同步到
  *                  common_module_group（{@link #syncModules} 幂等三边界，见
  *                  docs/v1_1-common/05-增加接口开关/接口开关机制设计方案-修订稿.md 第 6 节）；</li>
  *              <li>同步后经 {@link RequestMappingHandlerMapping} 汇总全部 @ModuleGroup 注解 key
  *                  做启动期校验（方法级优先、类级回退），未知 key 仅记 WARN，不阻断启动；</li>
- *              <li>最后调 {@link ModuleGroupCacheService#refresh()} 全量预热状态缓存。</li>
+ *              <li>最后调 {@link ModuleGroupCacheService#refresh()} 全量预热状态缓存；</li>
+ *              <li>管理面接口（模块组列表 / 启停，入口见 CommonModuleController）的业务逻辑：
+ *                  {@link #listModules()} 全量查询、{@link #updateEnable} 启停并刷新缓存广播，
+ *                  切换属低频敏感操作，经 {@link LogService} 记录操作日志（action 用
+ *                  {@link CommonModuleProperties#ACTION_ENABLE}，日志失败不影响主流程）。</li>
  *              </ul>
  *              幂等三边界（机制成立前提）：
  *              <ol>
@@ -58,15 +69,110 @@ public class CommonModuleService extends BaseService<CommonModule, CommonModuleD
     private static final String KEY_NAME = "name";
     private static final String KEY_REMARK = "remark";
 
+    /** 操作日志 module 取值（sys_log_operation.field_module） */
+    private static final String LOG_MODULE = "COMMON-MODULE";
+
+    private static final ObjectMapper LOG_JSON_MAPPER = new ObjectMapper();
+
     private final ModuleGroupCacheService moduleGroupCacheService;
     private final RequestMappingHandlerMapping requestMappingHandlerMapping;
+    private final LogService logService;
 
     public CommonModuleService(CommonModuleDao baseDao,
                                ModuleGroupCacheService moduleGroupCacheService,
-                               RequestMappingHandlerMapping requestMappingHandlerMapping) {
+                               RequestMappingHandlerMapping requestMappingHandlerMapping,
+                               LogService logService) {
         super(baseDao);
         this.moduleGroupCacheService = moduleGroupCacheService;
         this.requestMappingHandlerMapping = requestMappingHandlerMapping;
+        this.logService = logService;
+    }
+
+    /**
+     * 模块组列表（管理面）：全量返回，按 field_key 排序（SQL 固定排序）。
+     * <p>模块组量极小，不做分页裁剪；metadata.total 由调用方按需携带。</p>
+     */
+    public List<CommonModule> listModules() {
+        return getBaseDao().selectAll();
+    }
+
+    /**
+     * 启停用模块组（管理面 /enable 通道）：更新 field_enable 后刷新本实例状态缓存，
+     * 并经 Redis 广播失效通知其他实例（best-effort，失败依赖 TTL 收敛，决策 D1）。
+     * <p>校验与影响行数口径同构 {@code SysOrgElementService#updateEnable}：
+     * fieldId 为空 / 目标状态缺失抛 {@link IllegalArgumentException}，
+     * 记录不存在抛 {@link IllegalArgumentException}，影响行数非 1 抛 {@link IllegalStateException}。</p>
+     * <p>操作日志：成功记 SUCCESS（变更前后启用状态写入 before / after），失败记 FAILED 及失败原因；
+     * 日志记录失败仅记 WARN，绝不影响主流程。</p>
+     *
+     * @param fieldId     模块组 ID（必填）
+     * @param fieldEnable 目标状态 true 开启 / false 关闭（必填）
+     */
+    @Transactional
+    public void updateEnable(String fieldId, Boolean fieldEnable) {
+        if (StringUtil.isEmpty(fieldId)) {
+            throw new IllegalArgumentException("fieldId must not be blank");
+        }
+        if (null == fieldEnable) {
+            throw new IllegalArgumentException("fieldEnable must not be null");
+        }
+        String documentId = fieldId.trim();
+        CommonModule before = getBaseDao().selectById(documentId);
+        if (null == before) {
+            throw new IllegalArgumentException("模块组不存在或已删除");
+        }
+        try {
+            int affected = getBaseDao().updateEnable(documentId, fieldEnable);
+            if (affected != 1) {
+                throw new IllegalStateException("updateEnable expected one affected row but got " + affected);
+            }
+            moduleGroupCacheService.refreshAndBroadcast();
+            recordEnableLog(documentId, before.getFieldEnable(), fieldEnable,
+                    SysLogResult.SUCCESS.getValue(), null);
+        } catch (RuntimeException e) {
+            recordEnableLog(documentId, before.getFieldEnable(), fieldEnable,
+                    SysLogResult.FAILED.getValue(), e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
+     * 记录模块组启停操作日志：logType 用操作日志，action 用 {@link CommonModuleProperties#ACTION_ENABLE}，
+     * businessId 为被操作模块组 ID，before / after 记录切换前后的启用状态。
+     * <p>日志记录失败仅记 WARN（{@code LogService.record} 对非法参数抛
+     * {@link IllegalArgumentException}），绝不影响主流程。</p>
+     */
+    private void recordEnableLog(String documentId, Boolean beforeEnable, Boolean afterEnable,
+                                 String result, String failReason) {
+        try {
+            LogRecord record = new LogRecord();
+            record.setLogType(SysLogType.OPERATION.getValue());
+            record.setModule(LOG_MODULE);
+            record.setAction(CommonModuleProperties.ACTION_ENABLE);
+            record.setBusinessId(documentId);
+            record.setBefore(enableStateJson(beforeEnable));
+            record.setAfter(enableStateJson(afterEnable));
+            record.setResult(result);
+            record.setFailReason(failReason);
+            logService.record(record);
+        } catch (Exception e) {
+            log.warn("failed to record module group enable log, businessId={}", documentId, e);
+        }
+    }
+
+    /**
+     * 启用状态的变更记录 JSON（{@code {"fieldEnable":true|false}}）：经 Jackson 序列化，
+     * 空值原样返回 null
+     */
+    private static String enableStateJson(Boolean fieldEnable) {
+        if (null == fieldEnable) {
+            return null;
+        }
+        try {
+            return LOG_JSON_MAPPER.writeValueAsString(Map.of("fieldEnable", fieldEnable));
+        } catch (JsonProcessingException e) {
+            return String.valueOf(fieldEnable);
+        }
     }
 
     /**

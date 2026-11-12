@@ -15,6 +15,11 @@ public class CommonModuleProperties {
     public static final String ACTION_ENABLE = "common.module.enable";
 
     /**
+     * 模块组管理员权限（sys_org_role.field_code，随 properties/common/roles.yml 同步入库）。
+     */
+    public static final String ROLE_MODULE_ADMIN = "SYS_MODULE_ADMIN";
+
+    /**
      * 模块组状态缓存 TTL（秒）。默认 30 秒，为修订稿第 9 节默认决策 D1：
      * 多实例切换经 Redis 广播失效（best-effort）后，最迟经该 TTL 收敛一致；
      * Redis 不可用时仅依赖该 TTL 兜底。联调期可调整。

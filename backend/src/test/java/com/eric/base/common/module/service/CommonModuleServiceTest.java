@@ -7,9 +7,12 @@ import ch.qos.logback.core.read.ListAppender;
 import com.eric.base.common.module.annotation.ModuleGroup;
 import com.eric.base.common.module.dao.CommonModuleDao;
 import com.eric.base.common.module.model.CommonModule;
+import com.eric.base.sys.log.service.LogRecord;
+import com.eric.base.sys.log.service.LogService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,10 +26,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static com.eric.base.common.module.properties.CommonModuleProperties.ACTION_ENABLE;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -54,6 +59,7 @@ class CommonModuleServiceTest {
     private CommonModuleDao dao;
     private ModuleGroupCacheService cacheService;
     private RequestMappingHandlerMapping requestMappingHandlerMapping;
+    private LogService logService;
     private CommonModuleService service;
 
     private Logger serviceLogger;
@@ -64,9 +70,10 @@ class CommonModuleServiceTest {
         dao = mock(CommonModuleDao.class);
         cacheService = mock(ModuleGroupCacheService.class);
         requestMappingHandlerMapping = mock(RequestMappingHandlerMapping.class);
+        logService = mock(LogService.class);
         when(dao.selectAll()).thenReturn(List.of());
         when(requestMappingHandlerMapping.getHandlerMethods()).thenReturn(Map.of());
-        service = new CommonModuleService(dao, cacheService, requestMappingHandlerMapping);
+        service = new CommonModuleService(dao, cacheService, requestMappingHandlerMapping, logService);
 
         serviceLogger = (Logger) LoggerFactory.getLogger(CommonModuleService.class);
         logAppender = new ListAppender<>();
@@ -287,6 +294,110 @@ class CommonModuleServiceTest {
         doThrow(new RuntimeException("cache down")).when(cacheService).refresh();
 
         assertDoesNotThrow(service::syncFromYml);
+    }
+
+    /* ==================== 管理面：模块组列表 ==================== */
+
+    @Test
+    void listModulesReturnsFullListFromDao() {
+        List<CommonModule> expected = List.of(module("calendar", true), module("org-group", false));
+        when(dao.selectAll()).thenReturn(expected);
+
+        List<CommonModule> modules = service.listModules();
+
+        assertEquals(expected, modules);
+        verify(dao).selectAll();
+    }
+
+    /* ==================== 管理面：启停用（/enable 通道） ==================== */
+
+    @Test
+    void updateEnableUpdatesRowRefreshesCacheAndRecordsSuccessLog() {
+        when(dao.selectById("m1")).thenReturn(module("calendar", true));
+        when(dao.updateEnable("m1", false)).thenReturn(1);
+
+        service.updateEnable("m1", false);
+
+        verify(dao).updateEnable("m1", false);
+        // 切换成功路径：本实例刷新 + Redis 广播（best-effort）
+        verify(cacheService).refreshAndBroadcast();
+        ArgumentCaptor<LogRecord> captor = ArgumentCaptor.forClass(LogRecord.class);
+        verify(logService).record(captor.capture());
+        LogRecord record = captor.getValue();
+        assertEquals("1", record.getLogType());
+        assertEquals("COMMON-MODULE", record.getModule());
+        assertEquals(ACTION_ENABLE, record.getAction());
+        assertEquals("m1", record.getBusinessId());
+        assertEquals("{\"fieldEnable\":true}", record.getBefore());
+        assertEquals("{\"fieldEnable\":false}", record.getAfter());
+        assertEquals("SUCCESS", record.getResult());
+        assertNull(record.getFailReason());
+    }
+
+    @Test
+    void updateEnableRejectsBlankFieldId() {
+        assertThrows(IllegalArgumentException.class, () -> service.updateEnable("  ", false));
+        assertThrows(IllegalArgumentException.class, () -> service.updateEnable(null, false));
+
+        verify(dao, never()).selectById(anyString());
+        verify(dao, never()).updateEnable(anyString(), any());
+        verify(cacheService, never()).refreshAndBroadcast();
+        verify(logService, never()).record(any());
+    }
+
+    @Test
+    void updateEnableRejectsNullFieldEnable() {
+        assertThrows(IllegalArgumentException.class, () -> service.updateEnable("m1", null));
+
+        verify(dao, never()).selectById(anyString());
+        verify(dao, never()).updateEnable(anyString(), any());
+        verify(cacheService, never()).refreshAndBroadcast();
+        verify(logService, never()).record(any());
+    }
+
+    @Test
+    void updateEnableRejectsUnknownModule() {
+        when(dao.selectById("m1")).thenReturn(null);
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> service.updateEnable("m1", true));
+
+        assertEquals("模块组不存在或已删除", e.getMessage());
+        verify(dao, never()).updateEnable(anyString(), any());
+        verify(cacheService, never()).refreshAndBroadcast();
+        verify(logService, never()).record(any());
+    }
+
+    @Test
+    void updateEnableFailsWhenNoRowAffectedAndRecordsFailureLog() {
+        when(dao.selectById("m1")).thenReturn(module("calendar", true));
+        when(dao.updateEnable("m1", false)).thenReturn(0);
+
+        assertThrows(IllegalStateException.class, () -> service.updateEnable("m1", false));
+
+        // 影响行数为 0：不刷新缓存，记 FAILED 日志后原样抛出
+        verify(cacheService, never()).refreshAndBroadcast();
+        ArgumentCaptor<LogRecord> captor = ArgumentCaptor.forClass(LogRecord.class);
+        verify(logService).record(captor.capture());
+        LogRecord record = captor.getValue();
+        assertEquals("FAILED", record.getResult());
+        assertEquals(ACTION_ENABLE, record.getAction());
+        assertEquals("m1", record.getBusinessId());
+        assertEquals("{\"fieldEnable\":true}", record.getBefore());
+        assertEquals("{\"fieldEnable\":false}", record.getAfter());
+        assertTrue(record.getFailReason().contains("expected one affected row"));
+    }
+
+    @Test
+    void updateEnableCompletesWhenLogRecordingFails() {
+        when(dao.selectById("m1")).thenReturn(module("calendar", false));
+        when(dao.updateEnable("m1", true)).thenReturn(1);
+        doThrow(new RuntimeException("log down")).when(logService).record(any());
+
+        // 日志记录失败不影响主流程：更新与缓存刷新照常完成
+        assertDoesNotThrow(() -> service.updateEnable("m1", true));
+        verify(dao).updateEnable("m1", true);
+        verify(cacheService).refreshAndBroadcast();
     }
 
     /* ==================== 辅助 ==================== */
