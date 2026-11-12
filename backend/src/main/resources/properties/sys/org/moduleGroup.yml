@@ -1,0 +1,7 @@
+# 模块组声明（接口开关机制）：由第 10 个启动任务扫描 classpath*:properties/**/moduleGroup.yml
+# 增量同步到 common_module_group，不进 Spring 配置体系；key 统一 kebab-case，
+# name / remark 必填，规范见 docs/v1_1-common/05-增加接口开关/接口开关机制设计方案-修订稿.md 第 5 节
+module-group:
+  org-group:
+    name: 组织架构-群组
+    remark: 组织架构-群组模块

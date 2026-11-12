@@ -257,8 +257,8 @@ class CommonModuleServiceTest {
 
     @Test
     void syncFromYmlWarmsCacheAfterSync() {
-        // 当前 classpath 无 moduleGroup.yml（首批 yml 由 MOD3-BE-002 落地），同步为空集；
-        // 全链路仍需完成注解校验与缓存预热
+        // classpath 已有首批 moduleGroup.yml（MOD3-BE-002 落地，calendar / org-group），
+        // 本测试用 plain mock dao 不校验同步落库结果；全链路仍需完成注解校验与缓存预热
         service.syncFromYml();
 
         verify(cacheService).refresh();

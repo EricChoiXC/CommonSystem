@@ -3,6 +3,7 @@ package com.eric.base.sys.calendar.controller;
 import com.eric.base.common.base.controller.BaseCrudController;
 import com.eric.base.common.base.model.BaseResponse;
 import com.eric.base.common.base.model.Pages;
+import com.eric.base.common.module.annotation.ModuleGroup;
 import com.eric.base.common.resolver.AuthorizationContext;
 import com.eric.base.common.utils.UserUtil;
 import com.eric.base.sys.calendar.model.SysCalendarMain;
@@ -42,6 +43,7 @@ import static com.eric.base.sys.calendar.properties.SysCalendarConstants.*;
  */
 @RestController
 @RequestMapping("${project.request.prefix}/sys/calendar")
+@ModuleGroup(moduleGroupKey = "calendar")
 @Tag(name = "日程", description = "日程管理：创建/编辑/删除、列表与日历视图、接收/拒绝团队日程；仅创建者或接收人可见")
 public class SysCalendarMainController extends BaseCrudController<SysCalendarMain, SysCalendarMainService, CalendarResolver> {
 

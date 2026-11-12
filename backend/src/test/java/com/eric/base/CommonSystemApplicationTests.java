@@ -240,8 +240,8 @@ class CommonSystemApplicationTests {
 		CommonModuleMapper commonModuleMapper() {
 			CommonModuleMapper mapper = Mockito.mock(CommonModuleMapper.class);
 			// 模块组 Dao(CommonModuleDao)依赖本 Mapper；第 10 个启动任务(CommonModuleService#syncFromYml)
-			// 会扫描 moduleGroup.yml（当前工程尚无该文件，解析为空集，同步无写库）并做注解校验与缓存预热，
-			// 这里默认「按 key 查询不存在、全量为空、插入/回写均成功」，
+			// 会解析首批 moduleGroup.yml（calendar、org-group 两条）走「不存在→插入」分支并做
+			// 注解校验与缓存预热，这里默认「按 key 查询不存在、全量为空、插入/回写均成功」，
 			// 避免测试上下文（无真实数据库）触发真实写库。
 			Mockito.when(mapper.selectByKey(Mockito.anyString())).thenReturn(null);
 			Mockito.when(mapper.selectAll()).thenReturn(java.util.Collections.emptyList());
