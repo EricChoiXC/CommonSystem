@@ -95,7 +95,7 @@
 
 - **访问控制**：默认开启，统一开关为环境变量 `CS_API_DOCS_ENABLED`（`application.properties` 中 `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` 均引用该变量）。置为 `false` 时两个端点同时不可访问，生产部署按需关闭。
 - **配置归属（偏离说明）**：该开关属部署运行参数，不是业务配置，因此**不写入 `common_setting`**，也不提供前端维护页面，只通过环境变量覆盖。这与「新增配置按 `CS_*` > `SETTING` > 代码兜底三段式」的常规约定不同，属有意偏离，勿在后续任务中把该开关迁入 `SETTING`。
-- **鉴权方案**：全局注册 `SecurityScheme`（apiKey / header / `X-Login-Token`），Swagger UI 的 Authorize 按钮可一次性填入登录凭证。登录、登出、`/backend/common/init`、`/backend/common/initID`、`/backend/common/setting/load` 与 SSE 订阅（凭证走 URL 参数 `token`）不依赖该请求头，对应方法以 `@SecurityRequirements` 取消全局要求。
+- **鉴权方案**：全局注册 `SecurityScheme`（apiKey / header / `X-Login-Token`），Swagger UI 的 Authorize 按钮可一次性填入登录凭证。登录、登出、`/backend/common/init`、`/backend/common/initID`、`/backend/common/setting/load`、个人资料第三方授权回调 `GET /backend/sys/org/profile/openid/callback`（第三方浏览器 302 回跳，无 Authorization header）与 SSE 订阅（凭证走 URL 参数 `token`）不依赖该请求头，对应方法以 `@SecurityRequirements` 取消全局要求。
 - **注解规范**：每个 Controller 必须有 `@Tag`（中文名 + 页面/权限概述）；每个接口方法必须有 `@Operation(summary=…, description="鉴权动作 <ACTION 常量值>；…")`；`@RequestParam`、`MultipartFile` 等非请求体参数补 `@Parameter(description=…)`；公共模型与排序字段用 `@Schema` 说明，字段级请求/响应卡片不在本表逐项维护。
 - **与 SPA 回退的关系**：`SpaWebConfig` 的前端回退已排除 `swagger-ui`、`v3/api-docs`、`webjars` 三个路径前缀，直接访问文档地址不会被前端路由接管。
 
@@ -106,7 +106,7 @@
 #### 4.1.1 模块目标与接口边界
 
 - 提供组织架构、机构、部门、人员、岗位、角色、群组与地址本选择相关接口。
-- 同时覆盖公开查询接口、普通读取接口、完整读取接口、维护接口与角色分配接口；v1.1 新增群组维护与地址本群组/角色页签能力。
+- 同时覆盖公开查询接口、普通读取接口、完整读取接口、维护接口与角色分配接口；v1.1 新增群组维护与地址本群组/角色页签能力；v1.2 新增个人资料（本人自助）接口组——登录用户维护本人基础资料、头像与第三方账号（微信/QQ）绑定，与人员维护接口（管理员视角、`documentId` 鉴权）完全隔离。
 
 #### 4.1.2 模块接口分组
 
@@ -120,6 +120,7 @@
 | 角色维护 | `role` | 角色查询、角色增删改、角色权限、角色分配；主表写入同事务维护 `sys_org_element` 镜像行（`field_org_type = 5`） |
 | 群组维护 | `group` | 群组列表/详情/新建/编辑/删除（`field_org_type = 6`）：接口不设权，可见性与维护权限由 Service 数据级过滤 |
 | 地址本选择 | `addressbook` | 树选择、关键字列表（角色页签复用传 `orgTypes=[5]`）、目标回填、群组页签（`groupList` 可见群组分页 / `groupUsers` 群组成员人员） |
+| 个人资料（本人自助） | `profile` | 本人资料加载与保存、头像附件ID读取、第三方账号绑定（授权地址生成 / 授权回调 / 解绑）；不设权限码，登录且账号启用即可，callback 无需鉴权 |
 
 #### 4.1.3 当前冻结的接口方向
 
@@ -128,6 +129,45 @@
 - `role` 组需区分“我的角色查询”和“全量角色维护查询”。
 - `group` 组不设接口级权限，数据级可见性/维护权限由 `SysOrgGroupService` 承担（管理员可见并维护全部群组——含他人个人群组，普通用户仅个人群组；接口路径以实现回写的 [组织架构接口清单](../设计文档/sys/org/组织架构接口清单.md) 为准）。
 - 地址本树与组织管理列表固定排除角色（5）/群组（6）镜像行，两类数据分别走 `role` / `group` 组与地址本专用页签接口。
+- `profile` 组为本人自助语义（v1.2）：接口一律不收 userId 参数，操作对象由会话定位（`UserUtil.getCurrentUserId()`），从根上排除「A 修改 B」的越权路径；`save` 请求体 `fieldId` 与会话用户不一致即拒绝（一致性断言）。用户名可编辑并同步 `sys_org_element.field_name` 与拼音两列，登录名只读不接收；头像复用附件公共通道（`modelName=sys_org_user` + `key=profile`，单张语义），本组不新增头像接口；`callback` 为第三方浏览器 302 回跳，无需鉴权，任何失败均 302 带 `fail_reason` 不返回 JSON 错误页。
+
+#### 4.1.4 个人资料接口组（`sys.org.profile`，v1.2）
+
+基础路径：`/backend/sys/org/profile`。接口标识常量定义于 `SysOrgProfileProperties`（`ACTION_LOAD` / `ACTION_SAVE` / `ACTION_BIND` / `ACTION_UNBIND`），`ProfileResolver` 对四个 action 一律「登录且账号启用」放行——**不设权限码、roles.yml 无变更**（本人自助语义，方案 5.6），`SYS_ADMIN` 由 `BaseResolver` 自动放行，resolver 对未注册的未知 action 默认拒绝（最小授权）。
+
+| 接口 | 方法 | 鉴权 | 说明 |
+| --- | --- | --- | --- |
+| `/load` | GET | `sys.org.profile.load`（登录且启用） | 加载本人资料：基础资料 7 项（`fieldName` / `fieldLoginName` 只读 / `fieldPhone` / `fieldEmail` / `fieldAddress` / `fieldGender` / `fieldBirthday`）+ 只读展示 2 项（`fieldJobStatus` / `fieldAccountStatus`）+ `avatarAttId`（`sys_att_main` 按 `field_model_name='sys_org_user' + field_model_id=当前用户 + field_key='profile'` 过滤 `field_enable=1` 后按 `field_create_time` 降序取最新一条，未上传为 null）+ `openid` 绑定状态（`SysOrgUserOpenidDo` 结构化对象，未绑定渠道内层为 null）+ 三开关 `openidBindEnabled` / `wechatEnabled` / `qqEnabled`（实时读库判定：总开关 `system.openid_bind_enable` + 该渠道凭证齐全，无缓存） |
+| `/save` | POST | `sys.org.profile.save`（登录且启用） | 保存可编辑字段，请求体 `SysOrgProfileSaveRequest`；以现行整行为基覆写请求携带（非 null）字段后整行更新；校验规则见下表 |
+| `/openid/bindUrl` | POST | `sys.org.profile.bind`（登录且启用） | 请求体 `{ channel: "wechat" \| "qq" }`；校验顺序：渠道合法（`绑定渠道无效`）→ 总开关（`第三方账号绑定未开启`）→ 渠道凭证（`微信绑定未配置` / `QQ绑定未配置`）→ `redirect_base`（`回调地址未配置`）；全部通过后生成 32 位一次性 state 写 Redis（`openid_bind_state:{state}` → `{userId, channel}`，TTL 300 秒，回调取删防重放），返回 `{ bindUrl }`（第三方授权页完整 URL，`redirect_uri = {redirect_base}/backend/sys/org/profile/openid/callback` 已 urlencoded） |
+| `/openid/callback` | GET | **无需鉴权** | 第三方浏览器 302 回跳（无 Authorization header），方法以 `@SecurityRequirements` 空注解取消全局 token 要求，不执行 authorize（执行会以未登录误伤正常回调），操作对象由 state 内绑定的 userId 定位。处理顺序：取删 state（`getAndDelete` 原子取删，Redis 服务端 <6.2 无 GETDEL 时自动降级 GET+DEL，值损坏按 expired）→ 复验总开关（关闭 → `disabled`，防关闭开关后存量跳转仍可完成绑定）→ 复验渠道凭证（缺失 → `unconfigured`）→ code 缺失（第三方错误回跳）或换取失败 → `oauth_error` → 查重（计数 > 0 即 `dup`，无本人豁免）→ 写 `field_openid`（查重与写入同事务）。任何失败均 `302` 回跳 `{redirect_base}/profile?bind={channel}:{reason}`，不返回 JSON 错误页；`redirect_base` 未配置时 400「回调地址未配置」 |
+| `/openid/unbind` | POST | `sys.org.profile.unbind`（登录且启用） | 请求体 `{ channel }`；移除对应渠道键，两渠道均未绑定时整列置 NULL（专用 SQL `clearOpenid`，通用 update 对 `field_openid` 为条件写落不了 NULL）；解绑未绑定渠道幂等成功；不限制「至少保留一个绑定方式」（本系统不支持第三方登录，解绑不影响登录能力） |
+
+save 校验规则（`SysOrgProfileService#validate`，校验失败抛 `BAD_REQUEST`，文案经 `GlobalExceptionHandler` 统一返回）：
+
+| 字段 | 规则 |
+| --- | --- |
+| `fieldId` | 必填，与会话用户不一致即拒绝（`提交人员与会话用户不一致`，防并发换号后脏提交） |
+| `fieldName`（用户名） | 必填非空（`用户名不能为空`）；与原值不同时同步 `sys_org_element.field_name` 并重算 `field_pinyin` / `field_pinyin_short`（`PinyinUtil` 后端统一重算，前端不传、不可直改，与 `SysOrgElementService#save/update` 幂等口径一致） |
+| `fieldPhone` | 非空时校验手机号格式 `^1[3-9]\d{9}$`（`手机号格式不正确`） |
+| `fieldEmail` | 非空时校验邮箱格式（`邮箱格式不正确`） |
+| `fieldAddress` | 非空时长度 ≤ 500（`联系地址长度不能超过500`） |
+| `fieldGender` | 非空时枚举 0/1/2（`性别取值无效`） |
+| `fieldBirthday` | 非空时不晚于当天（按本地日历日比较，date-only「明天零点」亦拒绝；`生日不能晚于当天`） |
+| `fieldLoginName` | 只读不接收不更新（登录名为账号唯一标识 `uk_org_user_login_name`，仅管理员在组织架构人员维护中修改；请求体不设该字段，携带值被 Jackson 忽略） |
+
+callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind` 提示后清理 query）：
+
+| reason | 触发条件 |
+| --- | --- |
+| `success` | 校验全部通过且绑定写入成功 |
+| `expired` | state 不存在 / 已过期（TTL 300 秒）/ 已消费 / 伪造 / 缺参 / 值损坏不可读（一次性防重放防 CSRF） |
+| `disabled` | state 有效但总开关 `system.openid_bind_enable` 已关闭 |
+| `unconfigured` | 总开关开启但该渠道凭证（app_id / app_secret）缺失 |
+| `oauth_error` | code 缺失（第三方错误回跳）或以 code 换取第三方用户信息失败 |
+| `dup` | 换取成功但该 openid 已被其他账号绑定（计数 > 0 即拒绝，无本人豁免；state 一次性已防重放） |
+
+头像配套（复用附件既有接口，无附件侧代码改动）：上传 `POST /backend/sys/att/main/upload`（multipart：`file` + `modelName=sys_org_user` + `modelId=用户ID` + `key=profile`）、预览 `GET /backend/sys/att/main/view?fieldId=`（前端 axios `responseType: 'blob'` 拉文件流转 blob URL，`<img src>` 直连缺 token 不可用）、删除 `DELETE /backend/sys/att/main/delete?fieldId=`（限上传者本人或附件管理员）；单张语义：上传新头像成功后删除旧头像附件（删除失败不回滚上传，下次上传再清理）。
 
 ### 4.2 附件模块
 
