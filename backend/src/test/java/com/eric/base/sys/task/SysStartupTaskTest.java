@@ -1,6 +1,7 @@
 package com.eric.base.sys.task;
 
 import com.eric.base.common.cache.ModelCacheService;
+import com.eric.base.common.module.service.CommonModuleService;
 import com.eric.base.common.setting.service.CommonSettingService;
 import com.eric.base.sys.dict.service.SysDictService;
 import com.eric.base.sys.i18n.service.SysI18nSyncService;
@@ -42,6 +43,7 @@ class SysStartupTaskTest {
     private CommonSettingService commonSettingService;
     private SysDictService sysDictService;
     private SysI18nSyncService sysI18nSyncService;
+    private CommonModuleService commonModuleService;
     private SysStartupTask task;
 
     @BeforeEach
@@ -55,9 +57,10 @@ class SysStartupTaskTest {
         commonSettingService = mock(CommonSettingService.class);
         sysDictService = mock(SysDictService.class);
         sysI18nSyncService = mock(SysI18nSyncService.class);
+        commonModuleService = mock(CommonModuleService.class);
         task = new SysStartupTask(sysOrgUserService, sysOrgElementService, sysOrgAuthService,
                 sysOrgRoleService, modelCacheService, sysTaskSchedulerService, commonSettingService,
-                sysDictService, sysI18nSyncService);
+                sysDictService, sysI18nSyncService, commonModuleService);
     }
 
     @Test
@@ -99,5 +102,7 @@ class SysStartupTaskTest {
         verify(sysI18nSyncService).syncFromResources();
         // 第九个启动任务：组织架构存量拼音回填被调用
         verify(sysOrgElementService).backfillPinyin();
+        // 第十个启动任务：模块组同步 + 注解校验 + 缓存预热被调用
+        verify(commonModuleService).syncFromYml();
     }
 }

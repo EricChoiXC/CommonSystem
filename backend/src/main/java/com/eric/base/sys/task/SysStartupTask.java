@@ -1,6 +1,7 @@
 package com.eric.base.sys.task;
 
 import com.eric.base.common.cache.ModelCacheService;
+import com.eric.base.common.module.service.CommonModuleService;
 import com.eric.base.common.setting.service.CommonSettingService;
 import com.eric.base.sys.dict.service.SysDictService;
 import com.eric.base.sys.i18n.service.SysI18nSyncService;
@@ -47,6 +48,7 @@ public class SysStartupTask implements ApplicationRunner {
     private final CommonSettingService commonSettingService;
     private final SysDictService sysDictService;
     private final SysI18nSyncService sysI18nSyncService;
+    private final CommonModuleService commonModuleService;
 
     public SysStartupTask(SysOrgUserService sysOrgUserService,
                           SysOrgElementService sysOrgElementService,
@@ -56,7 +58,8 @@ public class SysStartupTask implements ApplicationRunner {
                           SysTaskSchedulerService sysTaskSchedulerService,
                           CommonSettingService commonSettingService,
                           SysDictService sysDictService,
-                          SysI18nSyncService sysI18nSyncService) {
+                          SysI18nSyncService sysI18nSyncService,
+                          CommonModuleService commonModuleService) {
         this.sysOrgUserService = sysOrgUserService;
         this.sysOrgElementService = sysOrgElementService;
         this.sysOrgAuthService = sysOrgAuthService;
@@ -66,6 +69,7 @@ public class SysStartupTask implements ApplicationRunner {
         this.commonSettingService = commonSettingService;
         this.sysDictService = sysDictService;
         this.sysI18nSyncService = sysI18nSyncService;
+        this.commonModuleService = commonModuleService;
     }
 
     @Override
@@ -88,6 +92,21 @@ public class SysStartupTask implements ApplicationRunner {
         syncI18nFromResources();
         // 第九个启动任务：组织架构存量数据拼音列回填
         backfillElementPinyin();
+        // 第十个启动任务：扫描 properties/ 下各模块 moduleGroup.yml 的 module-group 段，
+        // 增量同步模块组到 common_module_group（新导入默认开启，已存在不动开关状态），
+        // 同步后校验 @ModuleGroup 注解 key 并全量预热状态缓存
+        syncModulesFromYml();
+    }
+
+    /**
+     * 第十个启动任务：模块组增量同步、@ModuleGroup 注解启动期校验与状态缓存预热。
+     * <p>调 {@link CommonModuleService#syncFromYml()} 一次完成「同步 → 校验 → 预热」全链路：
+     * 扫描 properties/ 下各模块 moduleGroup.yml 的 module-group 段增量同步 common_module_group
+     * （新导入默认开启，已存在条目只回写元信息、不动开关状态），校验注解 key（未知 key 仅告警），
+     * 最后全量预热模块组开关状态缓存。</p>
+     */
+    private void syncModulesFromYml() {
+        commonModuleService.syncFromYml();
     }
 
     /**
