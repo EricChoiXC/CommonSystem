@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.task.mapper.SysTaskExampleMapper">
+<mapper namespace="com.eric.base.sys.task.mapper.SysTaskExampleMapper">
 
     <!--
         任务执行实例表(sys_task_example)映射
@@ -11,7 +11,7 @@
         列清单与 artificial/docs/设计文档/sys/task/定时任务表结构.md 保持一致。
     -->
 
-    <resultMap id="SysTaskExampleResultMap" type="com.common.system.sys.task.model.SysTaskExample">
+    <resultMap id="SysTaskExampleResultMap" type="com.eric.base.sys.task.model.SysTaskExample">
         <id column="field_id" property="fieldId"/>
         <result column="field_status" property="fieldStatus"/>
         <result column="field_start_time" property="fieldStartTime"/>
@@ -22,7 +22,7 @@
         field_id, field_status, field_start_time, field_group
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.task.model.SysTaskExample">
+    <insert id="insert" parameterType="com.eric.base.sys.task.model.SysTaskExample">
         INSERT INTO sys_task_example (
         field_id, field_status, field_start_time, field_group
         ) VALUES (
@@ -30,7 +30,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.task.model.SysTaskExample">
+    <update id="update" parameterType="com.eric.base.sys.task.model.SysTaskExample">
         UPDATE sys_task_example
         <set>
             <if test="model.fieldStatus != null">field_status = #{model.fieldStatus},</if>

@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.att.mapper.SysAttOperationMapper">
+<mapper namespace="com.eric.base.sys.att.mapper.SysAttOperationMapper">
 
     <!--
         附件操作日志表(sys_att_operation)映射
@@ -11,7 +11,7 @@
         列清单与 artificial/docs/设计文档/sys/attachment/附件表结构.md 保持一致。
     -->
 
-    <resultMap id="SysAttOperationResultMap" type="com.common.system.sys.att.model.SysAttOperation">
+    <resultMap id="SysAttOperationResultMap" type="com.eric.base.sys.att.model.SysAttOperation">
         <id column="field_id" property="fieldId"/>
         <result column="field_att_id" property="fieldAttId"/>
         <result column="field_user_id" property="fieldUserId"/>
@@ -27,7 +27,7 @@
         e.field_name AS field_operator_name
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.att.model.SysAttOperation">
+    <insert id="insert" parameterType="com.eric.base.sys.att.model.SysAttOperation">
         INSERT INTO sys_att_operation (
         field_id, field_att_id, field_user_id, field_operate_time,
         field_operate_type, field_remark
@@ -37,7 +37,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.att.model.SysAttOperation">
+    <update id="update" parameterType="com.eric.base.sys.att.model.SysAttOperation">
         UPDATE sys_att_operation
         <set>
             <if test="model.fieldAttId != null">field_att_id = #{model.fieldAttId},</if>
@@ -112,7 +112,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id 与 field_name(field_operator_name 无轻量语义，返回 field_att_id) -->
-    <resultMap id="SysAttOperationLoadResultMap" type="com.common.system.sys.att.model.SysAttOperation">
+    <resultMap id="SysAttOperationLoadResultMap" type="com.eric.base.sys.att.model.SysAttOperation">
         <id column="field_id" property="fieldId"/>
         <result column="field_att_id" property="fieldAttId"/>
     </resultMap>

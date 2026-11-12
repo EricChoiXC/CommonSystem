@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.org.mapper.SysOrgGroupMapper">
+<mapper namespace="com.eric.base.sys.org.mapper.SysOrgGroupMapper">
 
     <!--
         群组模块映射：sys_org_group 扩展表（与 sys_org_element 主表 field_id 同值一对一，
@@ -19,7 +19,7 @@
     -->
 
     <!-- 群组基础模型映射（selectById / selectList 用）：扩展表字段 + 主表公共字段 -->
-    <resultMap id="SysOrgGroupResultMap" type="com.common.system.sys.org.model.SysOrgGroup">
+    <resultMap id="SysOrgGroupResultMap" type="com.eric.base.sys.org.model.SysOrgGroup">
         <id column="field_id" property="fieldId"/>
         <result column="field_code" property="fieldCode"/>
         <result column="field_name" property="fieldName"/>
@@ -121,7 +121,7 @@
         </where>
     </sql>
 
-    <resultMap id="SysOrgGroupVoResultMap" type="com.common.system.sys.org.response.SysOrgGroupVo">
+    <resultMap id="SysOrgGroupVoResultMap" type="com.eric.base.sys.org.response.SysOrgGroupVo">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
         <result column="field_type" property="fieldType"/>
@@ -194,7 +194,7 @@
     </select>
 
     <!-- 群组扩展表写入：field_is_all_viewer 为派生冗余字段，由 Service 按可见范围明细计算后传入 -->
-    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgGroup">
+    <insert id="insert" parameterType="com.eric.base.sys.org.model.SysOrgGroup">
         INSERT INTO sys_org_group (
             field_id, field_type, field_owner_id, field_is_all_viewer
         ) VALUES (
@@ -206,7 +206,7 @@
         群组扩展表更新：field_type / field_owner_id / field_is_all_viewer 按 Service 传入值更新
         （普通用户编辑时 Service 不传 field_owner_id 即保持原值，管理员维护他人群组同样不改归属）。
     -->
-    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgGroup">
+    <update id="update" parameterType="com.eric.base.sys.org.model.SysOrgGroup">
         UPDATE sys_org_group
         <set>
             <if test="model.fieldType != null">field_type = #{model.fieldType},</if>
@@ -249,7 +249,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id 与 field_name（名称取自主表），供关联对象赋值使用 -->
-    <resultMap id="SysOrgGroupLoadResultMap" type="com.common.system.sys.org.model.SysOrgGroup">
+    <resultMap id="SysOrgGroupLoadResultMap" type="com.eric.base.sys.org.model.SysOrgGroup">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>
@@ -265,7 +265,7 @@
 
     <!-- 地址本成员明细专用：sys_org_element 人员列清单与映射，与 SysOrgAddressBookMapper.xml 的
          BaseColumns / SysOrgElementResultMap 同构（e 前缀对应 INNER JOIN 的主表别名） -->
-    <resultMap id="SysOrgElementResultMap" type="com.common.system.sys.org.model.SysOrgElement">
+    <resultMap id="SysOrgElementResultMap" type="com.eric.base.sys.org.model.SysOrgElement">
         <id column="field_id" property="fieldId"/>
         <result column="field_code" property="fieldCode"/>
         <result column="field_name" property="fieldName"/>

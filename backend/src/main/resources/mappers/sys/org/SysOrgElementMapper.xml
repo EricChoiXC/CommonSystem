@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.org.mapper.SysOrgElementMapper">
+<mapper namespace="com.eric.base.sys.org.mapper.SysOrgElementMapper">
 
     <!--
         组织架构元素主表(sys_org_element)映射
@@ -15,7 +15,7 @@
         列清单与 artificial/docs/设计文档/sys/org/组织架构表结构.md 保持一致。
     -->
 
-    <resultMap id="SysOrgElementResultMap" type="com.common.system.sys.org.model.SysOrgElement">
+    <resultMap id="SysOrgElementResultMap" type="com.eric.base.sys.org.model.SysOrgElement">
         <id column="field_id" property="fieldId"/>
         <result column="field_code" property="fieldCode"/>
         <result column="field_name" property="fieldName"/>
@@ -39,7 +39,7 @@
         field_creator_id, field_create_time, field_updater_id, field_update_time, field_enable
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgElement">
+    <insert id="insert" parameterType="com.eric.base.sys.org.model.SysOrgElement">
         INSERT INTO sys_org_element (
         <include refid="BaseColumns"/>
         ) VALUES (
@@ -49,7 +49,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgElement">
+    <update id="update" parameterType="com.eric.base.sys.org.model.SysOrgElement">
         UPDATE sys_org_element
         <set>
             <if test="model.fieldCode != null">field_code = #{model.fieldCode},</if>
@@ -102,7 +102,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象(如 SysOrgElement.fieldParent)赋值使用 -->
-    <resultMap id="SysOrgElementLoadResultMap" type="com.common.system.sys.org.model.SysOrgElement">
+    <resultMap id="SysOrgElementLoadResultMap" type="com.eric.base.sys.org.model.SysOrgElement">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>
@@ -117,7 +117,7 @@
         轻量查询：按用户查询其所属虚拟组织，仅返回 field_id 与 field_name（登录等场景组装用）；
         虚拟组织与用户的关系由 sys_org_virtual_user 表承载。
     -->
-    <resultMap id="SysOrgElementIdNameResultMap" type="com.common.system.sys.org.model.SysOrgElement">
+    <resultMap id="SysOrgElementIdNameResultMap" type="com.eric.base.sys.org.model.SysOrgElement">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>
@@ -242,7 +242,7 @@
         </where>
     </sql>
 
-    <resultMap id="SysOrgElementVoResultMap" type="com.common.system.sys.org.response.SysOrgElementVo">
+    <resultMap id="SysOrgElementVoResultMap" type="com.eric.base.sys.org.response.SysOrgElementVo">
         <id column="field_id" property="fieldId"/>
         <result column="field_code" property="fieldCode"/>
         <result column="field_name" property="fieldName"/>

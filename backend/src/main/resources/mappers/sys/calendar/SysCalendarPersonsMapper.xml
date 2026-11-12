@@ -2,9 +2,9 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.calendar.mapper.SysCalendarPersonsMapper">
+<mapper namespace="com.eric.base.sys.calendar.mapper.SysCalendarPersonsMapper">
 
-    <resultMap id="SysCalendarPersonsResultMap" type="com.common.system.sys.calendar.model.SysCalendarPersons">
+    <resultMap id="SysCalendarPersonsResultMap" type="com.eric.base.sys.calendar.model.SysCalendarPersons">
         <id column="field_id" property="fieldId"/>
         <result column="field_calendar_id" property="fieldCalendarId"/>
         <result column="field_person_id" property="fieldPersonId"/>
@@ -15,7 +15,7 @@
         field_id, field_calendar_id, field_person_id, field_accept
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.calendar.model.SysCalendarPersons">
+    <insert id="insert" parameterType="com.eric.base.sys.calendar.model.SysCalendarPersons">
         INSERT INTO sys_calendar_persons (
         field_id, field_calendar_id, field_person_id, field_accept
         ) VALUES (
@@ -23,7 +23,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.calendar.model.SysCalendarPersons">
+    <update id="update" parameterType="com.eric.base.sys.calendar.model.SysCalendarPersons">
         UPDATE sys_calendar_persons
         <set>
             <if test="model.fieldAccept != null">field_accept = #{model.fieldAccept},</if>
@@ -53,7 +53,7 @@
         </if>
     </select>
 
-    <select id="selectByCalendarId" resultType="com.common.system.sys.calendar.response.SysCalendarPersonVo">
+    <select id="selectByCalendarId" resultType="com.eric.base.sys.calendar.response.SysCalendarPersonVo">
         SELECT
             p.field_id,
             p.field_person_id,
@@ -89,7 +89,7 @@
         WHERE field_calendar_id = #{calendarId} AND field_person_id = #{personId}
     </select>
 
-    <resultMap id="SysCalendarPersonsLoadResultMap" type="com.common.system.sys.calendar.model.SysCalendarPersons">
+    <resultMap id="SysCalendarPersonsLoadResultMap" type="com.eric.base.sys.calendar.model.SysCalendarPersons">
         <id column="field_id" property="fieldId"/>
         <result column="field_person_id" property="fieldPersonId"/>
     </resultMap>

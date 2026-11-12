@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.dict.mapper.SysDictTypeMapper">
+<mapper namespace="com.eric.base.sys.dict.mapper.SysDictTypeMapper">
 
     <!--
         码值类型(sys_dict_type)映射
@@ -11,7 +11,7 @@
         列清单与 artificial/docs/设计文档/sys/dict/码值功能核心业务.md 保持一致。
     -->
 
-    <resultMap id="SysDictTypeResultMap" type="com.common.system.sys.dict.model.SysDictType">
+    <resultMap id="SysDictTypeResultMap" type="com.eric.base.sys.dict.model.SysDictType">
         <id column="field_id" property="fieldId"/>
         <result column="field_code" property="fieldCode"/>
         <result column="field_name" property="fieldName"/>
@@ -23,7 +23,7 @@
         field_id, field_code, field_name, field_desc, field_enable
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.dict.model.SysDictType">
+    <insert id="insert" parameterType="com.eric.base.sys.dict.model.SysDictType">
         INSERT INTO sys_dict_type (
         field_id, field_code, field_name, field_desc, field_enable
         ) VALUES (
@@ -31,7 +31,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.dict.model.SysDictType">
+    <update id="update" parameterType="com.eric.base.sys.dict.model.SysDictType">
         UPDATE sys_dict_type
         <set>
             <if test="model.fieldCode != null">field_code = #{model.fieldCode},</if>
@@ -88,7 +88,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
-    <resultMap id="SysDictTypeLoadResultMap" type="com.common.system.sys.dict.model.SysDictType">
+    <resultMap id="SysDictTypeLoadResultMap" type="com.eric.base.sys.dict.model.SysDictType">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>

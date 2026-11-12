@@ -9,7 +9,7 @@
 
 基础路径：`/backend/sys/org/group`
 
-常量类：`SysOrgGroupProperties`（新增），放在 `com.common.system.sys.org.properties`。
+常量类：`SysOrgGroupProperties`（新增），放在 `com.eric.base.sys.org.properties`。
 
 ```java
 public static final String ACTION_LIST   = "sys.org.group.list";

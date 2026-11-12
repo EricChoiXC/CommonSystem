@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.org.mapper.SysOrgRoleMapper">
+<mapper namespace="com.eric.base.sys.org.mapper.SysOrgRoleMapper">
 
     <!--
         角色表(sys_org_role)映射
@@ -13,7 +13,7 @@
         及直属组织链路上的机构/部门所拥有的角色，见 artificial/docs/设计文档/sys/org/组织架构核心业务设计.md。
     -->
 
-    <resultMap id="SysOrgRoleResultMap" type="com.common.system.sys.org.model.SysOrgRole">
+    <resultMap id="SysOrgRoleResultMap" type="com.eric.base.sys.org.model.SysOrgRole">
         <id column="field_id" property="fieldId"/>
         <result column="field_code" property="fieldCode"/>
         <result column="field_name" property="fieldName"/>
@@ -29,7 +29,7 @@
         field_updater_id, field_update_time, field_enable
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgRole">
+    <insert id="insert" parameterType="com.eric.base.sys.org.model.SysOrgRole">
         INSERT INTO sys_org_role (
         <include refid="BaseColumns"/>
         ) VALUES (
@@ -38,7 +38,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgRole">
+    <update id="update" parameterType="com.eric.base.sys.org.model.SysOrgRole">
         UPDATE sys_org_role
         <set>
             <!-- field_code 无条件赋值：角色编辑允许清空编码（置 NULL），不能因 <if> 语义保留旧值 -->
@@ -114,7 +114,7 @@
         轻量查询：按用户查询其角色，仅返回 field_id 与 field_name（登录等场景组装用）；
         角色计算模型与 selectListByUserId 完全一致。
     -->
-    <resultMap id="SysOrgRoleIdNameResultMap" type="com.common.system.sys.org.model.SysOrgRole">
+    <resultMap id="SysOrgRoleIdNameResultMap" type="com.eric.base.sys.org.model.SysOrgRole">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>
@@ -147,7 +147,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
-    <resultMap id="SysOrgRoleLoadResultMap" type="com.common.system.sys.org.model.SysOrgRole">
+    <resultMap id="SysOrgRoleLoadResultMap" type="com.eric.base.sys.org.model.SysOrgRole">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>

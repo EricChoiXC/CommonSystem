@@ -4,7 +4,7 @@ import request from './index'
  * 系统模块 - 多语言管理（i18n）接口封装
  *
  * 接口路径遵循 /backend/sys/i18n/** 与 /locales/**（语言包动态接口，D2 决策），
- * 后端 Controller 见 com.common.system.sys.i18n.controller。
+ * 后端 Controller 见 com.eric.base.sys.i18n.controller。
  * 权限码：SYS_I18N_ADMIN（多语言管理员）。
  */
 

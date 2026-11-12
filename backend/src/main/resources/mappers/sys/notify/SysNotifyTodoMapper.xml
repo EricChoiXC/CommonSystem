@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.notify.mapper.SysNotifyTodoMapper">
+<mapper namespace="com.eric.base.sys.notify.mapper.SysNotifyTodoMapper">
 
     <!--
         待办主表(sys_notify_todo)映射
@@ -11,7 +11,7 @@
         列清单与 artificial/docs/设计文档/sys/notify/通知待办表结构.md 保持一致。
     -->
 
-    <resultMap id="SysNotifyTodoResultMap" type="com.common.system.sys.notify.model.SysNotifyTodo">
+    <resultMap id="SysNotifyTodoResultMap" type="com.eric.base.sys.notify.model.SysNotifyTodo">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
         <result column="field_model_name" property="fieldModelName"/>
@@ -23,7 +23,7 @@
         <result column="field_content" property="fieldContent"/>
     </resultMap>
 
-    <resultMap id="SysNotifyAdminTodoVoResultMap" type="com.common.system.sys.notify.response.SysNotifyAdminTodoVo">
+    <resultMap id="SysNotifyAdminTodoVoResultMap" type="com.eric.base.sys.notify.response.SysNotifyAdminTodoVo">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
         <result column="field_model_name" property="fieldModelName"/>
@@ -38,7 +38,7 @@
         field_create_time, field_notify_type, field_url, field_content
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.notify.model.SysNotifyTodo">
+    <insert id="insert" parameterType="com.eric.base.sys.notify.model.SysNotifyTodo">
         INSERT INTO sys_notify_todo (
         field_id, field_name, field_model_name, field_model_id, field_creator_id,
         field_create_time, field_notify_type, field_url, field_content
@@ -48,7 +48,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.notify.model.SysNotifyTodo">
+    <update id="update" parameterType="com.eric.base.sys.notify.model.SysNotifyTodo">
         UPDATE sys_notify_todo
         <set>
             <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
@@ -155,7 +155,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
-    <resultMap id="SysNotifyTodoLoadResultMap" type="com.common.system.sys.notify.model.SysNotifyTodo">
+    <resultMap id="SysNotifyTodoLoadResultMap" type="com.eric.base.sys.notify.model.SysNotifyTodo">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>

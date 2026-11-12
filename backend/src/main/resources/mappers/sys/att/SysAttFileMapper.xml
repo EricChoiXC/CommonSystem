@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.att.mapper.SysAttFileMapper">
+<mapper namespace="com.eric.base.sys.att.mapper.SysAttFileMapper">
 
     <!--
         附件文件表(sys_att_file)映射
@@ -10,7 +10,7 @@
         列清单与 artificial/docs/设计文档/sys/attachment/附件表结构.md 保持一致。
     -->
 
-    <resultMap id="SysAttFileResultMap" type="com.common.system.sys.att.model.SysAttFile">
+    <resultMap id="SysAttFileResultMap" type="com.eric.base.sys.att.model.SysAttFile">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
         <result column="field_file_type" property="fieldFileType"/>
@@ -25,7 +25,7 @@
         field_create_time, field_file_size, field_is_delete
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.att.model.SysAttFile">
+    <insert id="insert" parameterType="com.eric.base.sys.att.model.SysAttFile">
         INSERT INTO sys_att_file (
         <include refid="BaseColumns"/>
         ) VALUES (
@@ -34,7 +34,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.att.model.SysAttFile">
+    <update id="update" parameterType="com.eric.base.sys.att.model.SysAttFile">
         UPDATE sys_att_file
         <set>
             <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
@@ -128,7 +128,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
-    <resultMap id="SysAttFileLoadResultMap" type="com.common.system.sys.att.model.SysAttFile">
+    <resultMap id="SysAttFileLoadResultMap" type="com.eric.base.sys.att.model.SysAttFile">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>

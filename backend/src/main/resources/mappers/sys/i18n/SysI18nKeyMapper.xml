@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.i18n.mapper.SysI18nKeyMapper">
+<mapper namespace="com.eric.base.sys.i18n.mapper.SysI18nKeyMapper">
 
     <!--
         多语言-资源(sys_i18n_key)映射
@@ -11,7 +11,7 @@
         (field_model, field_key) 业务唯一由代码层保证（联合索引 idx_i18n_key_model_key）。
     -->
 
-    <resultMap id="SysI18nKeyResultMap" type="com.common.system.sys.i18n.model.SysI18nKey">
+    <resultMap id="SysI18nKeyResultMap" type="com.eric.base.sys.i18n.model.SysI18nKey">
         <id column="field_id" property="fieldId"/>
         <result column="field_key" property="fieldKey"/>
         <result column="field_model" property="fieldModel"/>
@@ -21,7 +21,7 @@
         field_id, field_key, field_model
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.i18n.model.SysI18nKey">
+    <insert id="insert" parameterType="com.eric.base.sys.i18n.model.SysI18nKey">
         INSERT INTO sys_i18n_key (
         field_id, field_key, field_model
         ) VALUES (
@@ -29,7 +29,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.i18n.model.SysI18nKey">
+    <update id="update" parameterType="com.eric.base.sys.i18n.model.SysI18nKey">
         UPDATE sys_i18n_key
         <set>
             <if test="model.fieldKey != null">field_key = #{model.fieldKey},</if>

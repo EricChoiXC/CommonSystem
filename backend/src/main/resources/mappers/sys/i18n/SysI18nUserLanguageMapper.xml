@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.i18n.mapper.SysI18nUserLanguageMapper">
+<mapper namespace="com.eric.base.sys.i18n.mapper.SysI18nUserLanguageMapper">
 
     <!--
         多语言-用户语言(sys_i18n_user_language)映射
@@ -11,7 +11,7 @@
         登录 upsert（存在更新、不存在插入）与删除语言改绑（D4：更新行不删行）由服务编排。
     -->
 
-    <resultMap id="SysI18nUserLanguageResultMap" type="com.common.system.sys.i18n.model.SysI18nUserLanguage">
+    <resultMap id="SysI18nUserLanguageResultMap" type="com.eric.base.sys.i18n.model.SysI18nUserLanguage">
         <id column="field_user_id" property="fieldUserId"/>
         <result column="field_language_id" property="fieldLanguageId"/>
     </resultMap>
@@ -24,7 +24,7 @@
     </select>
 
     <!-- 插入用户语言登记（upsert「不存在则插入」分支） -->
-    <insert id="insert" parameterType="com.common.system.sys.i18n.model.SysI18nUserLanguage">
+    <insert id="insert" parameterType="com.eric.base.sys.i18n.model.SysI18nUserLanguage">
         INSERT INTO sys_i18n_user_language (
         field_user_id, field_language_id
         ) VALUES (
@@ -33,7 +33,7 @@
     </insert>
 
     <!-- 更新用户语言登记（upsert「存在则更新」分支） -->
-    <update id="updateByUserId" parameterType="com.common.system.sys.i18n.model.SysI18nUserLanguage">
+    <update id="updateByUserId" parameterType="com.eric.base.sys.i18n.model.SysI18nUserLanguage">
         UPDATE sys_i18n_user_language
         SET field_language_id = #{model.fieldLanguageId}
         WHERE field_user_id = #{model.fieldUserId}

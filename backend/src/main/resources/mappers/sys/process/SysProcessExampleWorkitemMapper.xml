@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.process.mapper.SysProcessExampleWorkitemMapper">
+<mapper namespace="com.eric.base.sys.process.mapper.SysProcessExampleWorkitemMapper">
 
     <!--
         流程工作项表(sys_process_example_workitem)映射
@@ -11,7 +11,7 @@
         field_config 为工作项配置（JSON 字符串，如驳回后的「重新提交后流转方式」）。
     -->
 
-    <resultMap id="SysProcessExampleWorkitemResultMap" type="com.common.system.sys.process.model.SysProcessExampleWorkitem">
+    <resultMap id="SysProcessExampleWorkitemResultMap" type="com.eric.base.sys.process.model.SysProcessExampleWorkitem">
         <id column="field_id" property="fieldId"/>
         <result column="field_example_id" property="fieldExampleId"/>
         <result column="field_node_id" property="fieldNodeId"/>
@@ -28,7 +28,7 @@
         field_create_time, field_finish_time, field_status, field_config
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.process.model.SysProcessExampleWorkitem">
+    <insert id="insert" parameterType="com.eric.base.sys.process.model.SysProcessExampleWorkitem">
         INSERT INTO sys_process_example_workitem (
         <include refid="BaseColumns"/>
         ) VALUES (
@@ -37,7 +37,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.process.model.SysProcessExampleWorkitem">
+    <update id="update" parameterType="com.eric.base.sys.process.model.SysProcessExampleWorkitem">
         UPDATE sys_process_example_workitem
         <set>
             <if test="model.fieldExampleId != null">field_example_id = #{model.fieldExampleId},</if>
@@ -79,7 +79,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id 与 field_handler_id，供关联对象赋值使用 -->
-    <resultMap id="SysProcessExampleWorkitemLoadResultMap" type="com.common.system.sys.process.model.SysProcessExampleWorkitem">
+    <resultMap id="SysProcessExampleWorkitemLoadResultMap" type="com.eric.base.sys.process.model.SysProcessExampleWorkitem">
         <id column="field_id" property="fieldId"/>
     </resultMap>
 

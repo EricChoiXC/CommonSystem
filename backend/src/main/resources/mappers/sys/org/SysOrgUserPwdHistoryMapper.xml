@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.org.mapper.SysOrgUserPwdHistoryMapper">
+<mapper namespace="com.eric.base.sys.org.mapper.SysOrgUserPwdHistoryMapper">
 
     <!--
         密码历史表(sys_org_pwd_history)映射
@@ -10,7 +10,7 @@
         字段：field_id, field_user_id, field_pwd, field_version
     -->
 
-    <resultMap id="SysOrgUserPwdHistoryResultMap" type="com.common.system.sys.org.model.SysOrgUserPwdHistory">
+    <resultMap id="SysOrgUserPwdHistoryResultMap" type="com.eric.base.sys.org.model.SysOrgUserPwdHistory">
         <id column="field_id" property="fieldId"/>
         <result column="field_user_id" property="fieldUserId"/>
         <result column="field_pwd" property="fieldPwd"/>
@@ -21,7 +21,7 @@
         field_id, field_user_id, field_pwd, field_version
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgUserPwdHistory">
+    <insert id="insert" parameterType="com.eric.base.sys.org.model.SysOrgUserPwdHistory">
         INSERT INTO sys_org_pwd_history (
         field_id, field_user_id, field_pwd, field_version
         ) VALUES (
@@ -29,7 +29,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgUserPwdHistory">
+    <update id="update" parameterType="com.eric.base.sys.org.model.SysOrgUserPwdHistory">
         UPDATE sys_org_pwd_history
         <set>
             <if test="model.fieldUserId != null">field_user_id = #{model.fieldUserId},</if>

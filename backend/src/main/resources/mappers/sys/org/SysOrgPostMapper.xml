@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.org.mapper.SysOrgPostMapper">
+<mapper namespace="com.eric.base.sys.org.mapper.SysOrgPostMapper">
 
     <!--
         岗位扩展表(sys_org_post)映射
@@ -13,7 +13,7 @@
         列清单与 artificial/docs/设计文档/sys/org/组织架构表结构.md 保持一致。
     -->
 
-    <resultMap id="SysOrgPostResultMap" type="com.common.system.sys.org.model.SysOrgPost">
+    <resultMap id="SysOrgPostResultMap" type="com.eric.base.sys.org.model.SysOrgPost">
         <id column="field_id" property="fieldId"/>
         <result column="field_leader_id" property="fieldLeaderId"/>
     </resultMap>
@@ -22,7 +22,7 @@
         field_id, field_leader_id
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgPost">
+    <insert id="insert" parameterType="com.eric.base.sys.org.model.SysOrgPost">
         INSERT INTO sys_org_post (
         <include refid="BaseColumns"/>
         ) VALUES (
@@ -30,7 +30,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgPost">
+    <update id="update" parameterType="com.eric.base.sys.org.model.SysOrgPost">
         UPDATE sys_org_post
         <set>
             <if test="model.fieldLeaderId != null">field_leader_id = #{model.fieldLeaderId},</if>
@@ -69,7 +69,7 @@
         轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用；
         field_name 不在本扩展表，JOIN sys_org_element 主表获取
     -->
-    <resultMap id="SysOrgPostLoadResultMap" type="com.common.system.sys.org.model.SysOrgPost">
+    <resultMap id="SysOrgPostLoadResultMap" type="com.eric.base.sys.org.model.SysOrgPost">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>
@@ -85,7 +85,7 @@
         轻量查询：按用户查询其岗位，仅返回 field_id 与 field_name（登录等场景组装用）；
         岗位人员关系由 sys_org_post_user 表承载，名称取自 sys_org_element 主表。
     -->
-    <resultMap id="SysOrgPostIdNameResultMap" type="com.common.system.sys.org.model.SysOrgPost">
+    <resultMap id="SysOrgPostIdNameResultMap" type="com.eric.base.sys.org.model.SysOrgPost">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>

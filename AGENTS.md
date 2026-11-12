@@ -16,7 +16,7 @@ CommonSystem/
 
 | 项 | 值 |
 | --- | --- |
-| Java 根包 / 启动类 | `com.common.system` / `com.common.system.CommonSystemApplication` |
+| Java 根包 / 启动类 | `com.eric.base` / `com.eric.base.CommonSystemApplication` |
 | Maven artifactId / 前端包名 | `common-system` / `common-system-frontend` |
 | 环境变量前缀 | `CS_*`（如 `CS_DB_HOST`、`CS_REDIS_HOST`、`CS_ATT_STORAGE_PATH`） |
 
@@ -39,11 +39,11 @@ cd frontend && npm run build          # 产物直出 backend/src/main/resources/
 
 只包含以下模块；新增模块须先补设计文档并确认包名、接口路径、表结构与权限模型：
 
-- `com.common.system.common`：`base`（基类）、`cache`、`config`、`exception`、`properties`、`resolver`、`session`、`setting`、`utils`
-- `com.common.system.sys`：`org`、`att`、`calendar`、`dict`、`log`、`notify`、`process`、`task`
+- `com.eric.base.common`：`base`（基类）、`cache`、`config`、`exception`、`properties`、`resolver`、`session`、`setting`、`utils`
+- `com.eric.base.sys`：`org`、`att`、`calendar`、`dict`、`log`、`notify`、`process`、`task`
 
 ```text
-com.common.system.sys.{模块}
+com.eric.base.sys.{模块}
 ├─ controller   # 只做接收/校验/返回
 ├─ service      # 业务逻辑；必要时增 task / listeners / event 等次级包
 ├─ dao          # 与 Mapper 一对一

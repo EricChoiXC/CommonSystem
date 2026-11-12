@@ -9,7 +9,7 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 
-	<groupId>com.common.system</groupId>
+	<groupId>com.eric.base</groupId>
 	<artifactId>common-system</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>common-system</name>

@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.process.mapper.SysProcessAuditNoteMapper">
+<mapper namespace="com.eric.base.sys.process.mapper.SysProcessAuditNoteMapper">
 
     <!--
         流程审批记录表(sys_process_audit_note)映射
@@ -11,7 +11,7 @@
         field_workitem_id 关联工作项（自动跳过等无工作项的操作可为空）。
     -->
 
-    <resultMap id="SysProcessAuditNoteResultMap" type="com.common.system.sys.process.model.SysProcessAuditNote">
+    <resultMap id="SysProcessAuditNoteResultMap" type="com.eric.base.sys.process.model.SysProcessAuditNote">
         <id column="field_id" property="fieldId"/>
         <result column="field_example_id" property="fieldExampleId"/>
         <result column="field_workitem_id" property="fieldWorkitemId"/>
@@ -25,7 +25,7 @@
         field_id, field_example_id, field_workitem_id, field_handler_id, field_content, field_create_time, field_handle_type
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.process.model.SysProcessAuditNote">
+    <insert id="insert" parameterType="com.eric.base.sys.process.model.SysProcessAuditNote">
         INSERT INTO sys_process_audit_note (
         <include refid="BaseColumns"/>
         ) VALUES (
@@ -33,7 +33,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.process.model.SysProcessAuditNote">
+    <update id="update" parameterType="com.eric.base.sys.process.model.SysProcessAuditNote">
         UPDATE sys_process_audit_note
         <set>
             <if test="model.fieldExampleId != null">field_example_id = #{model.fieldExampleId},</if>
@@ -72,7 +72,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id，供关联对象赋值使用 -->
-    <resultMap id="SysProcessAuditNoteLoadResultMap" type="com.common.system.sys.process.model.SysProcessAuditNote">
+    <resultMap id="SysProcessAuditNoteLoadResultMap" type="com.eric.base.sys.process.model.SysProcessAuditNote">
         <id column="field_id" property="fieldId"/>
     </resultMap>
 

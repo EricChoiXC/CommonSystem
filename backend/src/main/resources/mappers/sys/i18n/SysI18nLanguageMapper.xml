@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.i18n.mapper.SysI18nLanguageMapper">
+<mapper namespace="com.eric.base.sys.i18n.mapper.SysI18nLanguageMapper">
 
     <!--
         多语言-语言(sys_i18n_language)映射
@@ -11,7 +11,7 @@
         默认语言禁止删除与停用（口径 A2）由服务层校验。
     -->
 
-    <resultMap id="SysI18nLanguageResultMap" type="com.common.system.sys.i18n.model.SysI18nLanguage">
+    <resultMap id="SysI18nLanguageResultMap" type="com.eric.base.sys.i18n.model.SysI18nLanguage">
         <id column="field_id" property="fieldId"/>
         <result column="field_code" property="fieldCode"/>
         <result column="field_name" property="fieldName"/>
@@ -24,7 +24,7 @@
         field_id, field_code, field_name, field_enable, field_default, field_order
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.i18n.model.SysI18nLanguage">
+    <insert id="insert" parameterType="com.eric.base.sys.i18n.model.SysI18nLanguage">
         INSERT INTO sys_i18n_language (
         field_id, field_code, field_name, field_enable, field_default, field_order
         ) VALUES (
@@ -33,7 +33,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.i18n.model.SysI18nLanguage">
+    <update id="update" parameterType="com.eric.base.sys.i18n.model.SysI18nLanguage">
         UPDATE sys_i18n_language
         <set>
             <if test="model.fieldCode != null">field_code = #{model.fieldCode},</if>

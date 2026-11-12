@@ -2,14 +2,14 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.process.mapper.SysProcessTemplateHistoryMapper">
+<mapper namespace="com.eric.base.sys.process.mapper.SysProcessTemplateHistoryMapper">
 
     <!--
         流程模板历史版本表(sys_process_template_history)映射
         field_content 以 JSON 字符串保存归档时刻的模板与全部节点信息；流水只增不改。
     -->
 
-    <resultMap id="SysProcessTemplateHistoryResultMap" type="com.common.system.sys.process.model.SysProcessTemplateHistory">
+    <resultMap id="SysProcessTemplateHistoryResultMap" type="com.eric.base.sys.process.model.SysProcessTemplateHistory">
         <id column="field_id" property="fieldId"/>
         <result column="field_template_id" property="fieldTemplateId"/>
         <result column="field_version" property="fieldVersion"/>
@@ -20,7 +20,7 @@
         field_id, field_template_id, field_version, field_content
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.process.model.SysProcessTemplateHistory">
+    <insert id="insert" parameterType="com.eric.base.sys.process.model.SysProcessTemplateHistory">
         INSERT INTO sys_process_template_history (
         <include refid="BaseColumns"/>
         ) VALUES (
@@ -28,7 +28,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.process.model.SysProcessTemplateHistory">
+    <update id="update" parameterType="com.eric.base.sys.process.model.SysProcessTemplateHistory">
         UPDATE sys_process_template_history
         <set>
             <if test="model.fieldTemplateId != null">field_template_id = #{model.fieldTemplateId},</if>
@@ -62,7 +62,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id 与 field_name（历史记录无名称，回退模板id），供关联对象赋值使用 -->
-    <resultMap id="SysProcessTemplateHistoryLoadResultMap" type="com.common.system.sys.process.model.SysProcessTemplateHistory">
+    <resultMap id="SysProcessTemplateHistoryLoadResultMap" type="com.eric.base.sys.process.model.SysProcessTemplateHistory">
         <id column="field_id" property="fieldId"/>
         <result column="field_template_id" property="fieldTemplateId"/>
     </resultMap>

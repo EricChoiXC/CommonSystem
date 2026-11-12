@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.dict.mapper.SysDictItemMapper">
+<mapper namespace="com.eric.base.sys.dict.mapper.SysDictItemMapper">
 
     <!--
         码值项(sys_dict_item)映射
@@ -11,7 +11,7 @@
         列清单与 artificial/docs/设计文档/sys/dict/码值功能核心业务.md 保持一致。
     -->
 
-    <resultMap id="SysDictItemResultMap" type="com.common.system.sys.dict.model.SysDictItem">
+    <resultMap id="SysDictItemResultMap" type="com.eric.base.sys.dict.model.SysDictItem">
         <id column="field_id" property="fieldId"/>
         <result column="field_type_id" property="fieldTypeId"/>
         <result column="field_value" property="fieldValue"/>
@@ -20,7 +20,7 @@
         <result column="field_system" property="fieldSystem"/>
     </resultMap>
 
-    <resultMap id="SysDictItemVoResultMap" type="com.common.system.sys.dict.response.SysDictItemVo">
+    <resultMap id="SysDictItemVoResultMap" type="com.eric.base.sys.dict.response.SysDictItemVo">
         <id column="field_id" property="fieldId"/>
         <result column="field_type_id" property="fieldTypeId"/>
         <result column="field_value" property="fieldValue"/>
@@ -33,7 +33,7 @@
         field_id, field_type_id, field_value, field_name, field_enable, field_system
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.dict.model.SysDictItem">
+    <insert id="insert" parameterType="com.eric.base.sys.dict.model.SysDictItem">
         INSERT INTO sys_dict_item (
         field_id, field_type_id, field_value, field_name, field_enable, field_system
         ) VALUES (
@@ -41,7 +41,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.dict.model.SysDictItem">
+    <update id="update" parameterType="com.eric.base.sys.dict.model.SysDictItem">
         UPDATE sys_dict_item
         <set>
             <if test="model.fieldTypeId != null">field_type_id = #{model.fieldTypeId},</if>
@@ -115,7 +115,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
-    <resultMap id="SysDictItemLoadResultMap" type="com.common.system.sys.dict.model.SysDictItem">
+    <resultMap id="SysDictItemLoadResultMap" type="com.eric.base.sys.dict.model.SysDictItem">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>

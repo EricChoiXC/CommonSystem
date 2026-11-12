@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.org.mapper.SysOrgAddressBookMapper">
+<mapper namespace="com.eric.base.sys.org.mapper.SysOrgAddressBookMapper">
 
     <!--
         地址本(addressbook)查询映射：仅查询 sys_org_element 主表，
@@ -15,7 +15,7 @@
         列清单与 artificial/docs/设计文档/sys/org/组织架构表结构.md 保持一致。
     -->
 
-    <resultMap id="SysOrgElementResultMap" type="com.common.system.sys.org.model.SysOrgElement">
+    <resultMap id="SysOrgElementResultMap" type="com.eric.base.sys.org.model.SysOrgElement">
         <id column="field_id" property="fieldId"/>
         <result column="field_code" property="fieldCode"/>
         <result column="field_name" property="fieldName"/>

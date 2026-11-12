@@ -2,9 +2,9 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.calendar.mapper.SysCalendarMainMapper">
+<mapper namespace="com.eric.base.sys.calendar.mapper.SysCalendarMainMapper">
 
-    <resultMap id="SysCalendarMainResultMap" type="com.common.system.sys.calendar.model.SysCalendarMain">
+    <resultMap id="SysCalendarMainResultMap" type="com.eric.base.sys.calendar.model.SysCalendarMain">
         <id column="field_id" property="fieldId"/>
         <result column="field_creator_id" property="fieldCreatorId"/>
         <result column="field_create_time" property="fieldCreateTime"/>
@@ -16,7 +16,7 @@
         <result column="field_type" property="fieldType"/>
     </resultMap>
 
-    <resultMap id="SysCalendarVoResultMap" type="com.common.system.sys.calendar.response.SysCalendarVo">
+    <resultMap id="SysCalendarVoResultMap" type="com.eric.base.sys.calendar.response.SysCalendarVo">
         <id column="field_id" property="fieldId"/>
         <result column="field_creator_id" property="fieldCreatorId"/>
         <result column="field_create_time" property="fieldCreateTime"/>
@@ -33,7 +33,7 @@
         field_start_time, field_end_time, field_name, field_content, field_type
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.calendar.model.SysCalendarMain">
+    <insert id="insert" parameterType="com.eric.base.sys.calendar.model.SysCalendarMain">
         INSERT INTO sys_calendar_main (
         field_id, field_creator_id, field_create_time, field_update_time,
         field_start_time, field_end_time, field_name, field_content, field_type
@@ -43,7 +43,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.calendar.model.SysCalendarMain">
+    <update id="update" parameterType="com.eric.base.sys.calendar.model.SysCalendarMain">
         UPDATE sys_calendar_main
         <set>
             <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
@@ -175,7 +175,7 @@
         WHERE field_id = #{fieldId}
     </select>
 
-    <resultMap id="SysCalendarMainLoadResultMap" type="com.common.system.sys.calendar.model.SysCalendarMain">
+    <resultMap id="SysCalendarMainLoadResultMap" type="com.eric.base.sys.calendar.model.SysCalendarMain">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>

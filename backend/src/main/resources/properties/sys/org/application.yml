@@ -22,7 +22,7 @@ SETTING:
 process_template:
   sys_org:
     name: "组织架构"
-    class: "com.common.system.sys.org.model.SysOrgElement"
+    class: "com.eric.base.sys.org.model.SysOrgElement"
     desc: "组织架构模块-组织架构调整流程（公共系统默认分类，接入业务系统可按需修改或扩展分类）"
     ops:
       attachment: "允许修改附件"

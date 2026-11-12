@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.task.mapper.SysTaskMainMapper">
+<mapper namespace="com.eric.base.sys.task.mapper.SysTaskMainMapper">
 
     <!--
         定时任务主表(sys_task_main)映射
@@ -11,7 +11,7 @@
         field_params 为 JSON 列，Java 侧以 String(合法 JSON 文本) 存取，值均为字符串。
     -->
 
-    <resultMap id="SysTaskMainResultMap" type="com.common.system.sys.task.model.SysTaskMain">
+    <resultMap id="SysTaskMainResultMap" type="com.eric.base.sys.task.model.SysTaskMain">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
         <result column="field_enable" property="fieldEnable"/>
@@ -27,7 +27,7 @@
         field_params, field_status, field_create_time
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.task.model.SysTaskMain">
+    <insert id="insert" parameterType="com.eric.base.sys.task.model.SysTaskMain">
         INSERT INTO sys_task_main (
         field_id, field_name, field_enable, field_cron, field_class,
         field_params, field_status, field_create_time
@@ -37,7 +37,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.task.model.SysTaskMain">
+    <update id="update" parameterType="com.eric.base.sys.task.model.SysTaskMain">
         UPDATE sys_task_main
         <set>
             <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
@@ -112,7 +112,7 @@
     </select>
 
     <!-- 轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用 -->
-    <resultMap id="SysTaskMainLoadResultMap" type="com.common.system.sys.task.model.SysTaskMain">
+    <resultMap id="SysTaskMainLoadResultMap" type="com.eric.base.sys.task.model.SysTaskMain">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>

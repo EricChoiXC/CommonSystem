@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.org.mapper.SysOrgUserMapper">
+<mapper namespace="com.eric.base.sys.org.mapper.SysOrgUserMapper">
 
     <!--
         人员扩展表(sys_org_user)映射
@@ -15,7 +15,7 @@
         列清单与 artificial/docs/设计文档/sys/org/组织架构表结构.md 保持一致。
     -->
 
-    <resultMap id="SysOrgUserResultMap" type="com.common.system.sys.org.model.SysOrgUser">
+    <resultMap id="SysOrgUserResultMap" type="com.eric.base.sys.org.model.SysOrgUser">
         <id column="field_id" property="fieldId"/>
         <result column="field_code" property="fieldCode"/>
         <result column="field_name" property="fieldName"/>
@@ -69,7 +69,7 @@
         field_last_login_time, field_last_chg_pwd_time, field_openid
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgUser">
+    <insert id="insert" parameterType="com.eric.base.sys.org.model.SysOrgUser">
         INSERT INTO sys_org_user (
         <include refid="InsertColumns"/>
         ) VALUES (
@@ -85,7 +85,7 @@
         密码仅通过 changePwd 接口的 updatePassword 更新（见下），
         防止通过编辑接口意外重置密码；field_login_name 仅管理员/本人可见(见 Service 裁剪)。
     -->
-    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgUser">
+    <update id="update" parameterType="com.eric.base.sys.org.model.SysOrgUser">
         UPDATE sys_org_user
         <set>
             <if test="model.fieldPhone != null">field_phone = #{model.fieldPhone},</if>
@@ -107,7 +107,7 @@
         仅更新密码：changePwd 接口专用，只触碰 field_password 与 field_last_chg_pwd_time，
         不更新用户其他字段；field_password 入参必须是 PasswordUtil 加密后的 BCrypt 哈希串。
     -->
-    <update id="updatePassword" parameterType="com.common.system.sys.org.model.SysOrgUser">
+    <update id="updatePassword" parameterType="com.eric.base.sys.org.model.SysOrgUser">
         UPDATE sys_org_user
         <set>
             field_password = #{model.fieldPassword},
@@ -202,7 +202,7 @@
         轻量加载：仅返回 field_id 与 field_name，供关联对象赋值使用；
         field_name 不在本扩展表，JOIN sys_org_element 主表获取
     -->
-    <resultMap id="SysOrgUserLoadResultMap" type="com.common.system.sys.org.model.SysOrgUser">
+    <resultMap id="SysOrgUserLoadResultMap" type="com.eric.base.sys.org.model.SysOrgUser">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>
@@ -211,7 +211,7 @@
         登录专用 resultMap：在完整列基础上额外映射 field_password（BCrypt 哈希串），
         仅供登录校验使用；field_password 在模型中标注 WRITE_ONLY，响应序列化时不输出。
     -->
-    <resultMap id="SysOrgUserLoginResultMap" type="com.common.system.sys.org.model.SysOrgUser"
+    <resultMap id="SysOrgUserLoginResultMap" type="com.eric.base.sys.org.model.SysOrgUser"
                extends="SysOrgUserResultMap">
         <result column="field_password" property="fieldPassword"/>
     </resultMap>

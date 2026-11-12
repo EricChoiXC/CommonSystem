@@ -1,0 +1,16 @@
+package com.eric.base.sys.org.request;
+
+import com.eric.base.common.base.model.BaseRequest;
+
+/**
+ * 地址本关键字列表分页查询请求
+ *
+ * @author Eric
+ * @date 2026/8/9
+ * @description 查询页签请求：body 为查询条件（keyword / orgTypes / limitRange），
+ *              pages 为分页参数，结构与前端 api/org.js 中 queryAddressBookList 的入参一致；
+ *              群组页签 groupList（ORG2-BE-004）复用本类（body 仅用 keyword 转
+ *              SysOrgGroupQuery.fieldName），成员查询请求见 {@link SysOrgAddressBookGroupUsersRequest}。
+ */
+public class SysOrgAddressBookListRequest extends BaseRequest<SysOrgAddressBookQuery> {
+}

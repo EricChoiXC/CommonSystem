@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.i18n.mapper.SysI18nTranslationMapper">
+<mapper namespace="com.eric.base.sys.i18n.mapper.SysI18nTranslationMapper">
 
     <!--
         多语言-翻译(sys_i18n_translation)映射
@@ -13,7 +13,7 @@
         selectByKeyAndLanguage + upsertFromResource / updateIfNotEdited / deleteByKeyAndLanguage 编排。
     -->
 
-    <resultMap id="SysI18nTranslationResultMap" type="com.common.system.sys.i18n.model.SysI18nTranslation">
+    <resultMap id="SysI18nTranslationResultMap" type="com.eric.base.sys.i18n.model.SysI18nTranslation">
         <id column="field_id" property="fieldId"/>
         <result column="field_key" property="fieldKey"/>
         <result column="field_language" property="fieldLanguage"/>
@@ -25,7 +25,7 @@
         field_id, field_key, field_language, field_message, field_update_time
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.i18n.model.SysI18nTranslation">
+    <insert id="insert" parameterType="com.eric.base.sys.i18n.model.SysI18nTranslation">
         INSERT INTO sys_i18n_translation (
         field_id, field_key, field_language, field_message, field_update_time
         ) VALUES (
@@ -33,7 +33,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.i18n.model.SysI18nTranslation">
+    <update id="update" parameterType="com.eric.base.sys.i18n.model.SysI18nTranslation">
         UPDATE sys_i18n_translation
         <set>
             <if test="model.fieldKey != null">field_key = #{model.fieldKey},</if>
@@ -112,7 +112,7 @@
     </select>
 
     <!-- 资源同步插入：不存在才插入（field_update_time 置空），存在返回 0 由调用方走覆盖分支 -->
-    <insert id="upsertFromResource" parameterType="com.common.system.sys.i18n.model.SysI18nTranslation">
+    <insert id="upsertFromResource" parameterType="com.eric.base.sys.i18n.model.SysI18nTranslation">
         INSERT INTO sys_i18n_translation (
         field_id, field_key, field_language, field_message, field_update_time
         ) VALUES (
@@ -121,7 +121,7 @@
     </insert>
 
     <!-- 资源同步覆盖：仅当人工编辑标记为空时覆盖文本（人工编辑过的跳过） -->
-    <update id="updateIfNotEdited" parameterType="com.common.system.sys.i18n.model.SysI18nTranslation">
+    <update id="updateIfNotEdited" parameterType="com.eric.base.sys.i18n.model.SysI18nTranslation">
         UPDATE sys_i18n_translation
         SET field_message = #{model.fieldMessage}
         WHERE field_key = #{model.fieldKey}

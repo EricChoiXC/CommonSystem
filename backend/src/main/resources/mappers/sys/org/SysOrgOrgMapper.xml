@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.common.system.sys.org.mapper.SysOrgOrgMapper">
+<mapper namespace="com.eric.base.sys.org.mapper.SysOrgOrgMapper">
 
     <!--
         机构扩展表(sys_org_org)映射
@@ -12,7 +12,7 @@
         列清单与 artificial/docs/设计文档/sys/org/组织架构表结构.md 保持一致。
     -->
 
-    <resultMap id="SysOrgOrgResultMap" type="com.common.system.sys.org.model.SysOrgOrg">
+    <resultMap id="SysOrgOrgResultMap" type="com.eric.base.sys.org.model.SysOrgOrg">
         <id column="field_id" property="fieldId"/>
         <result column="field_leader_id" property="fieldLeaderId"/>
         <result column="field_phone" property="fieldPhone"/>
@@ -24,7 +24,7 @@
         field_id, field_leader_id, field_phone, field_email, field_address
     </sql>
 
-    <insert id="insert" parameterType="com.common.system.sys.org.model.SysOrgOrg">
+    <insert id="insert" parameterType="com.eric.base.sys.org.model.SysOrgOrg">
         INSERT INTO sys_org_org (
         <include refid="BaseColumns"/>
         ) VALUES (
@@ -32,7 +32,7 @@
         )
     </insert>
 
-    <update id="update" parameterType="com.common.system.sys.org.model.SysOrgOrg">
+    <update id="update" parameterType="com.eric.base.sys.org.model.SysOrgOrg">
         UPDATE sys_org_org
         <set>
             <if test="model.fieldLeaderId != null">field_leader_id = #{model.fieldLeaderId},</if>
@@ -76,7 +76,7 @@
         轻量加载：仅返回 field_id 与 field_name，供关联对象(如 SysOrgElement.fieldParent)赋值使用；
         field_name 不在本扩展表，JOIN sys_org_element 主表获取
     -->
-    <resultMap id="SysOrgOrgLoadResultMap" type="com.common.system.sys.org.model.SysOrgOrg">
+    <resultMap id="SysOrgOrgLoadResultMap" type="com.eric.base.sys.org.model.SysOrgOrg">
         <id column="field_id" property="fieldId"/>
         <result column="field_name" property="fieldName"/>
     </resultMap>
