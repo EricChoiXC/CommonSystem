@@ -175,6 +175,13 @@ const routes = [
         meta: { title: '公共配置', parent: '系统管理', group: '后台管理', auth: 'SYS_ADMIN' }
       },
       {
+        path: 'module',
+        name: 'ModuleManage',
+        component: () => import('@/views/setting/ModuleManageView.vue'),
+        // 顶层扁平路径 /module（与 /setting、/dict 同惯例，决策 D4）；模块组管理员维护模块组开关
+        meta: { title: '模块管理', parent: '系统管理', group: '后台管理', auth: 'SYS_MODULE_ADMIN' }
+      },
+      {
         path: 'log/detail/:id',
         name: 'LogDetail',
         component: () => import('@/views/log/LogDetailView.vue'),

@@ -311,10 +311,12 @@ const menus = [
         children: [{ title: '日志管理', path: '/log', auth: '' }]
       },
       {
+        // 后台管理子组 auth 下放为空，由子项各自声明 auth（模块组管理员可见「模块管理」、不放大「公共配置」可见面）
         title: '后台管理',
-        auth: 'SYS_ADMIN',
+        auth: '',
         children: [
-          { title: '公共配置', path: '/setting', auth: '' }
+          { title: '公共配置', path: '/setting', auth: 'SYS_ADMIN' },
+          { title: '模块管理', path: '/module', auth: 'SYS_MODULE_ADMIN' }
         ]
       },
       {
@@ -373,6 +375,7 @@ const activeMenu = computed(() => {
   if (path.startsWith('/taskHistory/')) return '/taskHistory'
   // 流程模板新建/编辑/详情为模板管理列表的子页面，归约到模板管理菜单项
   if (path.startsWith('/processTemplate/')) return '/processTemplate'
+  // /module 为顶层扁平叶子路径，无需归约
   // 多语言三个页面均为叶子路径（弹窗编辑无子路由），无需归约
   return path
 })
