@@ -164,10 +164,18 @@
     </div>
 
     <main class="layout-main">
+      <!-- 模块组已关闭：渲染空态替换业务页面，组件不挂载即不加载业务数据；恢复开启后自动恢复（UI 分册第 7 节） -->
+      <div v-if="currentModuleDisabled" class="module-disabled-state">
+        <el-empty :description="`${moduleStore.moduleName(route.meta.moduleGroup)} 模块未开启`">
+          <p class="module-disabled-tip">
+            该功能所属模块组已被管理员关闭，请联系管理员在【系统管理 → 后台管理 → 模块管理】中开启。
+          </p>
+        </el-empty>
+      </div>
       <!-- KeepAlive 页签缓存：切换标签页返回时保留页面状态（列表筛选/分页、表单已填内容）；
            include 跟随当前打开的标签页动态生成，关闭标签即释放对应缓存；
            实例按路由 path 区分，同一组件的不同单据（如编辑不同 id）互不串数据 -->
-      <RouterView v-slot="{ Component, route: viewRoute }">
+      <RouterView v-else v-slot="{ Component, route: viewRoute }">
         <KeepAlive :include="cachedViewNames">
           <component :is="Component" :key="viewRoute.path" />
         </KeepAlive>
@@ -184,6 +192,7 @@ import { useUserStore } from '@/stores/user'
 import { useNotifyStore } from '@/stores/notify'
 import { useProfileStore } from '@/stores/profile'
 import { useLanguageStore } from '@/stores/language'
+import { useModuleStore } from '@/stores/module'
 import { hasAuth } from '@/utils/auth'
 import { logout } from '@/api/sys'
 import { loadAddressBook, loadProfile } from '@/api/org'
@@ -201,6 +210,7 @@ const userStore = useUserStore()
 const notifyStore = useNotifyStore()
 const languageStore = useLanguageStore()
 const profileStore = useProfileStore()
+const moduleStore = useModuleStore()
 const { t } = useI18n()
 
 /* ========== 顶部栏语言切换（不落库，仅 locale + localStorage） ========== */
@@ -241,14 +251,15 @@ function clearVisitedTabs() {
 /* ========== 左侧菜单 ========== */
 
 // 菜单配置：一级菜单 auth 为空表示所有登录用户可见；
-// 二级分组/二级菜单项 auth 为空表示随上一级可见
+// 二级分组/二级菜单项 auth 为空表示随上一级可见；
+// 可选 moduleGroup 键声明菜单项所属模块组，已关闭模块的菜单项随 filteredMenus 隐藏
 const menus = [
   {
     title: '工作台',
     auth: '',
     children: [
       { title: '待办', path: '/todo', auth: '' },
-      { title: '日程', path: '/calendar', auth: '' }
+      { title: '日程', path: '/calendar', auth: '', moduleGroup: 'calendar' }
     ]
   },
   {
@@ -256,7 +267,7 @@ const menus = [
     auth: '',
     children: [
       { title: '当前组织架构', path: '/org', auth: '' },
-      { title: '群组', path: '/org/group', auth: '' }
+      { title: '群组', path: '/org/group', auth: '', moduleGroup: 'org-group' }
     ]
   },
   {
@@ -332,12 +343,18 @@ const menus = [
   }
 ]
 
-// 递归过滤菜单节点：auth 不满足返回 null；分组下无可见子项时整个分组隐藏。
-// 叶子节点直接返回自身，分组节点返回过滤后的新对象。
+// 递归过滤菜单节点：auth 不满足返回 null；已关闭模块组的节点（moduleGroup 命中）同样返回 null；
+// 分组下无可见子项时整个分组隐藏。叶子节点直接返回自身，分组节点返回过滤后的新对象。
 function filterMenuNode(node) {
   if (node.auth && !hasAuth(node.auth)) return null
+  if (node.moduleGroup && moduleStore.isDisabled(node.moduleGroup)) return null
   const children = (node.children || [])
-    .map((child) => (child.children ? filterMenuNode(child) : !child.auth || hasAuth(child.auth) ? child : null))
+    .map((child) => {
+      if (child.children) return filterMenuNode(child)
+      // 叶子分支：auth + 模块可用性双重过滤
+      if (child.moduleGroup && moduleStore.isDisabled(child.moduleGroup)) return null
+      return !child.auth || hasAuth(child.auth) ? child : null
+    })
     .filter(Boolean)
   if (!children.length) return null
   return { ...node, children }
@@ -378,6 +395,14 @@ const activeMenu = computed(() => {
   // /module 为顶层扁平叶子路径，无需归约
   // 多语言三个页面均为叶子路径（弹窗编辑无子路由），无需归约
   return path
+})
+
+/* ========== 模块组开关运行期感知（UI 分册第 6、7 节） ========== */
+
+// 当前路由所属模块组已关闭（路由守卫空态语义的渲染落点：beforeEach 无法渲染组件，由布局层按 meta.moduleGroup 判定，UI 分册第 7 节）
+const currentModuleDisabled = computed(() => {
+  const key = route.meta && route.meta.moduleGroup
+  return !!key && moduleStore.isDisabled(key)
 })
 
 /* ========== 顶部栏：面包屑 / 用户信息 / 登出 ========== */
@@ -439,6 +464,17 @@ async function loadApplicationName() {
     if (name) applicationName.value = name
   } catch {
     applicationName.value = 'CommonSystem'
+  }
+}
+
+/**
+ * 登录后应用初始化拉取模块组状态：失败按 fail-open 放行（store 未加载时 isDisabled 恒 false），不影响主界面
+ */
+async function loadModuleStates() {
+  try {
+    await moduleStore.loadModules()
+  } catch {
+    // 拉取失败不弹错误、不阻塞主页渲染，依赖下次进入页面重试
   }
 }
 
@@ -513,6 +549,8 @@ onMounted(async () => {
   checkForceChangePwd()
   // 加载顶栏头像（本人个人资料 → avatarAttId → profileStore）
   loadHeaderAvatar()
+  // 登录后初始化拉取模块组状态（菜单过滤 + 路由空态判定共用，fail-open）
+  loadModuleStates()
   const parentId = userStore.userInfo && userStore.userInfo.fieldParentId
   if (!parentId) return
   try {
@@ -570,6 +608,7 @@ async function handleLogout() {
   }
   userStore.logout()
   profileStore.reset() // 登出清头像缓存（revoke blob URL，会话级缓存登出失效）
+  moduleStore.reset() // 登出清模块组状态缓存，避免下一个用户看到上一个会话的模块启停状态
   clearVisitedTabs()
   ElMessage.success('已退出登录')
   router.replace('/login')
@@ -966,6 +1005,23 @@ function handleTabMgmtCommand(command) {
   overflow-y: auto;
   padding: 16px;
   background-color: #f0f2f5;
+}
+
+/* —— 模块组已关闭空态：替换 RouterView 的占位区，白底卡片居中 + 上下留白 —— */
+.module-disabled-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  background-color: #ffffff;
+  border-radius: 4px;
+  padding: 48px 16px;
+}
+
+.module-disabled-tip {
+  margin: 0;
+  font-size: 13px;
+  color: #909399;
 }
 
 /* —— 日程图标按钮 —— */

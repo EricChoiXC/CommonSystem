@@ -19,25 +19,26 @@ const routes = [
         path: 'calendar',
         name: 'Calendar',
         component: () => import('@/views/calendar/CalendarView.vue'),
-        meta: { title: '日程', parent: '工作台' }
+        // meta.moduleGroup 为模块组开关运行期感知：所属模块组已关闭时布局层渲染「模块未开启」空态（UI 分册第 7 节）
+        meta: { title: '日程', parent: '工作台', moduleGroup: 'calendar' }
       },
       {
         path: 'calendar/create',
         name: 'CalendarCreate',
         component: () => import('@/views/calendar/CalendarFormView.vue'),
-        meta: { title: '新建日程', parent: '工作台' }
+        meta: { title: '新建日程', parent: '工作台', moduleGroup: 'calendar' }
       },
       {
         path: 'calendar/edit/:id',
         name: 'CalendarEdit',
         component: () => import('@/views/calendar/CalendarFormView.vue'),
-        meta: { title: '编辑日程', parent: '工作台', tab: 'name' }
+        meta: { title: '编辑日程', parent: '工作台', tab: 'name', moduleGroup: 'calendar' }
       },
       {
         path: 'calendar/detail/:id',
         name: 'CalendarDetail',
         component: () => import('@/views/calendar/CalendarDetailView.vue'),
-        meta: { title: '日程详情', parent: '工作台', tab: 'name' }
+        meta: { title: '日程详情', parent: '工作台', tab: 'name', moduleGroup: 'calendar' }
       },
       {
         path: 'todo',
@@ -73,25 +74,26 @@ const routes = [
         path: 'org/group',
         name: 'GroupManage',
         component: () => import('@/views/org/GroupManageView.vue'),
-        meta: { title: '群组', parent: '组织架构' }
+        // meta.moduleGroup 为模块组开关运行期感知：所属模块组已关闭时布局层渲染「模块未开启」空态（UI 分册第 7 节）
+        meta: { title: '群组', parent: '组织架构', moduleGroup: 'org-group' }
       },
       {
         path: 'org/group/create',
         name: 'GroupCreate',
         component: () => import('@/views/org/GroupFormView.vue'),
-        meta: { title: '新建群组', parent: '组织架构' }
+        meta: { title: '新建群组', parent: '组织架构', moduleGroup: 'org-group' }
       },
       {
         path: 'org/group/edit/:id',
         name: 'GroupEdit',
         component: () => import('@/views/org/GroupFormView.vue'),
-        meta: { title: '编辑群组', parent: '组织架构', tab: 'name' }
+        meta: { title: '编辑群组', parent: '组织架构', tab: 'name', moduleGroup: 'org-group' }
       },
       {
         path: 'org/group/detail/:id',
         name: 'GroupDetail',
         component: () => import('@/views/org/GroupDetailView.vue'),
-        meta: { title: '群组详情', parent: '组织架构', tab: 'name' }
+        meta: { title: '群组详情', parent: '组织架构', tab: 'name', moduleGroup: 'org-group' }
       },
       {
         path: 'profile',
