@@ -4,6 +4,7 @@ import com.eric.base.common.base.model.Pages;
 import com.eric.base.sys.number.model.SysNumberRecord;
 import com.eric.base.sys.number.model.SysNumberRecordDetail;
 import com.eric.base.sys.number.model.SysNumberRule;
+import com.eric.base.sys.number.request.SysNumberRuleQuery;
 import org.apache.ibatis.builder.xml.XMLMapperBuilder;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.session.Configuration;
@@ -13,6 +14,7 @@ import org.springframework.core.io.ClassPathResource;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -230,6 +232,85 @@ class SysNumberMapperXmlTest {
         locked.put("lockForUpdate", true);
         String lockedSql = boundSql(SysNumberRecordDetailMapper.class.getName() + ".selectValidByScopeAndModel", locked);
         assertTrue(lockedSql.contains("FOR UPDATE"), "幂等二次确认为锁定读: " + lockedSql);
+    }
+
+    // ---------------------------------------------------------- NB3-BE-002 规则维护语句
+
+    @Test
+    void ruleSelectQueryListBindsFuzzyAndExactFilters() {
+        SysNumberRuleQuery query = new SysNumberRuleQuery();
+        query.setFieldName("订单");
+        query.setFieldCode("CG");
+        query.setFieldModelId("process-example-code");
+        query.setFieldModelField("fieldCode");
+        query.setFieldEnable(true);
+        Pages pages = new Pages();
+        pages.setPageNo(2);
+        pages.setPageSize(10);
+        pages.setNeedPage(true);
+        Map<String, Object> params = new HashMap<>();
+        params.put("query", query);
+        params.put("pages", pages);
+
+        String sql = boundSql(SysNumberRuleMapper.class.getName() + ".selectQueryList", params);
+        assertTrue(sql.contains("field_name LIKE"), sql);
+        assertTrue(sql.contains("field_code LIKE"), sql);
+        assertTrue(sql.contains("field_model_id ="), sql);
+        assertTrue(sql.contains("field_model_field ="), sql);
+        assertTrue(sql.contains("field_enable ="), sql);
+        assertTrue(sql.contains("ORDER BY field_create_time DESC"), sql);
+        assertTrue(sql.contains("LIMIT"), sql);
+
+        // count 与列表共用条件片段，条件一致（供 metadata.total）
+        String countSql = boundSql(SysNumberRuleMapper.class.getName() + ".countQueryList",
+                Map.of("query", query));
+        assertTrue(countSql.contains("COUNT(*)"), countSql);
+        assertTrue(countSql.contains("field_name LIKE"), countSql);
+        assertTrue(countSql.contains("field_code LIKE"), countSql);
+
+        // 空条件 + 不分页：裸列表
+        String plainSql = boundSql(SysNumberRuleMapper.class.getName() + ".selectQueryList",
+                Map.of("query", new SysNumberRuleQuery(), "pages", new Pages()));
+        assertFalse(plainSql.contains("WHERE"), plainSql);
+        assertFalse(plainSql.contains("LIMIT"), plainSql);
+    }
+
+    @Test
+    void ruleSelectByCodeMatchesExactCode() {
+        String sql = boundSql(SysNumberRuleMapper.class.getName() + ".selectByCode",
+                Map.of("fieldCode", "CG-RULE"));
+        assertTrue(sql.contains("field_code ="), sql);
+        assertTrue(sql.contains("LIMIT 1"), sql);
+    }
+
+    @Test
+    void ruleCountEnabledByModelCountsEnabledOnly() {
+        String sql = boundSql(SysNumberRuleMapper.class.getName() + ".countEnabledByModel",
+                Map.of("fieldModelId", "process-example-code"));
+        assertTrue(sql.contains("COUNT(*)"), sql);
+        assertTrue(sql.contains("field_model_id ="), sql);
+        assertTrue(sql.contains("field_enable = b'1'"), sql);
+    }
+
+    @Test
+    void ruleDisableOtherEnabledByModelExcludesSelf() {
+        String sql = boundSql(SysNumberRuleMapper.class.getName() + ".disableOtherEnabledByModel",
+                Map.of("fieldModelId", "process-example-code", "excludeFieldId", "0".repeat(32),
+                        "updaterId", "U", "updateTime", new Date()));
+        assertTrue(sql.contains("UPDATE sys_number_rule"), sql);
+        assertTrue(sql.contains("field_enable = b'0'"), sql);
+        assertTrue(sql.contains("field_updater_id ="), sql);
+        assertTrue(sql.contains("field_update_time ="), sql);
+        assertTrue(sql.contains("field_enable = b'1'"), sql);
+        assertTrue(sql.contains("field_id !="), sql);
+    }
+
+    @Test
+    void detailCountByScopeKeyCountsByScope() {
+        String sql = boundSql(SysNumberRecordDetailMapper.class.getName() + ".countByScopeKey",
+                Map.of("fieldScopeKey", "0".repeat(32)));
+        assertTrue(sql.contains("COUNT(*)"), sql);
+        assertTrue(sql.contains("field_scope_key ="), sql);
     }
 
     private static String boundSql(String statementId, Map<String, Object> params) {

@@ -126,4 +126,15 @@
         <if test="lockForUpdate">FOR UPDATE</if>
     </select>
 
+    <!--
+        删除保护计数（NB3-BE-002，D9）：按作用域键统计取号明细行数（含已作废，取号痕迹保留）。
+        明细表无 field_rule_id 列，固定接入作用域 = 规则 field_id（方案 §5.1）；
+        计数 > 0 时规则拒绝删除（CRM_NUMBER_RULE_IN_USE），仅可停用。
+    -->
+    <select id="countByScopeKey" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_number_record_detail
+        WHERE field_scope_key = #{fieldScopeKey}
+    </select>
+
 </mapper>

@@ -127,4 +127,76 @@
         ORDER BY field_create_time DESC
     </select>
 
+    <!--
+        规则列表查询条件（NB3-BE-002，方案 §3.2 rule/list）：fieldName / fieldCode 模糊，
+        fieldModelId / fieldModelField 精确，fieldEnable 精确；列表与计数共用本片段保证条件一致
+    -->
+    <sql id="QueryConditions">
+        <where>
+            <if test="query.fieldName != null and query.fieldName != ''">AND field_name LIKE CONCAT('%', #{query.fieldName}, '%')</if>
+            <if test="query.fieldCode != null and query.fieldCode != ''">AND field_code LIKE CONCAT('%', #{query.fieldCode}, '%')</if>
+            <if test="query.fieldModelId != null and query.fieldModelId != ''">AND field_model_id = #{query.fieldModelId}</if>
+            <if test="query.fieldModelField != null and query.fieldModelField != ''">AND field_model_field = #{query.fieldModelField}</if>
+            <if test="query.fieldEnable != null">AND field_enable = #{query.fieldEnable}</if>
+        </where>
+    </sql>
+
+    <!--
+        规则列表查询（NB3-BE-002，方案 §3.2 rule/list）：field_rule 原文返回不解析（A4，
+        列表页不解析 JSON，load 由 Service 解析），排序固定创建时间降序；
+        needPage=false 返回全部匹配结果
+    -->
+    <select id="selectQueryList" resultMap="SysNumberRuleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_number_rule
+        <include refid="QueryConditions"/>
+        ORDER BY field_create_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 规则列表总数（NB3-BE-002）：条件与 selectQueryList 完全一致，供响应 metadata.total -->
+    <select id="countQueryList" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_number_rule
+        <include refid="QueryConditions"/>
+    </select>
+
+    <!-- 规则编码查重（NB3-BE-002，D4，Service 层校验先例 i18n 语言码）：同编码仅允许一条 -->
+    <select id="selectByCode" parameterType="string" resultMap="SysNumberRuleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_number_rule
+        WHERE field_code = #{fieldCode}
+        LIMIT 1
+    </select>
+
+    <!--
+        同接入项启用规则计数（NB3-BE-002，R2 收尾自检）：save / enable 切换启用后
+        该计数应恰为 1（D1「同接入项至多一条启用」不变式），不符抛 IllegalStateException 令事务回滚
+    -->
+    <select id="countEnabledByModel" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_number_rule
+        WHERE field_model_id = #{fieldModelId}
+          AND field_enable = b'1'
+    </select>
+
+    <!--
+        切换启用（NB3-BE-002，D1）：停用同接入项下其他已启用规则（排除本次启用/新建的规则自身），
+        与自身置启用同事务执行；同步更新审计字段（对齐 updateEnable 先例）
+    -->
+    <update id="disableOtherEnabledByModel">
+        UPDATE sys_number_rule
+        SET field_enable = b'0',
+            field_updater_id = #{updaterId},
+            field_update_time = #{updateTime}
+        WHERE field_model_id = #{fieldModelId}
+          AND field_enable = b'1'
+          AND field_id != #{excludeFieldId}
+    </update>
+
 </mapper>
