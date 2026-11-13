@@ -318,6 +318,44 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 - `deploy/run` 执行与启动同规则的「资源 → DB 同步」并刷新缓存，返回同步资源数与各语言翻译条数；语言包为动态接口无产物落盘（D2），未启用或未知语言码返回 `BAD_REQUEST` 错误信息，不输出空包。
 - 免鉴权入口（`language/list`、`/locales/**`）与登录接口一致，以 `@SecurityRequirements` 标注无安全要求；文件流接口以 `APPLICATION_OCTET_STREAM_VALUE` + `format="binary"` 标注。
 
+### 4.9 模块组开关模块（v1.1 新增）
+
+#### 4.9.1 模块目标与接口边界
+
+- 提供模块组（module-group）开关状态的列表查询与整体启停能力（管理面），支撑「模块组级接口开关机制」：管理员不改代码、不重启即可整体启停一组接口。
+- 基础路径：`/backend/common/module`；接口标识常量定义于 `CommonModuleProperties`（`ACTION_LIST` / `ACTION_ENABLE`），鉴权由 `CommonModuleController` 调用 `authorize(action, documentId)` 经 `ModuleResolver`（继承 `BaseResolver`）兜底：未登录抛 `UNAUTHORIZED`、无权限抛 `FORBIDDEN`；`SYS_ADMIN` 经 `BaseResolver` 自动放行（模块分支内不重复列举）。
+- `CommonModuleController` 自身**不打** `@ModuleGroup`：关闭任意模块组后管理面仍可用（可经本模块接口恢复开启）。
+- 开关判定位于业务鉴权之前：`ModuleGroupInterceptor`（注册于 `/backend/**`）先于 Controller `authorize`，被关闭业务模块的接口返回 `MODULE_DISABLED`、不再讨论权限。
+
+#### 4.9.2 模块接口分组
+
+| 接口 | 方法 | 路径 | 鉴权动作 | 鉴权 |
+| --- | --- | --- | --- | --- |
+| 模块组列表 | POST | `/backend/common/module/list` | `common.module.list` | 登录即可（无角色要求；免登录不可访问——模块组列表暴露系统拓扑，不向匿名开放） |
+| 模块组启停 | PATCH | `/backend/common/module/enable` | `common.module.enable` | 仅 SYS_MODULE_ADMIN（模块组管理员） |
+
+- `list` 遵循 list 通道：请求体 `{ body, pages: { pageNo, pageSize, needPage } }`（`body` 为查询条件预留位，首批无筛选字段）；模块组量极小，默认 `needPage=false` **全量返回**，按 `field_key` 排序，`metadata` 不强制携带 `total`；返回字段 `fieldId` / `fieldKey` / `fieldName` / `fieldEnable`（Boolean）/ `fieldRemark` / `fieldUpdateTime`。
+- `enable` 请求体 `{ fieldId, fieldEnable }`，与全工程 `/enable` 通道约定一致；缺 `fieldId` 返回 `BAD_REQUEST`，不落入更新分支；成功后更新 DB → 本实例缓存立即刷新 → 尝试 Redis pub/sub 广播失效通知其他实例（best-effort，失败仅记日志、依赖 TTL 收敛，多实例最迟 30 秒一致）；操作日志经既有 `LogService` 记录（`action` 用 `common.module.enable`），日志失败不影响主流程。
+- 消费方：模块管理页（`ModuleManageView.vue`）与前端模块状态 store（`stores/module.js`，登录后拉取缓存，供菜单过滤与「模块未开启」空态判定共用）。
+
+#### 4.9.3 错误码与拦截语义（MODULE_DISABLED）
+
+| 项 | 说明 |
+| --- | --- |
+| 触发场景 | 已登录请求命中**已关闭**模块组的 `@ModuleGroup` 注解（`ModuleGroupInterceptor` 抛 `ModuleDisabledException`） |
+| 响应结构 | `BaseResponse.failure("MODULE_DISABLED", "该模块未开启，请联系管理员")`；HTTP 状态仍为 200 + code 体系（全工程惯例） |
+| 生效位置 | 拦截器层，请求**不进入** Controller 与 resolver（先于业务鉴权）；注解读取方法级优先、类级回退，`SYS_ADMIN` 不穿透模块开关 |
+| 公共模型 | `BaseResponse` 的 code `@Schema` 描述已同批追加 `MODULE_DISABLED` 错误码 |
+| 前端处理 | axios 拦截器（`api/index.js`）识别后统一提示，仅提示不跳转（区别于 `UNAUTHORIZED` 清登录态跳登录页） |
+
+- 匿名策略（D2）：未登录请求命中关闭模块组的注解时**放行给最终鉴权**，返回 `UNAUTHORIZED`，不返回 `MODULE_DISABLED`（不向匿名暴露开关状态）；
+- fail-open 口径（均不返回错误，按「开启」放行并告警）：注解 `moduleGroupKey` 未在 `common_module_group` 登记（启动期 WARN、运行期放行）；DB 异常且缓存不可用（放行并告警）；DB 异常但有缓存（沿用上次缓存值并告警）；Redis 不可用 / 广播失败仅记日志。
+
+#### 4.9.4 当前冻结的接口方向
+
+- 无注解 Controller 不受开关控制（登录、`/init`、`/initID`、`setting/load`、SSE 订阅、swagger 等公共入口天然放行）；首批标注 `SysCalendarMainController`（类级 `calendar`）与 `SysOrgGroupController`（类级 `org-group`）。
+- 后续追加模块组只需「`moduleGroup.yml` 加条目 + Controller 加注解」，接口机制本身无需改动；权限码 `SYS_MODULE_ADMIN`（名称「模块组管理员」）定义于 `properties/common/roles.yml`，与库两处同批提交。
+
 ## 5. 待确认事项
 
 - 组织架构模块中“角色分配”和“角色权限”的需求表述存在表名映射不一致，需在详细设计任务中确认接口术语。
