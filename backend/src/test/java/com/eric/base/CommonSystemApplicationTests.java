@@ -23,6 +23,9 @@ import com.eric.base.sys.i18n.model.SysI18nUserLanguage;
 import com.eric.base.sys.notify.mapper.SysNotifyTodoMapper;
 import com.eric.base.sys.notify.mapper.SysNotifyTodoTargetMapper;
 import com.eric.base.sys.log.mapper.SysLogOperationMapper;
+import com.eric.base.sys.number.mapper.SysNumberRecordDetailMapper;
+import com.eric.base.sys.number.mapper.SysNumberRecordMapper;
+import com.eric.base.sys.number.mapper.SysNumberRuleMapper;
 import com.eric.base.sys.org.mapper.SysOrgAddressBookMapper;
 import com.eric.base.sys.org.mapper.SysOrgAuthMapper;
 import com.eric.base.sys.org.mapper.SysOrgDeptMapper;
@@ -322,8 +325,24 @@ class CommonSystemApplicationTests {
 			return Mockito.mock(SysOrgUserPwdHistoryMapper.class);
 		}
 
-		/* ==================== 多语言模块 Mapper（i18n，4 个） ==================== */
+		/* ==================== 编号机制模块 Mapper（number，3 个） ==================== */
 
+		@Bean
+		SysNumberRuleMapper sysNumberRuleMapper() {
+			return Mockito.mock(SysNumberRuleMapper.class);
+		}
+
+		@Bean
+		SysNumberRecordMapper sysNumberRecordMapper() {
+			return Mockito.mock(SysNumberRecordMapper.class);
+		}
+
+		@Bean
+		SysNumberRecordDetailMapper sysNumberRecordDetailMapper() {
+			return Mockito.mock(SysNumberRecordDetailMapper.class);
+		}
+
+		/* ==================== 多语言模块 Mapper（i18n，4 个） ==================== */
 		@Bean
 		SysI18nLanguageMapper sysI18nLanguageMapper() {
 			SysI18nLanguageMapper mapper = Mockito.mock(SysI18nLanguageMapper.class);
