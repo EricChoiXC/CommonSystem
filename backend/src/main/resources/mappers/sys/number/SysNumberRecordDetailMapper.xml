@@ -10,6 +10,7 @@
         field_void_reason 两字段，不回退计数器，方案 §5.4），void 更新与明细筛选查询
         随 NB3-BE-005 补充；update/deleteById 仅为满足基础接口契约保留
         （先例 sys_task_history）。
+        幂等查询（selectValidByScopeAndModel）随 NB2-BE-002 补充。
         列清单与 V1_01_044__sys_number_schema.sql 保持一致。
     -->
 
@@ -103,6 +104,26 @@
         SELECT field_id, field_scope_key, field_period, field_serial_id, field_serial_no, field_code
         FROM sys_number_record_detail
         WHERE field_id = #{fieldId}
+    </select>
+
+    <!--
+        幂等查询（NB2-BE-002，方案 §5.3）：按作用域 + 业务单据ID 查未作废明细，
+        命中直接返回原编号（reused=true）不推进计数器；
+        同单据补号（reissue 顺延）后存在多条明细，取最近一条（reused 命中即补号后编号）；
+        走 idx_number_record_detail_model 索引。
+        lockForUpdate=true 追加 FOR UPDATE 锁定读（当前读，可见最新提交）：
+        供计数器行锁等待后的幂等二次确认，命中即抛错回滚；false 为普通读幂等预检。
+    -->
+    <select id="selectValidByScopeAndModel" resultMap="SysNumberRecordDetailResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_number_record_detail
+        WHERE field_scope_key = #{fieldScopeKey}
+          AND field_model_id = #{fieldModelId}
+          AND field_void_time IS NULL
+        ORDER BY field_record_time DESC
+        LIMIT 1
+        <if test="lockForUpdate">FOR UPDATE</if>
     </select>
 
 </mapper>

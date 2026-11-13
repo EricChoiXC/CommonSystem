@@ -8,9 +8,8 @@
         取号计数表(sys_number_record)映射
         流水类表只增不改：应用侧只执行 insert（uk_number_record_scope 定位行）；
         update/deleteById 仅为满足基础接口契约保留（先例 sys_task_history）。
-        周期切换封存（置 field_record_finish_time）与计数器原子 upsert
-        （INSERT ... ON DUPLICATE KEY UPDATE field_serial_no = LAST_INSERT_ID(field_serial_no + 1)）
-        随 NB2-BE-002 补充。
+        计数器原子推进（upsertSerial）、当前流水号取回（selectCurrentSerialNo）与
+        周期切换封存（sealOtherPeriods）随 NB2-BE-002 补充。
         列清单与 V1_01_044__sys_number_schema.sql 保持一致。
     -->
 
@@ -92,5 +91,58 @@
         FROM sys_number_record
         WHERE field_id = #{fieldId}
     </select>
+
+    <!--
+        计数器原子推进（NB2-BE-002，方案 §5.2 原文口径）
+        INSERT ... ON DUPLICATE KEY UPDATE field_serial_no = LAST_INSERT_ID(field_serial_no + 1)：
+        不存在则插入首行（流水号 = start，首号按 start 初始化），已存在则原子自增并取回新值，
+        杜绝 SELECT 后 UPDATE 的竞态；走 uk_number_record_scope 定位行，
+        InnoDB 对命中行加 X 锁持有至事务提交，并发取号由行锁串行（R1）。
+        封存行重开（方案 §5.4 reset 后「下次取号按 start 重开」的取号侧实现）：
+        命中行 field_record_finish_time 非空（人工重置封存残留）时流水号回到 start，
+        IF 条件在流水号赋值内先于 finish_time 清空求值（MySQL ODKU 赋值自左向右、
+        先行赋值读到旧行值）；周期切换封存的旧行周期键不同，不会命中本语句（走 INSERT 新行）。
+    -->
+    <insert id="upsertSerial" parameterType="com.eric.base.sys.number.model.SysNumberRecord">
+        INSERT INTO sys_number_record (
+        field_id, field_rule_id, field_scope_key, field_serial_id, field_period,
+        field_serial_no, field_record_time, field_record_finish_time
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldRuleId}, #{model.fieldScopeKey}, #{model.fieldSerialId}, #{model.fieldPeriod},
+        #{model.fieldSerialNo}, NOW(), NULL
+        )
+        ON DUPLICATE KEY UPDATE
+        field_serial_no = LAST_INSERT_ID(IF(field_record_finish_time IS NULL, field_serial_no + 1, #{model.fieldSerialNo})),
+        field_record_time = NOW(),
+        field_record_finish_time = NULL
+    </insert>
+
+    <!--
+        当前流水号取回（NB2-BE-002）：与 upsertSerial 同事务执行，
+        命中行行锁保证读到本事务写入的最新值；
+        本表主键为 VARCHAR(32) 且无 AUTO_INCREMENT 列，不依赖 getGeneratedKeys。
+    -->
+    <select id="selectCurrentSerialNo" resultType="java.lang.Integer">
+        SELECT field_serial_no
+        FROM sys_number_record
+        WHERE field_scope_key = #{fieldScopeKey}
+          AND field_serial_id = #{fieldSerialId}
+          AND field_period = #{fieldPeriod}
+    </select>
+
+    <!--
+        周期切换封存（NB2-BE-002，方案 §5.2）：当前周期键 ≠ 计数器行周期键时，
+        取号事务内将同作用域同流水项下其他周期使用中行（field_record_finish_time IS NULL）
+        置封存时间；同周期取号无匹配行（0 行更新，幂等）。
+        不变式：同 (field_scope_key, field_serial_id) 至多一行使用中。
+    -->
+    <update id="sealOtherPeriods">
+        UPDATE sys_number_record
+        SET field_record_finish_time = NOW()
+        WHERE field_scope_key = #{fieldScopeKey}
+          AND field_serial_id = #{fieldSerialId}
+          AND field_period != #{fieldPeriod}
+          AND field_record_finish_time IS NULL
+    </update>
 
 </mapper>

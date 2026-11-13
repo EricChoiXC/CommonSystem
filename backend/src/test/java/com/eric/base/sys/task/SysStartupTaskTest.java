@@ -5,6 +5,7 @@ import com.eric.base.common.module.service.CommonModuleService;
 import com.eric.base.common.setting.service.CommonSettingService;
 import com.eric.base.sys.dict.service.SysDictService;
 import com.eric.base.sys.i18n.service.SysI18nSyncService;
+import com.eric.base.sys.number.service.SysNumberModelCacheService;
 import com.eric.base.sys.org.model.SysOrgUser;
 import com.eric.base.sys.org.service.SysOrgAuthService;
 import com.eric.base.sys.org.service.SysOrgElementService;
@@ -44,6 +45,7 @@ class SysStartupTaskTest {
     private SysDictService sysDictService;
     private SysI18nSyncService sysI18nSyncService;
     private CommonModuleService commonModuleService;
+    private SysNumberModelCacheService sysNumberModelCacheService;
     private SysStartupTask task;
 
     @BeforeEach
@@ -58,9 +60,10 @@ class SysStartupTaskTest {
         sysDictService = mock(SysDictService.class);
         sysI18nSyncService = mock(SysI18nSyncService.class);
         commonModuleService = mock(CommonModuleService.class);
+        sysNumberModelCacheService = mock(SysNumberModelCacheService.class);
         task = new SysStartupTask(sysOrgUserService, sysOrgElementService, sysOrgAuthService,
                 sysOrgRoleService, modelCacheService, sysTaskSchedulerService, commonSettingService,
-                sysDictService, sysI18nSyncService, commonModuleService);
+                sysDictService, sysI18nSyncService, commonModuleService, sysNumberModelCacheService);
     }
 
     @Test
@@ -104,5 +107,7 @@ class SysStartupTaskTest {
         verify(sysOrgElementService).backfillPinyin();
         // 第十个启动任务：模块组同步 + 注解校验 + 缓存预热被调用
         verify(commonModuleService).syncFromYml();
+        // 第十一个启动任务：编号接入项缓存构建 + 失效接入项告警被调用
+        verify(sysNumberModelCacheService).syncFromYml();
     }
 }

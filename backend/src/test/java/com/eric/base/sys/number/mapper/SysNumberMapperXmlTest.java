@@ -161,6 +161,77 @@ class SysNumberMapperXmlTest {
         assertTrue(sql.contains("field_model_id ="), sql);
     }
 
+    // ---------------------------------------------------------- NB2-BE-002 取号核心语句
+
+    @Test
+    void ruleSelectDistinctModelIdsSingleColumn() {
+        String sql = boundSql(SysNumberRuleMapper.class.getName() + ".selectDistinctModelIds", Map.of());
+        assertTrue(sql.contains("SELECT DISTINCT field_model_id"), sql);
+        assertTrue(sql.contains("FROM sys_number_rule"), sql);
+    }
+
+    @Test
+    void ruleSelectByModelBindsModelIdentity() {
+        String sql = boundSql(SysNumberRuleMapper.class.getName() + ".selectByModel",
+                Map.of("fieldModelName", "SysProcessExample", "fieldModelField", "fieldCode"));
+        assertTrue(sql.contains("field_model_name ="), sql);
+        assertTrue(sql.contains("field_model_field ="), sql);
+    }
+
+    @Test
+    void recordUpsertSerialUsesAtomicAdvanceWithSealedRestart() {
+        SysNumberRecord model = new SysNumberRecord();
+        model.setFieldId("0".repeat(32));
+        model.setFieldScopeKey("R".repeat(32));
+        model.setFieldSerialId("ci-seq");
+        model.setFieldPeriod("20261112");
+        model.setFieldSerialNo(1);
+        String sql = boundSql(SysNumberRecordMapper.class.getName() + ".upsertSerial", Map.of("model", model));
+        assertTrue(sql.contains("INSERT INTO sys_number_record"), sql);
+        // 方案 §5.2 原文口径：ODKU + LAST_INSERT_ID 原子自增取回新值
+        assertTrue(sql.contains("ON DUPLICATE KEY UPDATE"), sql);
+        assertTrue(sql.contains("LAST_INSERT_ID"), sql);
+        // 方案 §5.4 reset 后「下次取号按 start 重开」的取号侧实现：封存行重开（IF 先于清封存求值）
+        assertTrue(sql.contains("IF(field_record_finish_time IS NULL"), sql);
+        assertTrue(sql.contains("field_record_finish_time = NULL"), sql);
+    }
+
+    @Test
+    void recordSelectCurrentSerialNoBindsScopeTriple() {
+        String sql = boundSql(SysNumberRecordMapper.class.getName() + ".selectCurrentSerialNo",
+                Map.of("fieldScopeKey", "R".repeat(32), "fieldSerialId", "ci-seq", "fieldPeriod", "20261112"));
+        assertTrue(sql.contains("SELECT field_serial_no"), sql);
+        assertTrue(sql.contains("field_scope_key ="), sql);
+        assertTrue(sql.contains("field_serial_id ="), sql);
+        assertTrue(sql.contains("field_period ="), sql);
+    }
+
+    @Test
+    void recordSealOtherPeriodsOnlyTouchesUnfinishedRows() {
+        String sql = boundSql(SysNumberRecordMapper.class.getName() + ".sealOtherPeriods",
+                Map.of("fieldScopeKey", "R".repeat(32), "fieldSerialId", "ci-seq", "fieldPeriod", "20261112"));
+        assertTrue(sql.contains("SET field_record_finish_time"), sql);
+        assertTrue(sql.contains("field_period !="), sql);
+        assertTrue(sql.contains("field_record_finish_time IS NULL"), sql);
+    }
+
+    @Test
+    void detailSelectValidByScopeAndModelFiltersVoidWithOptionalLock() {
+        Map<String, Object> plain = new HashMap<>();
+        plain.put("fieldScopeKey", "R".repeat(32));
+        plain.put("fieldModelId", "0".repeat(32));
+        plain.put("lockForUpdate", false);
+        String sql = boundSql(SysNumberRecordDetailMapper.class.getName() + ".selectValidByScopeAndModel", plain);
+        assertTrue(sql.contains("field_void_time IS NULL"), sql);
+        assertTrue(sql.contains("LIMIT 1"), sql);
+        assertFalse(sql.contains("FOR UPDATE"), "幂等预检为普通读: " + sql);
+
+        Map<String, Object> locked = new HashMap<>(plain);
+        locked.put("lockForUpdate", true);
+        String lockedSql = boundSql(SysNumberRecordDetailMapper.class.getName() + ".selectValidByScopeAndModel", locked);
+        assertTrue(lockedSql.contains("FOR UPDATE"), "幂等二次确认为锁定读: " + lockedSql);
+    }
+
     private static String boundSql(String statementId, Map<String, Object> params) {
         BoundSql boundSql = configuration.getMappedStatement(statementId).getBoundSql(params);
         assertNotNull(boundSql.getSql());

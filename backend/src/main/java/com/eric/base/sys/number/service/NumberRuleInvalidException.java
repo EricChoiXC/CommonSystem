@@ -28,6 +28,11 @@ public class NumberRuleInvalidException extends IllegalArgumentException {
         this.errors = errors == null ? List.of() : List.copyOf(errors);
     }
 
+    public NumberRuleInvalidException(List<SysNumberRuleErrorDo> errors, Throwable cause) {
+        super(buildMessage(errors), cause);
+        this.errors = errors == null ? List.of() : List.copyOf(errors);
+    }
+
     public List<SysNumberRuleErrorDo> getErrors() {
         return errors;
     }

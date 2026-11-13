@@ -5,6 +5,7 @@ import com.eric.base.common.module.service.CommonModuleService;
 import com.eric.base.common.setting.service.CommonSettingService;
 import com.eric.base.sys.dict.service.SysDictService;
 import com.eric.base.sys.i18n.service.SysI18nSyncService;
+import com.eric.base.sys.number.service.SysNumberModelCacheService;
 import com.eric.base.sys.org.enums.SysOrgAccountStatus;
 import com.eric.base.sys.org.enums.SysOrgJobStatus;
 import com.eric.base.sys.org.model.SysOrgUser;
@@ -49,6 +50,7 @@ public class SysStartupTask implements ApplicationRunner {
     private final SysDictService sysDictService;
     private final SysI18nSyncService sysI18nSyncService;
     private final CommonModuleService commonModuleService;
+    private final SysNumberModelCacheService sysNumberModelCacheService;
 
     public SysStartupTask(SysOrgUserService sysOrgUserService,
                           SysOrgElementService sysOrgElementService,
@@ -59,7 +61,8 @@ public class SysStartupTask implements ApplicationRunner {
                           CommonSettingService commonSettingService,
                           SysDictService sysDictService,
                           SysI18nSyncService sysI18nSyncService,
-                          CommonModuleService commonModuleService) {
+                          CommonModuleService commonModuleService,
+                          SysNumberModelCacheService sysNumberModelCacheService) {
         this.sysOrgUserService = sysOrgUserService;
         this.sysOrgElementService = sysOrgElementService;
         this.sysOrgAuthService = sysOrgAuthService;
@@ -70,6 +73,7 @@ public class SysStartupTask implements ApplicationRunner {
         this.sysDictService = sysDictService;
         this.sysI18nSyncService = sysI18nSyncService;
         this.commonModuleService = commonModuleService;
+        this.sysNumberModelCacheService = sysNumberModelCacheService;
     }
 
     @Override
@@ -96,6 +100,20 @@ public class SysStartupTask implements ApplicationRunner {
         // 增量同步模块组到 common_module_group（新导入默认开启，已存在不动开关状态），
         // 同步后校验 @ModuleGroup 注解 key 并全量预热状态缓存
         syncModulesFromYml();
+        // 第十一个启动任务：扫描 properties/ 下各模块 numberRule.yml 构建编号接入项缓存，
+        // 并校验 sys_number_rule.field_model_id 对失效接入项输出告警（不阻断启动）
+        syncNumberModelsFromYml();
+    }
+
+    /**
+     * 第十一个启动任务：编号接入项缓存构建与失效告警。
+     * <p>调 {@link SysNumberModelCacheService#syncFromYml()}：扫描 properties/ 下各模块
+     * numberRule.yml（文件名全局统一）合并为进程内接入项缓存（A1：yml 静态无运行期变更，
+     * 不入 Redis），并校验 sys_number_rule.field_model_id 是否仍存在于缓存，
+     * 失效输出告警日志（不阻断启动）。</p>
+     */
+    private void syncNumberModelsFromYml() {
+        sysNumberModelCacheService.syncFromYml();
     }
 
     /**

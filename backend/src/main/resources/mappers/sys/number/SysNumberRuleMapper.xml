@@ -4,14 +4,16 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.eric.base.sys.number.mapper.SysNumberRuleMapper">
 
-    <!--
-        编号规则表(sys_number_rule)映射
-        field_rule 为 JSON 列：存储态原文字符串（列表响应不解析），
-        load 解析为 SysNumberRuleConfigDo 由 Service 完成（NB3-BE-002）。
-        依据 docs/v1_5-编号功能/编号机制实现方案.md「§核心表和字段」，
-        列清单与 V1_01_044__sys_number_schema.sql 保持一致。
-        切换启用（同事务停用同接入项原启用规则）等业务 SQL 随 NB3-BE-002 补充。
-    -->
+<!--
+    编号规则表(sys_number_rule)映射
+    field_rule 为 JSON 列：存储态原文字符串（列表响应不解析），
+    load 解析为 SysNumberRuleConfigDo 由 Service 完成（NB3-BE-002）。
+    依据 docs/v1_5-编号功能/编号机制实现方案.md「§核心表和字段」，
+    列清单与 V1_01_044__sys_number_schema.sql 保持一致。
+    失效接入项告警查询（selectDistinctModelIds）随 NB2-BE-001 补充；
+    固定接入取号定位（selectByModel）随 NB2-BE-002 补充；
+    切换启用（同事务停用同接入项原启用规则）等业务 SQL 随 NB3-BE-002 补充。
+-->
 
     <resultMap id="SysNumberRuleResultMap" type="com.eric.base.sys.number.model.SysNumberRule">
         <id column="field_id" property="fieldId"/>
@@ -100,6 +102,29 @@
         SELECT field_id, field_name
         FROM sys_number_rule
         WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 失效接入项告警查询（NB2-BE-001 启动任务）：全部规则引用的接入项编码去重清单，
+         与 numberRule.yml 接入项缓存比对，缺失项输出告警日志（R6，不阻断启动） -->
+    <select id="selectDistinctModelIds" resultType="string">
+        SELECT DISTINCT field_model_id
+        FROM sys_number_rule
+        WHERE field_model_id IS NOT NULL AND field_model_id != ''
+    </select>
+
+    <!--
+        固定接入取号定位（NB2-BE-002，方案 §5.1/§5.3）：按接入项（模型名 + 字段）取规则清单，
+        取号事务内由此区分「无规则（CRM_NUMBER_RULE_NOT_FOUND）」与
+        「无启用规则（CRM_NUMBER_RULE_DISABLED）」；同接入项启用规则唯一由
+        save/enable 切换机制保证（D1），走 idx_number_rule_model 索引。
+    -->
+    <select id="selectByModel" resultMap="SysNumberRuleResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_number_rule
+        WHERE field_model_name = #{fieldModelName}
+          AND field_model_field = #{fieldModelField}
+        ORDER BY field_create_time DESC
     </select>
 
 </mapper>

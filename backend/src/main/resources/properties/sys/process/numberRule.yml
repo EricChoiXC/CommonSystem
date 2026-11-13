@@ -1,0 +1,15 @@
+# 编号机制接入项配置（numberRule.yml，文件名全局统一）
+# 依据: docs/v1_5-编号功能/编号机制实现方案.md「§1.1」；任务编号 NB2-BE-001（W1 落位口径：
+#       接入项按业务归属放各模块 properties/{common,sys}/{模块}/ 目录，随本模块同批落地）。
+# 结构: numberRule.<接入项key>:
+#         name:       接入项名称（下拉展示名）
+#         modelName:  业务模型 Java 类 SimpleName（落 sys_number_rule.field_model_name）
+#         modelField: 承接编号的字段名（落 sys_number_rule.field_model_field，通常 fieldCode）
+# 启动时由 SysNumberModelCacheService 扫描 classpath*:properties/**/numberRule.yml
+# 合并为进程内接入项缓存（A1：yml 静态无运行期变更，不入 Redis），
+# 作为编号规则编辑页「所属接入项」下拉数据源与取号定位依据。
+numberRule:
+  process-example-code:
+    name: "流程示例编号"
+    modelName: "SysProcessExample"
+    modelField: "fieldCode"
