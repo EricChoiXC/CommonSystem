@@ -137,4 +137,58 @@
         WHERE field_scope_key = #{fieldScopeKey}
     </select>
 
+    <!--
+        取号明细列表查询条件（NB3-BE-005，方案 §3.2 manage/recordList）：
+        fieldScopeKey 精确（服务端已把 fieldRuleId 翻译为作用域键——明细表无 field_rule_id 列，
+        固定接入作用域即规则 field_id）；fieldPeriod 精确；voidFlag 三态（true 仅已作废 /
+        false 仅未作废 / null 不过滤）；recordTimeBegin / recordTimeEnd 取号时间范围（含边界）；
+        列表与计数共用本片段保证条件一致。
+    -->
+    <sql id="ManageQueryConditions">
+        <where>
+            <if test="query.fieldScopeKey != null and query.fieldScopeKey != ''">AND field_scope_key = #{query.fieldScopeKey}</if>
+            <if test="query.fieldPeriod != null and query.fieldPeriod != ''">AND field_period = #{query.fieldPeriod}</if>
+            <if test="query.voidFlag != null and query.voidFlag">AND field_void_time IS NOT NULL</if>
+            <if test="query.voidFlag != null and !query.voidFlag">AND field_void_time IS NULL</if>
+            <if test="query.recordTimeBegin != null">AND field_record_time &gt;= #{query.recordTimeBegin}</if>
+            <if test="query.recordTimeEnd != null">AND field_record_time &lt;= #{query.recordTimeEnd}</if>
+        </where>
+    </sql>
+
+    <!--
+        取号明细列表查询（NB3-BE-005，方案 §3.2 manage/recordList）：条件见 ManageQueryConditions，
+        排序固定取号时间降序；needPage=false 返回全部匹配结果。
+    -->
+    <select id="selectQueryList" resultMap="SysNumberRecordDetailResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_number_record_detail
+        <include refid="ManageQueryConditions"/>
+        ORDER BY field_record_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 取号明细列表总数（NB3-BE-005）：条件与 selectQueryList 完全一致，供响应 metadata.total -->
+    <select id="countQueryList" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_number_record_detail
+        <include refid="ManageQueryConditions"/>
+    </select>
+
+    <!--
+        作废取号明细（NB3-BE-005，方案 §5.4 void / D8 唯一例外更新）：仅置 field_void_time /
+        field_void_reason 两字段，不回退计数器（避免重号），不改任何业务字段；
+        field_void_time IS NULL 守卫保证已作废明细不再重复更新（幂等语义由 Service 先检）。
+    -->
+    <update id="updateVoid">
+        UPDATE sys_number_record_detail
+        SET field_void_time = #{fieldVoidTime},
+            field_void_reason = #{fieldVoidReason}
+        WHERE field_id = #{fieldId}
+          AND field_void_time IS NULL
+    </update>
+
 </mapper>

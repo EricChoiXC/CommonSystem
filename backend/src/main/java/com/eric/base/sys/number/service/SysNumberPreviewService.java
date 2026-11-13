@@ -33,8 +33,9 @@ import java.util.List;
  *              <li>顺延模拟（R3 与取号侧口径完全一致）：当前周期键 = 
  *                  {@link SysNumberGenerateService#derivePeriodKey}，当前已用流水 =
  *                  {@link SysNumberRecordDao#selectCurrentSerialNo}（对「无行 / 封存行」返回
- *                  null——封存行周期键与当前周期不同不会命中，与取号侧「新周期 INSERT 从
- *                  start 起」一致），null 视为 start-1；serialNo(i) = max(current, start-1) + i
+ *                  null——封存行经 field_record_finish_time IS NULL 过滤不命中，含周期切换
+ *                  封存与 NB3-BE-005 人工重置封存的同周期残留行，与取号侧「封存行按 start
+ *                  重开」一致），null 视为 start-1；serialNo(i) = max(current, start-1) + i
  *                  （i=1..count），逐个经 {@link SysNumberGenerateService#render} 生成样例；</li>
  *              <li>C6 越界提示（C6 语义）：max(current, start-1) + count 超过
  *                  {@link SysNumberGenerateService#seqCapacity} 时 errors 追加 C6 错误
@@ -42,10 +43,11 @@ import java.util.List;
  *              <li>只读不落库：除 {@code selectCurrentSerialNo} 这一个读调用外不做任何库操作，
  *                  不复用会写库的 acquire 链路，重复调用同输入结果一致。</li>
  *              </ul>
- *              <p>已知边界（随 NB3-BE-005 reset 收口复核）：人工重置封存后同周期残留行
- *              （field_record_finish_time 非空且周期键同当前）场景本服务只经
- *              selectCurrentSerialNo 取值、无法感知封存标记，该场景预览口径随 reset
- *              落地一并处理，本任务不涉及 reset 相关内容。</p>
+ *              <p>reset 收口说明（NB3-BE-005 已处理）：人工重置封存后同周期残留行
+ *              （field_record_finish_time 非空且周期键同当前）由
+ *              selectCurrentSerialNo 的 field_record_finish_time IS NULL 过滤排除——
+ *              取号侧 upsertSerial 重开时同步清空 finish_time，取回链路不受该过滤影响，
+ *              取号与预览口径保持一致（封存残留行不命中 → 返回 null → 按 start 重开）。</p>
  */
 @Service
 public class SysNumberPreviewService {
@@ -128,7 +130,8 @@ public class SysNumberPreviewService {
 
         Date now = new Date();
         // 周期键派生与当前已用流水：与取号侧口径完全一致（R3）；
-        // selectCurrentSerialNo 对「无行 / 封存行」返回 null（封存行周期键不同不会命中），null 视为 start-1
+        // selectCurrentSerialNo 对「无行 / 封存行」返回 null（封存行含 NB3-BE-005 reset
+        // 同周期残留行，经 field_record_finish_time IS NULL 过滤不命中），null 视为 start-1
         String period = generateService.derivePeriodKey(seq.getResetPeriod(), now);
         Integer current = recordDao.selectCurrentSerialNo(scope, seq.getId(), period);
         int start = null == seq.getStart() ? 0 : seq.getStart();

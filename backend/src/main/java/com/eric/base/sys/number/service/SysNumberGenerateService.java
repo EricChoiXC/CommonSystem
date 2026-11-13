@@ -60,10 +60,14 @@ import java.util.concurrent.ThreadLocalRandom;
  *              取号事务短小（§5.2）：仅计数器 upsert/取回 + 明细 INSERT + 渲染，
  *              传播级别 REQUIRED——同进程业务保存事务内调用时并入业务事务，
  *              业务回滚则取号一并回滚不产生跳号。
- *              <p>已知设计边界（待 NB3-BE-005 reset 任务收口）：reset 封存后重开按 start
- *              起号时，若重开区段与既有明细序号在 uk_number_record_detail_no 内冲突
- *              （方案 §5.4 已声明「重置会造成重号」），明细插入将触发唯一键约束失败，
- *              重置功能的落地口径随 NB3-BE-005 一并处理。</p>
+ *              <p>reset 收口记录（NB3-BE-005 已处理）：reset 封存后重开按 start 起号时，
+ *              重开区段序号可能与既有明细序号在 uk_number_record_detail_no 内冲突——
+ *              方案 §5.4 已声明「重置会造成重号」属预期语义，既有明细不删除不改动（审计保留）；
+ *              裁决将该唯一键放宽为含 field_record_time
+ *              （迁移 V1_01_045__sys_number_record_detail_uk_record_time.sql）——
+ *              重开重发发生在不同取号时刻，record_time 参与后重开不再被旧明细阻断，
+ *              同时保留同批次（同取号时刻）内防重兜底；幂等预检（valid 明细按 scope+model）
+ *              不受影响。</p>
  */
 @Service
 public class SysNumberGenerateService {

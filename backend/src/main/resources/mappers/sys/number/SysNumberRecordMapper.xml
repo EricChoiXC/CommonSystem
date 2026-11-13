@@ -9,7 +9,8 @@
         流水类表只增不改：应用侧只执行 insert（uk_number_record_scope 定位行）；
         update/deleteById 仅为满足基础接口契约保留（先例 sys_task_history）。
         计数器原子推进（upsertSerial）、当前流水号取回（selectCurrentSerialNo）与
-        周期切换封存（sealOtherPeriods）随 NB2-BE-002 补充。
+        周期切换封存（sealOtherPeriods）随 NB2-BE-002 补充；
+        人工重置封存（sealByScope）随 NB3-BE-005 补充。
         列清单与 V1_01_044__sys_number_schema.sql 保持一致。
     -->
 
@@ -121,6 +122,11 @@
         当前流水号取回（NB2-BE-002）：与 upsertSerial 同事务执行，
         命中行行锁保证读到本事务写入的最新值；
         本表主键为 VARCHAR(32) 且无 AUTO_INCREMENT 列，不依赖 getGeneratedKeys。
+        field_record_finish_time IS NULL 过滤（NB3-BE-005 reset 收口）：仅读使用中行——
+        取号侧 upsertSerial 在同事务先执行，命中行（含封存重开行）的 finish_time 已被
+        同步清空为 NULL，取回链路不受本过滤影响；预览侧（SysNumberPreviewService 不写库）
+        经本过滤排除人工重置封存的同周期残留行，返回 null 视为从 start 重开，
+        与取号侧「封存行按 start 重开」口径一致（方案 §5.4）。
     -->
     <select id="selectCurrentSerialNo" resultType="java.lang.Integer">
         SELECT field_serial_no
@@ -128,6 +134,7 @@
         WHERE field_scope_key = #{fieldScopeKey}
           AND field_serial_id = #{fieldSerialId}
           AND field_period = #{fieldPeriod}
+          AND field_record_finish_time IS NULL
     </select>
 
     <!--
@@ -142,6 +149,28 @@
         WHERE field_scope_key = #{fieldScopeKey}
           AND field_serial_id = #{fieldSerialId}
           AND field_period != #{fieldPeriod}
+          AND field_record_finish_time IS NULL
+    </update>
+
+    <!--
+        人工重置封存（NB3-BE-005，方案 §5.4 reset）：将作用域（可限定流水项 / 周期，
+        均可空 = 全部）使用中计数行（field_record_finish_time IS NULL）置封存时间，
+        下次取号经 upsertSerial 封存行分支按 start 重开；
+        既有明细不删除不改动（审计保留），重开会重发同号（「会造成重号」属预期语义，
+        uk_number_record_detail_no 已由 V1_01_045 放宽为含 field_record_time）。
+        动态条件照 QueryConditions 风格；0 行更新语义由 Service 按「有无限定」区分
+        （无任何限定 0 行报错、有限定 0 行幂等返回，见 SysNumberManageService#reset）。
+    -->
+    <update id="sealByScope">
+        UPDATE sys_number_record
+        SET field_record_finish_time = NOW()
+        WHERE field_scope_key = #{fieldScopeKey}
+        <if test="fieldSerialId != null and fieldSerialId != ''">
+          AND field_serial_id = #{fieldSerialId}
+        </if>
+        <if test="fieldPeriod != null and fieldPeriod != ''">
+          AND field_period = #{fieldPeriod}
+        </if>
           AND field_record_finish_time IS NULL
     </update>
 

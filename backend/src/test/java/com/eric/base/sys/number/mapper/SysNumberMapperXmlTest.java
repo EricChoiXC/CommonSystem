@@ -4,6 +4,7 @@ import com.eric.base.common.base.model.Pages;
 import com.eric.base.sys.number.model.SysNumberRecord;
 import com.eric.base.sys.number.model.SysNumberRecordDetail;
 import com.eric.base.sys.number.model.SysNumberRule;
+import com.eric.base.sys.number.request.SysNumberManageQuery;
 import com.eric.base.sys.number.request.SysNumberRuleQuery;
 import org.apache.ibatis.builder.xml.XMLMapperBuilder;
 import org.apache.ibatis.mapping.BoundSql;
@@ -209,6 +210,35 @@ class SysNumberMapperXmlTest {
     }
 
     @Test
+    void recordSelectCurrentSerialNoExcludesSealedRows() {
+        // NB3-BE-005 reset 收口：仅读使用中行（field_record_finish_time IS NULL）——
+        // 取号侧 upsertSerial 已在同事务清空命中行 finish_time，取回链路不受影响；
+        // 预览侧经该过滤排除人工重置封存的同周期残留行，与取号侧口径一致（方案 §5.4）
+        String sql = boundSql(SysNumberRecordMapper.class.getName() + ".selectCurrentSerialNo",
+                Map.of("fieldScopeKey", "R".repeat(32), "fieldSerialId", "ci-seq", "fieldPeriod", "20261112"));
+        assertTrue(sql.contains("field_record_finish_time IS NULL"), sql);
+    }
+
+    @Test
+    void recordSealByScopeBindsDynamicScopeLimits() {
+        // 限定流水项 / 周期：两条件参与定位，且只封存使用中行
+        String limited = boundSql(SysNumberRecordMapper.class.getName() + ".sealByScope",
+                Map.of("fieldScopeKey", "R".repeat(32), "fieldSerialId", "ci-seq", "fieldPeriod", "20261112"));
+        assertTrue(limited.contains("UPDATE sys_number_record"), limited);
+        assertTrue(limited.contains("SET field_record_finish_time"), limited);
+        assertTrue(limited.contains("field_serial_id ="), limited);
+        assertTrue(limited.contains("field_period ="), limited);
+        assertTrue(limited.contains("field_record_finish_time IS NULL"), limited);
+
+        // 可空 = 全部：流水项 / 周期条件不出现
+        String all = boundSql(SysNumberRecordMapper.class.getName() + ".sealByScope",
+                Map.of("fieldScopeKey", "R".repeat(32), "fieldSerialId", "", "fieldPeriod", ""));
+        assertFalse(all.contains("field_serial_id ="), "可空 = 全部流水项: " + all);
+        assertFalse(all.contains("field_period ="), "可空 = 全部周期: " + all);
+        assertTrue(all.contains("field_record_finish_time IS NULL"), all);
+    }
+
+    @Test
     void recordSealOtherPeriodsOnlyTouchesUnfinishedRows() {
         String sql = boundSql(SysNumberRecordMapper.class.getName() + ".sealOtherPeriods",
                 Map.of("fieldScopeKey", "R".repeat(32), "fieldSerialId", "ci-seq", "fieldPeriod", "20261112"));
@@ -311,6 +341,79 @@ class SysNumberMapperXmlTest {
                 Map.of("fieldScopeKey", "0".repeat(32)));
         assertTrue(sql.contains("COUNT(*)"), sql);
         assertTrue(sql.contains("field_scope_key ="), sql);
+    }
+
+    // ---------------------------------------------------------- NB3-BE-005 特权管理语句
+
+    @Test
+    void detailSelectQueryListBindsManageFilters() {
+        SysNumberManageQuery query = new SysNumberManageQuery();
+        query.setFieldScopeKey("R".repeat(32));
+        query.setFieldPeriod("20261113");
+        query.setVoidFlag(true);
+        query.setRecordTimeBegin(new Date(0));
+        query.setRecordTimeEnd(new Date());
+        Pages pages = new Pages();
+        pages.setPageNo(2);
+        pages.setPageSize(20);
+        pages.setNeedPage(true);
+        Map<String, Object> params = new HashMap<>();
+        params.put("query", query);
+        params.put("pages", pages);
+
+        String sql = boundSql(SysNumberRecordDetailMapper.class.getName() + ".selectQueryList", params);
+        assertTrue(sql.contains("field_scope_key ="), sql);
+        assertTrue(sql.contains("field_period ="), sql);
+        assertTrue(sql.contains("field_void_time IS NOT NULL"), "voidFlag=true 仅已作废: " + sql);
+        assertTrue(sql.contains("field_record_time >="), sql);
+        assertTrue(sql.contains("field_record_time <="), sql);
+        assertTrue(sql.contains("ORDER BY field_record_time DESC"), sql);
+        assertTrue(sql.contains("LIMIT"), sql);
+
+        // voidFlag=false 仅未作废
+        query.setVoidFlag(false);
+        String notVoided = boundSql(SysNumberRecordDetailMapper.class.getName() + ".selectQueryList", params);
+        assertTrue(notVoided.contains("field_void_time IS NULL"), "voidFlag=false 仅未作废: " + notVoided);
+
+        // voidFlag=null 不过滤；空条件 + 不分页：裸列表
+        query.setVoidFlag(null);
+        query.setFieldScopeKey(null);
+        query.setFieldPeriod(null);
+        query.setRecordTimeBegin(null);
+        query.setRecordTimeEnd(null);
+        String plainSql = boundSql(SysNumberRecordDetailMapper.class.getName() + ".selectQueryList",
+                Map.of("query", new SysNumberManageQuery(), "pages", new Pages()));
+        assertFalse(plainSql.contains("WHERE"), plainSql);
+        assertFalse(plainSql.contains("LIMIT"), plainSql);
+        assertFalse(plainSql.contains("field_void_time IS"), "voidFlag=null 不过滤作废状态（列清单除外）: " + plainSql);
+    }
+
+    @Test
+    void detailCountQueryListSharesManageConditions() {
+        SysNumberManageQuery query = new SysNumberManageQuery();
+        query.setFieldScopeKey("R".repeat(32));
+        query.setVoidFlag(true);
+        String sql = boundSql(SysNumberRecordDetailMapper.class.getName() + ".countQueryList",
+                Map.of("query", query));
+        assertTrue(sql.contains("COUNT(*)"), sql);
+        assertTrue(sql.contains("field_scope_key ="), sql);
+        assertTrue(sql.contains("field_void_time IS NOT NULL"), sql);
+    }
+
+    @Test
+    void detailUpdateVoidTouchesOnlyVoidFields() {
+        // D8 唯一例外更新：仅置 void 两字段，不改任何业务字段，且带未作废守卫（幂等）
+        String sql = boundSql(SysNumberRecordDetailMapper.class.getName() + ".updateVoid",
+                Map.of("fieldId", "0".repeat(32), "fieldVoidTime", new Date(), "fieldVoidReason", "录入错误"));
+        assertTrue(sql.contains("UPDATE sys_number_record_detail"), sql);
+        assertTrue(sql.contains("field_void_time ="), sql);
+        assertTrue(sql.contains("field_void_reason ="), sql);
+        assertTrue(sql.contains("field_id ="), sql);
+        assertTrue(sql.contains("field_void_time IS NULL"), "已作废明细不再重复更新（幂等守卫）: " + sql);
+        for (String forbidden : new String[]{"field_scope_key =", "field_period =", "field_serial_no =",
+                "field_code =", "field_model_id =", "field_record_time ="}) {
+            assertFalse(sql.contains(forbidden), "void 不得改业务字段 " + forbidden + ": " + sql);
+        }
     }
 
     private static String boundSql(String statementId, Map<String, Object> params) {

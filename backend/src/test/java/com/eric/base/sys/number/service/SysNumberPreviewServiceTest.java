@@ -50,7 +50,8 @@ import static org.mockito.Mockito.when;
  *              <li>C1~C5 非法规则：errors 就地返回且 samples 空，不抛异常；</li>
  *              <li>C6 越界：errors 含 C6、样例截断到容量内、恰好容量边界不提示；</li>
  *              <li>封存行 / 无行（selectCurrentSerialNo 返回 null）视同从 start 重开
- *                  （与取号侧口径一致）；</li>
+ *                  （与取号侧口径一致）；NB3-BE-005 reset 收口：同周期封存残留行不命中，
+ *                  预览按 start 重开不取封存残留 serial 顺延；</li>
  *              <li>fieldId 与 rule 均空抛 IllegalArgumentException。</li>
  *              </ul>
  */
@@ -156,7 +157,7 @@ class SysNumberPreviewServiceTest {
 
     @Test
     void sealedOrMissingCounterRestartsFromStartForSavedRule() {
-        // 封存行 / 无行：selectCurrentSerialNo 返回 null（封存行周期键不同不会命中），
+        // 封存行 / 无行：selectCurrentSerialNo 返回 null（封存行经 finish_time IS NULL 过滤不命中），
         // 视为 start-1，样例从 start 重开（与取号侧「封存行按 start 重开」口径一致）
         when(ruleService.load(FIELD_ID)).thenReturn(loadedRule(classicConfig()));
         when(recordDao.selectCurrentSerialNo(anyString(), anyString(), anyString())).thenReturn(null);
@@ -165,6 +166,24 @@ class SysNumberPreviewServiceTest {
 
         assertEquals(List.of("CG" + todayPeriod() + "001", "CG" + todayPeriod() + "002",
                 "CG" + todayPeriod() + "003"), vo.getSamples(), "计数为空视为 start-1，从 start 起渲染");
+    }
+
+    @Test
+    void resetSealedResidueInSamePeriodRestartsPreviewFromStart() {
+        // NB3-BE-005 reset 收口场景：人工重置封存后同 (scope, serialId, period) 残留行
+        // （field_record_finish_time 非空且周期键同当前）不命中 selectCurrentSerialNo
+        // （XML 端 field_record_finish_time IS NULL 过滤，SQL 口径见 SysNumberMapperXmlTest
+        //  的 recordSelectCurrentSerialNoExcludesSealedRows）——预览必须按 start 重开，
+        // 不得把封存 serial（如 998）当作当前进度；与取号侧「封存行按 start 重开」口径一致
+        when(ruleService.load(FIELD_ID)).thenReturn(loadedRule(classicConfig()));
+        when(recordDao.selectCurrentSerialNo(anyString(), anyString(), anyString())).thenReturn(null);
+
+        SysNumberPreviewVo vo = service.render(request(FIELD_ID, null, 3));
+
+        assertEquals(List.of("CG" + todayPeriod() + "001", "CG" + todayPeriod() + "002",
+                "CG" + todayPeriod() + "003"), vo.getSamples(),
+                "reset 封存残留行不命中：预览按 start 重开，不取封存残留 serial 顺延");
+        verify(recordDao).selectCurrentSerialNo(eq(FIELD_ID), eq("ci-seq"), eq(todayPeriod()));
     }
 
     // ---------------------------------------------------------------- 未保存 JSON 入口

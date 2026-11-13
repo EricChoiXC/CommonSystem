@@ -53,4 +53,17 @@ public class SysNumberRecordDao extends BaseDao<SysNumberRecord, SysNumberRecord
     public int sealOtherPeriods(String fieldScopeKey, String fieldSerialId, String fieldPeriod) {
         return getBaseMapper().sealOtherPeriods(fieldScopeKey, fieldSerialId, fieldPeriod);
     }
+
+    /**
+     * 人工重置封存（NB3-BE-005，方案 §5.4 reset）：置作用域（可限定流水项 / 周期，
+     * 可空 = 全部）使用中计数行的封存时间，下次取号按 start 重开。
+     *
+     * @param fieldScopeKey 取号作用域键
+     * @param fieldSerialId 流水项 ID（可空 = 全部流水项）
+     * @param fieldPeriod   周期键（可空 = 全部周期）
+     * @return 封存行数（0 或 1）
+     */
+    public int sealByScope(String fieldScopeKey, String fieldSerialId, String fieldPeriod) {
+        return getBaseMapper().sealByScope(fieldScopeKey, fieldSerialId, fieldPeriod);
+    }
 }
