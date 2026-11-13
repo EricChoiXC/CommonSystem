@@ -403,6 +403,153 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 - 无注解 Controller 不受开关控制（登录、`/init`、`/initID`、`setting/load`、SSE 订阅、swagger 等公共入口天然放行）；首批标注 `SysCalendarMainController`（类级 `calendar`）与 `SysOrgGroupController`（类级 `org-group`）。
 - 后续追加模块组只需「`moduleGroup.yml` 加条目 + Controller 加注解」，接口机制本身无需改动；权限码 `SYS_MODULE_ADMIN`（名称「模块组管理员」）定义于 `properties/common/roles.yml`，与库两处同批提交。
 
+### 4.10 数据源模块（v1.8 新增）
+
+#### 4.10.1 模块目标与接口边界
+
+- 提供可复用取数配置（数据源）的管理与统一执行能力。数据源三元组 = **查询接口**（挂接的目标查询能力，只能是 Provider 声明的能力编码，不得任填接口路径）+ **查询条件**（固定注入条件，支持 `${CURRENT_USER_ID}` 等运行时变量）+ **返回字段**（投影白名单，不配 = 目标能力默认全字段）。默认数据源由各业务模块以代码 Provider（`SysDatasourceProvider`）注册（不入库、不可改删），自定义数据源由数据源管理员经管理页配置落 `sys_datasource` 表。
+- 执行收口：消费方统一按 `code` 调 `POST /backend/sys/datasource/query` 取数，前端不读取配置自行拼条件调目标接口——固定条件属服务端强制语义（方案 A1）。
+- 模块 key `datasource`；权限码 `SYS_DATASOURCE_ADMIN`（数据源管理员）定义于 `properties/sys/datasource/roles.yml`；接口标识常量（9 个 `ACTION_*`）定义于 `SysDatasourceConstants`；`DatasourceResolver` 继承 `BaseResolver` 按动作判定（`SYS_ADMIN` 由 `BaseResolver` 自动放行，分支不重复列举），Controller 经 `authorize(...)` 最终鉴权——未登录抛 `UNAUTHORIZED`、无权限抛 `FORBIDDEN`（HTTP 200 + code 体系，全工程惯例）。
+- 基础路径 `/backend/sys/datasource`；在线文档 Controller 类级 `@Tag(name = "数据源", …)`，经 springdoc 生成（见 3.5）。
+- 设计依据：概念模型、ADR、执行流程与安全设计见 [数据源功能设计方案](../v1_8-数据源/数据源功能设计方案.md)（下称「方案」）；接口契约细节与样例报文以 [样例代码-日程数据源](../v1_8-数据源/样例代码-日程数据源.md) 为准。
+
+#### 4.10.2 模块接口分组
+
+| 接口组 | 说明 |
+| --- | --- |
+| 自定义数据源管理 | `list` / `load` / `save` / `update` / `enable` / `delete` 六动作，仅 `SYS_DATASOURCE_ADMIN` |
+| 数据源读取 | `options`（可用数据源下拉）、`targets`（目标查询能力清单，供配置表单选能力、编排固定条件、勾选返回字段），登录即可（管理菜单入口仅对数据源管理员展示） |
+| 统一执行 | `query`（消费方按 `code` 取数的唯一入口），登录即可 + 执行期委托目标 action 鉴权（见 4.10.5） |
+
+#### 4.10.3 接口清单（v1.8，三组 9 接口）
+
+接口标识、路径与鉴权口径与方案 §5.1 一一对应；契约明细见 4.10.4。
+
+| 接口 | 方法 | 鉴权动作 | 权限 | 说明 |
+| --- | --- | --- | --- | --- |
+| `/backend/sys/datasource/list` | POST | `sys.datasource.list` | 仅 `SYS_DATASOURCE_ADMIN` | 自定义数据源管理列表（默认数据源不入库，不在列表返回）；请求体 `{ body, pages }`，总数走 `metadata.total` |
+| `/backend/sys/datasource/load?fieldId=` | GET | `sys.datasource.load` | 仅 `SYS_DATASOURCE_ADMIN` | 数据源完整读取；`fieldConditions` / `fieldFields` 解析为对象返回 |
+| `/backend/sys/datasource/save` | POST | `sys.datasource.save` | 仅 `SYS_DATASOURCE_ADMIN` | 新建自定义数据源；编码全局查重（含默认数据源占用）、`fieldTarget` 须为已注册目标能力且保存后锁定 |
+| `/backend/sys/datasource/update` | PATCH | `sys.datasource.update` | 仅 `SYS_DATASOURCE_ADMIN` | 编辑；`fieldId` 必填，`fieldTarget` 以库值为准不受理变更 |
+| `/backend/sys/datasource/enable` | PATCH | `sys.datasource.enable` | 仅 `SYS_DATASOURCE_ADMIN` | 启停用；请求体 `{ fieldId, fieldEnable }`（与全工程 `/enable` 通道一致） |
+| `/backend/sys/datasource/delete?fieldId=` | DELETE | `sys.datasource.delete` | 仅 `SYS_DATASOURCE_ADMIN` | 删除自定义数据源；默认数据源由代码注册不入库，天然不可删；停用即可阻断取数（`/query` 对停用源报 `CS_DATASOURCE_NOT_FOUND`） |
+| `/backend/sys/datasource/options` | GET | `sys.datasource.options` | 登录即可 | 可用数据源下拉：默认数据源（`CODE`）+ 启用的自定义数据源（`CUSTOM`），含有效字段定义；不暴露固定条件原文（A1） |
+| `/backend/sys/datasource/targets` | GET | `sys.datasource.targets` | 登录即可 | 目标查询能力清单 + 各自条件/返回字段定义（`SysDatasourceRegistry#listProviders` 组装），配置表单数据源 |
+| `/backend/sys/datasource/query` | POST | `sys.datasource.query` | 登录即可 + **执行期委托目标 action 鉴权** | 统一执行入口：请求体 `{ code, body, pages, sortField, sortOrder }`；响应 `data` 为投影后行列表、`metadata = { total, fields }`（见 4.10.4、4.10.5） |
+
+#### 4.10.4 接口契约明细
+
+管理组公共约定：请求体统一 `{ body, pages: { pageNo, pageSize, needPage } }`（`enable` 除外），响应统一 `BaseResponse`；`fieldConditions` / `fieldFields` 双形态承载（对齐 `sys_number_rule.field_rule` 先例）——存储态与列表响应为原文 JSON 字符串（`Object` 直出，列表页不解析），`load` 响应与 `save` / `update` 请求体为解析后的对象，禁止手工拼串。
+
+**`/list`（自定义数据源管理列表）**
+
+- 请求体 `{ body: { fieldName?, fieldCode?, fieldTarget?, fieldEnable? }, pages: { pageNo, pageSize, needPage } }`；`fieldName` / `fieldCode` 模糊匹配，`fieldTarget` / `fieldEnable` 精确；默认创建时间降序。
+- 响应 `data = List<SysDatasourceVo>`（`fieldId` / `fieldCode` / `fieldName` / `fieldTarget` / `fieldTargetName` / `fieldTargetPath`（由目标能力带出，仅展示）/ `fieldConditions`（原文 JSON 字符串）/ `fieldFields`（原文 JSON 字符串）/ `fieldRemark` / 公共字段），`metadata.total` 为总数。
+
+**`/load?fieldId=`（数据源详情）**
+
+- 响应 `data = SysDatasourceVo`：与列表条目同构，差异为 `fieldConditions` 解析为对象数组 `[{ key, op, value }]`（`value` 为运行时变量占位符如 `${CURRENT_USER_ID}` 或字面量）、`fieldFields` 解析为字段名字符串数组（`NULL` = 目标能力默认全字段）。
+
+**`/save`（新建）与 `/update`（编辑）**
+
+- 请求体 `{ body: { fieldId, fieldCode, fieldName, fieldTarget, fieldConditions, fieldFields, fieldRemark } }`，字段语义：
+
+| 字段 | 语义 |
+| --- | --- |
+| `fieldId` | 编辑必填；新建由前端经 `GET /backend/common/initID` 预生成 32 位 ID |
+| `fieldCode` | 数据源编码，全局唯一（与默认数据源编码共用命名空间） |
+| `fieldName` | 数据源名称 |
+| `fieldTarget` | 目标查询能力编码（`/targets` 下拉取值，如 `calendar.list`）；保存后锁定 |
+| `fieldConditions` | 固定条件对象数组 `[{ key, op, value }]`，`value` 支持运行时变量 `${CURRENT_USER_ID}` / `${CURRENT_DATE}` / `${CURRENT_DATETIME}`；`NULL` = 无固定条件 |
+| `fieldFields` | 返回字段白名单（字段名字符串数组）；`NULL` / 空 = 目标能力默认全字段 |
+| `fieldRemark` | 备注 |
+
+- 保存期校验（失败码见 4.10.6）：编码全局唯一（编辑排除自身，并与默认数据源占用集查重，防伪装默认源）；`fieldTarget` ∈ Registry（A2 能力白名单）；条件静态校验（`key` ∈ Provider 条件白名单、`op` ∈ 字段声明 `ops`、`literalAllowed=false` 字段仅接受运行时变量、损坏 JSON 按配置无效）；`fieldFields` 各项 ⊆ Provider 返回字段母集。
+- 锁定语义：`fieldTarget` 保存后锁定——`update` 以库值为准，不受理变更（改目标会使既有条件/字段白名单悬空，对齐编号规则「所属接入项」D3 先例）；`fieldCode` 可改但须查重。
+- 响应 `data = SysDatasourceVo`（保存后完整行）。
+
+**`/enable`（启停用）**
+
+- PATCH，请求体 `{ fieldId, fieldEnable }`；停用后 `/query` 即报 `CS_DATASOURCE_NOT_FOUND`、`/options` 不再返回该源。
+
+**`/delete?fieldId=`（删除）**
+
+- 按 `fieldId` 删除自定义数据源行；无附加在用校验——数据源属取数配置元数据，误删影响面为消费方取数失败（`CS_DATASOURCE_NOT_FOUND`），前端对启用中的数据源删除须二次确认（UI 口径见 [系统模块UI设计文档](系统模块UI设计文档.md) 数据源章节）。
+
+**`/options`（可用数据源下拉，登录即可）**
+
+- 响应 `data = [{ code, name, sourceType, target, targetPath, fields, conditionCount }]`：
+
+| 字段 | 语义 |
+| --- | --- |
+| `code` / `name` | 数据源编码与名称 |
+| `sourceType` | `CODE` = 默认数据源（代码 Provider 注册）/ `CUSTOM` = 自定义数据源（管理人员配置） |
+| `target` / `targetPath` | 目标查询能力编码与接口路径（展示用） |
+| `fields` | 解析后的**有效字段定义**：自定义按 `fieldFields` 裁剪，默认/空配置为目标能力全字段；元素结构同 `/targets` 字段定义 |
+| `conditionCount` | 固定条件**数量**提示——不暴露固定条件原文（A1：固定条件属服务端强制语义，不是可协商参数） |
+
+- 消费方用途：数据源下拉选择 + 列头预渲染（与 `/query` 响应 `metadata.fields` 输出列一致）。
+
+**`/targets`（目标查询能力清单，登录即可）**
+
+- 响应 `data = [{ code, name, targetAction, targetPath, conditionFields, resultFields }]`：`code` 即 `field_target` 取值；`targetAction` / `targetPath` 为目标接口标识与路径（仅展示）。
+- 字段定义元素统一结构 `{ key, label, type, ops, literalAllowed, sortable }`：`type` ∈ `STRING / NUMBER / DATE / DATETIME`（Provider 负责类型转换）；`ops` 为允许的操作符（`EQ / NE / LIKE / GT / GE / LT / LE / IN`，返回字段定义忽略）；`literalAllowed=false` 仅接受运行时变量（如日程 `fieldCreatorId` 只收 `${CURRENT_USER_ID}`，防越权 A7）；`sortable=true` 字段汇总为 `/query` 排序白名单。
+- 示例（日程能力 `calendar.list`）：条件字段 6 项——`fieldName`（LIKE）/ `fieldType`（EQ）/ `fieldAccept`（EQ）/ `fieldStartTimeStart`（GE）/ `fieldStartTimeEnd`（LE）/ `fieldCreatorId`（EQ，`literalAllowed=false`）；返回字段 9 项（样例中 `fieldStartTime` / `fieldCreateTime` 标记可排序）。
+
+**`/query`（统一执行入口，登录即可 + 委托鉴权）**
+
+- 请求体：
+
+```jsonc
+{
+  "code": "calendar.my-created",                 // 数据源编码（默认或自定义）
+  "body": { "fieldName": "周报" },                // 调用方过滤条件 Map（固定条件同名覆盖之）
+  "pages": { "pageNo": 1, "pageSize": 20, "needPage": true },
+  "sortField": "startTime", "sortOrder": "desc"  // 须 ∈ Provider 可排序字段白名单
+}
+```
+
+- 响应（`BaseResponse`，以【用户日程】= 目标能力 `calendar.list` + 固定条件「我创建的」+ 字段白名单为例）：
+
+```jsonc
+{
+  "code": "SUCCESS",
+  "data": [ { "fieldId": "...", "fieldName": "周报例会", "fieldStartTime": "...", "fieldEndTime": "...", "fieldType": "PERSONAL" } ],
+  "metadata": { "total": 3, "fields": ["fieldId", "fieldName", "fieldStartTime", "fieldEndTime", "fieldType"] }
+}
+```
+
+- `data` 为**投影后行列表**（`List<Map<String,Object>>`，动态列，不逐数据源建 VO）；`metadata.total` 为总数，`metadata.fields` 回传实际输出列供前端渲染表头——列头以 `metadata.fields` / `options.fields` 为准，不假设固定列（投影 null 跳过语义下个别行可能缺列）。
+- 执行流程（Service 编排，方案 §3.1）：① 按 `code` 解析数据源（Registry 默认优先，其次 `sys_datasource` 启用行）→ ② 委托目标 action 鉴权（见 4.10.5）→ ③ 条件合并：固定条件解析运行时变量后覆盖调用方同名条件，调用方条件受 key 白名单 / `op` 合法性 / 字面量限制校验 → ④ 排序白名单校验（`sortField` 命中 `sortable=true` 汇总集，非法值回退目标能力默认排序，不进入 SQL 拼接）→ ⑤ Provider 执行查询（沿用目标能力既有数据边界，如日程「本人创建 OR 本人接收」）→ ⑥ `FieldProjector` 白名单投影。
+- 取数结果为**原始值**（如 `fieldType=PERSONAL`）：数据源保持「纯投影」语义，不统一翻译码值；枚举/码值字段显示名由消费方页面按码值模块自行翻译（TBD 裁决结论 1，2026-11-13，随 F18-DOC-001 落定）。
+
+#### 4.10.5 鉴权口径（两段式）
+
+- **接口段**：`DatasourceResolver` 按 `switch (context.getAction())` 判定——管理六动作（list / load / save / update / enable / delete）`hasAnyRole(SYS_DATASOURCE_ADMIN)`；`options` / `targets` / `query` 登录且账号启用即可（v1.8 自定义数据源全员可用，不按角色限制消费，TBD 裁决结论 3）；`SYS_ADMIN` 由 `BaseResolver` 自动放行，分支不重复列举。
+- **目标段（执行期委托）**：`/query` 的目标接口鉴权不省略——`SysDatasourceService#execute` 在查询前调用 `authorizationHelper.authorize(provider.getTargetResolver(), new AuthorizationContext(provider.getTargetAction()))`，按目标接口自身的 `ACTION_*` 与 resolver 判定（日程示例等价于 `CalendarResolver#resolve(sys.calendar.list)`）——「能通过用户日程取数」的前提是「有日程列表权限」。委托复用既有 `AuthorizationHelper`，不改目标模块 resolver 契约。
+- 未登录抛 `UNAUTHORIZED`、无目标权限抛 `FORBIDDEN`，拒绝事件照常进入安全审计。
+- 在线文档注解口径：9 个接口方法 `@Operation.description` 统一以「鉴权动作 <ACTION 常量值>（权限说明）；」开头（如 `鉴权动作 sys.datasource.query（登录即可，执行期委托目标接口 action 鉴权，如 sys.calendar.list）；`），与 3.5 注解规范一致；实现期与 Controller 同批完成（任务清单 F18-BE-005）。
+
+#### 4.10.6 错误码与承载方式
+
+| 错误码 | 场景 |
+| --- | --- |
+| `CS_DATASOURCE_NOT_FOUND` | code 不存在，或自定义数据源已停用 |
+| `CS_DATASOURCE_TARGET_INVALID` | 自定义数据源挂接的目标能力编码不在 Registry（Provider 下线残留）；save / update 时 `fieldTarget` 非法同码 |
+| `CS_DATASOURCE_CONDITION_INVALID` | 条件 key 不在白名单 / op 不支持 / 字面量被禁止（`literalAllowed=false`）/ 值类型非法（含固定条件配置 JSON 损坏） |
+| `CS_DATASOURCE_FIELD_INVALID` | 返回字段白名单含目标能力不存在的字段（保存期与执行期同口径） |
+| `CS_DATASOURCE_CODE_DUPLICATED` | 保存时编码与既有编码重复（含默认数据源占用） |
+
+承载方式（对齐编号机制 `CRM_NUMBER_*` 口径）：上述 `CS_*` 业务错误码以**异常 message 前缀**承载，`BaseResponse.code` 统一为 `BAD_REQUEST`，前端按 message 前缀识别具体错误码；鉴权失败 `BaseResponse.code` 为 `UNAUTHORIZED`（未登录）/ `FORBIDDEN`（无权限）；HTTP 状态仍为 200 + code 体系（全工程惯例）。
+
+#### 4.10.7 当前冻结的接口方向
+
+- **目标能力锁定**：`field_target` 只能取 Registry 已注册能力编码，保存期校验、启动期对失效 target 输出 WARN（Provider 下线残留行在管理列表可识别，执行时报 `CS_DATASOURCE_TARGET_INVALID`）。
+- **日程接入标注**：日程模块经数据源通道新增查询条件 `SysCalendarQuery.fieldCreatorId`（「我创建的」载体），**仅数据源通道生效**——`POST /backend/sys/calendar/list` 对外契约不变（`SysCalendarListRequest` 不透传该字段），既有调用方无感知。本文档暂未单独展开日程模块章节（无日程请求字段清单）；后续补充日程章节时，须在其条件字段清单同步标注「`fieldCreatorId` 仅数据源通道写入」。
+- **默认数据源可被引用**（TBD 裁决结论 2）：Provider 声明的目标查询能力即默认数据源可作 `field_target` 挂接；若未来默认源自身携带固定条件，合并顺序固定为「目标能力默认源固定条件 → 自定义数据源固定条件 → 调用方条件」（同名 key 后者丢弃）；v1.8 默认源 `calendar.list` 无固定条件，此规则仅前瞻约定。
+- **只读边界**：数据源只做查询型取数（可分页、单条件排序），写操作仍走各模块 save / update / delete；跨数据源 join、SQL 直配数据源（永久排除）、外系统 REST 数据源（v1.9+）不在 v1.8 范围（方案 §9）。
+- **前端契约**：`src/api/datasource.js` 九个具名函数（`queryDatasource` / `getDatasourceOptions` / `getDatasourceTargets` / `listDatasources` / `loadDatasource` / `saveDatasource` / `updateDatasource` / `updateDatasourceEnable` / `deleteDatasource`）经 `api/index.js` 实例以 `/backend/sys/datasource/**` 相对路径请求；`update` / `enable` 用 PATCH、`delete` 用 DELETE，与后端方法一一对应。
+
 ## 5. 待确认事项
 
 - 组织架构模块中“角色分配”和“角色权限”的需求表述存在表名映射不一致，需在详细设计任务中确认接口术语。
