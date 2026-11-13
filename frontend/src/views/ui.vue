@@ -73,6 +73,18 @@
                 当前选中：fieldId = {{ demo.materialId || '（未选择）' }}，fieldName = {{ demo.materialName || '（未选择）' }}
               </p>
             </div>
+
+            <!-- 编号规则编排 -->
+            <div v-else-if="active === 'NumberRuleComposer'" class="ui-demo-item">
+              <NumberRuleComposer
+                :value="demo.numberRule"
+                :on-change="(v) => (demo.numberRule = v)"
+                field-name="fieldRule"
+              />
+              <p class="ui-demo-result">
+                当前规则：共 {{ demo.numberRule.items.length }} 项；最新值：{{ numberRuleSummary }}
+              </p>
+            </div>
           </div>
 
           <pre class="ui-code"><code>{{ current.code }}</code></pre>
@@ -105,7 +117,7 @@
 
 <script setup>
 import { computed, reactive, ref } from 'vue'
-import { AddressBook, Attachment, DateTimePicker, Selector } from '@/components'
+import { AddressBook, Attachment, DateTimePicker, NumberRuleComposer, Selector } from '@/components'
 
 /** 演示区绑定的状态 */
 const demo = reactive({
@@ -113,7 +125,20 @@ const demo = reactive({
   addressName: '',
   materialId: '',
   materialName: '',
-  date: ''
+  date: '',
+  numberRule: {
+    items: [
+      { id: 'ci-a1b2c3d4e5f6', type: 'text', name: '前缀', text: 'CG' },
+      { id: 'ci-b2c3d4e5f6a1', type: 'datetime', name: '日期', format: 'yyyyMMdd' },
+      { id: 'ci-c3d4e5f6a1b2', type: 'seq', name: '流水号', start: 1, length: 3, padZero: true, resetPeriod: 'DAY' }
+    ]
+  }
+})
+
+/** 编号规则演示：当前 value 的 JSON 摘要（截断展示） */
+const numberRuleSummary = computed(() => {
+  const json = JSON.stringify(demo.numberRule)
+  return json.length > 160 ? json.slice(0, 160) + '…' : json
 })
 
 const active = ref('AddressBook')
@@ -298,6 +323,27 @@ const components = [
       { name: 'update:fieldId', desc: '确认选择 / 清空时回写 fieldId 值' },
       { name: 'update:fieldName', desc: '确认选择 / 清空时回写 fieldName 值' }
     ]
+  },
+  {
+    name: 'NumberRuleComposer',
+    label: '编号规则编排',
+    desc: '编号规则配置组件',
+    summary: '三区布局（插入项 / 已插入项列表 / 选中项属性面板），实时调用 preview/render 预览 3 个样例号，校验失败就地红字提示；seq 项 id 自动生成且不可编辑（计数器锚点）。',
+    demoTip: '实时预览依赖后端 preview/render 接口，需后端服务与登录态支持。',
+    code: `<template>
+  <NumberRuleComposer
+    :value="form.fieldRule"
+    :on-change="(v) => (form.fieldRule = v)"
+    field-name="fieldRule"
+  />
+</template>`,
+    props: [
+      { name: 'value', type: 'Object', required: '是', default: 'null', desc: '规则配置对象（value 协议 { items: [...] }，方案 §2.1 冻结契约），传 null / undefined 视为空规则' },
+      { name: 'onChange', type: 'Function', required: '是', default: '-', desc: '值变更回调：组件基于当前 value 深拷贝生成新对象后回传 onChange(newValue)' },
+      { name: 'fieldName', type: 'String', required: '否', default: "''", desc: '宿主表单字段名（编号编辑页传 "fieldRule"），仅用于组件内部 aria / 表单语义提示' },
+      { name: 'disabled', type: 'Boolean', required: '否', default: 'false', desc: '是否禁用（置灰插入、排序、删除与属性编辑）' }
+    ],
+    emits: []
   }
 ]
 
