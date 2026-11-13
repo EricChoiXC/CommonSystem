@@ -1,5 +1,6 @@
 package com.eric.base.sys.number.model;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 /**
@@ -15,17 +16,22 @@ import lombok.Data;
  *              同时作为 NB3-BE-003 modelOptions 下拉数据源读取入口。
  */
 @Data
+@Schema(description = "编号接入项：numberRule.yml 条目，接入项下拉选项数据源")
 public class SysNumberModelDo {
 
     /** 接入项编码（numberRule.yml key，即 sys_number_rule.field_model_id） */
+    @Schema(description = "接入项编码（numberRule.yml key，即 sys_number_rule.field_model_id）")
     private String key;
 
     /** 接入项名称（下拉展示名） */
+    @Schema(description = "接入项名称（下拉展示名）")
     private String name;
 
     /** 业务模型 Java 类 SimpleName */
+    @Schema(description = "业务模型 Java 类 SimpleName")
     private String modelName;
 
     /** 承接编号的字段名（通常 fieldCode） */
+    @Schema(description = "承接编号的字段名（通常 fieldCode）")
     private String modelField;
 }

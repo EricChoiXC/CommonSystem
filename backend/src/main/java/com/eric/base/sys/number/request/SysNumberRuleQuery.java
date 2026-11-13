@@ -18,17 +18,22 @@ import lombok.Data;
 public class SysNumberRuleQuery {
 
     /** 规则名称模糊匹配（field_name LIKE '%x%'），为空表示不过滤 */
+    @Schema(description = "规则名称模糊匹配，为空表示不过滤")
     private String fieldName;
 
     /** 规则编码模糊匹配（field_code LIKE '%x%'），为空表示不过滤 */
+    @Schema(description = "规则编码模糊匹配，为空表示不过滤")
     private String fieldCode;
 
     /** 所属接入项编码精确匹配（field_model_id，即 numberRule.yml key），为空表示不过滤 */
+    @Schema(description = "所属接入项编码精确匹配（numberRule.yml key），为空表示不过滤")
     private String fieldModelId;
 
     /** 所属模型字段精确匹配（field_model_field），为空表示不过滤 */
+    @Schema(description = "所属模型字段精确匹配，为空表示不过滤")
     private String fieldModelField;
 
     /** 启用状态精确匹配（field_enable；true 仅启用、false 仅停用），为空表示全部 */
+    @Schema(description = "启用状态精确匹配（true 仅启用、false 仅停用），为空表示全部")
     private Boolean fieldEnable;
 }

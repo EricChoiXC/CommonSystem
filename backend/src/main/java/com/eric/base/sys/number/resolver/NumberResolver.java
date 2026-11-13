@@ -16,9 +16,10 @@ import static com.eric.base.sys.number.properties.SysNumberConstants.*;
  * @description 编号机制模块接口的专属 resolver，基于「接口标识 + 文档 ID」完成最终鉴权
  *              （权限设计依据 docs/v1_5-编号功能/编号机制实现方案.md「§4.2 ACTION_* 常量与 resolver」）：
  *              <ul>
- *              <li>编号规则列表 / 预览渲染 / 正式取号：登录且启用即可——列表不设权、预览无副作用
- *                  不落库（NumberRuleComposer 宿主组件复用预览不 403）、取号的业务单据权限由
- *                  调用方完成（generate 不替代业务鉴权）；</li>
+ *              <li>编号规则列表 / 预览渲染 / 正式取号 / 接入项下拉（modelOptions，W5 补充）：
+ *                  登录且启用即可——列表不设权、预览无副作用不落库
+ *                  （NumberRuleComposer 宿主组件复用预览不 403）、取号的业务单据权限由
+ *                  调用方完成（generate 不替代业务鉴权）、下拉为编辑页数据源；</li>
  *              <li>编号规则维护（读取 / 新建 / 编辑 / 启停用 / 删除）：
  *                  编号管理员 SYS_NUMBER_ADMIN 或编号规则维护者 SYS_NUMBER_RULE_EDITOR；</li>
  *              <li>取号明细与特权管理（recordList / reset / void / reissue）：
@@ -49,7 +50,10 @@ public class NumberResolver extends BaseResolver {
             // 取号明细与特权管理四动作：仅编号管理员
             case ACTION_MANAGE_RECORD_LIST, ACTION_MANAGE_RESET, ACTION_MANAGE_VOID,
                     ACTION_MANAGE_REISSUE -> resolveNumberAdmin();
-            // 列表 / 预览 / 取号（登录即可）及未来新增登录即可接口的兜底口径
+            // 列表 / 预览 / 取号 / 接入项下拉（登录即可，W5 补充接口 modelOptions 同口径）
+            case ACTION_RULE_LIST, ACTION_PREVIEW_RENDER, ACTION_GENERATE_ACQUIRE,
+                    ACTION_RULE_MODEL_OPTIONS -> resolveLoggedIn();
+            // 未来新增登录即可接口的兜底口径
             default -> resolveLoggedIn();
         };
     }

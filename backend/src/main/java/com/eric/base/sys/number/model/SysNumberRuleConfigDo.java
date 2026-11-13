@@ -1,5 +1,6 @@
 package com.eric.base.sys.number.model;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.List;
  *              四类规则项共用一个扁平 Item 结构，仅各自专属属性生效（方案 §2.2 表）。
  */
 @Data
+@Schema(description = "编号规则配置：sys_number_rule.field_rule 的结构化映射，items 有序数组按顺序拼接渲染")
 public class SysNumberRuleConfigDo {
 
     /** 规则项类型：text 文本（text 常量内容） */
@@ -51,6 +53,7 @@ public class SysNumberRuleConfigDo {
     public static final int MAX_CODE_LENGTH = 64;
 
     /** 规则项有序列表（渲染按数组顺序拼接）；为空即空规则，校验必不通过（C1） */
+    @Schema(description = "规则项有序列表（渲染按数组顺序拼接）；为空即空规则，校验必不通过（C1）")
     private List<Item> items;
 
     /**
@@ -60,42 +63,55 @@ public class SysNumberRuleConfigDo {
      *              按方案 §2.2 平铺，仅对应类型生效，其余属性为空。
      */
     @Data
+    @Schema(description = "规则项：公共属性 id / name / type，各类型专属属性平铺，仅对应类型生效")
     public static class Item {
 
         /** 项 id（前端新增时生成 ci- 前缀 + 十六进制；seq 项 id 为计数器锚点，已保存规则不可变更 C7） */
+        @Schema(description = "项 id（前端新增时生成 ci- 前缀；seq 项 id 为计数器锚点，已保存规则不可变更 C7）")
         private String id;
 
         /** 项类型：text / datetime / seq / random */
+        @Schema(description = "项类型", allowableValues = {"text", "datetime", "seq", "random"})
         private String type;
 
         /** 展示名 */
+        @Schema(description = "展示名")
         private String name;
 
         /** text：常量内容（非空，1..32 字符） */
+        @Schema(description = "text：常量内容（非空，1..32 字符）")
         private String text;
 
         /** datetime：日期格式（白名单或仅含 y M d H m s 与 - / : 空格 的自定义组合） */
+        @Schema(description = "datetime：日期格式（白名单或仅含 y M d H m s 与 - / : 空格 的自定义组合）")
         private String format;
 
         /** seq：起始值（≥ 0，首个流水号） */
+        @Schema(description = "seq：起始值（≥ 0，首个流水号）")
         private Integer start;
 
         /** seq/random：长度（seq 1..9，容量 10^length−1；random 渲染宽度） */
+        @Schema(description = "seq/random：长度（seq 1..9，容量 10^length−1；random 渲染宽度）")
         private Integer length;
 
         /** seq/random：是否补"0"（渲染用，长度不足左侧补零） */
+        @Schema(description = "seq/random：是否补\"0\"（渲染用，长度不足左侧补零）")
         private Boolean padZero;
 
         /** seq：重置周期 DAY/WEEK/MONTH/YEAR/NONE（周期键 field_period 派生依据） */
+        @Schema(description = "seq：重置周期", allowableValues = {"DAY", "WEEK", "MONTH", "YEAR", "NONE"})
         private String resetPeriod;
 
         /** random：最小值（numericOnly=true 时生效，min ≤ max） */
+        @Schema(description = "random：最小值（numericOnly=true 时生效，min ≤ max）")
         private Integer min;
 
         /** random：最大值（numericOnly=true 时生效，min ≤ max） */
+        @Schema(description = "random：最大值（numericOnly=true 时生效，min ≤ max）")
         private Integer max;
 
         /** random：仅数字（true 时 min/max/length 生效；false 时仅 length 生效，字符集 A-Za-z0-9） */
+        @Schema(description = "random：仅数字（true 时 min/max/length 生效；false 时仅 length 生效，字符集 A-Za-z0-9）")
         private Boolean numericOnly;
     }
 }

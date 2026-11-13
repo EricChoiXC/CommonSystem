@@ -1,6 +1,7 @@
 package com.eric.base.sys.number.model;
 
 import com.eric.base.common.base.model.MainModel;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -17,6 +18,8 @@ import lombok.EqualsAndHashCode;
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
+@Schema(description = "编号规则实体：对应 sys_number_rule；load / save / update 响应中 fieldRule "
+        + "为解析后的规则配置对象，列表响应中为原文 JSON 字符串，save / update 请求体传规则配置对象")
 public class SysNumberRule extends MainModel {
 
     /**
@@ -26,14 +29,19 @@ public class SysNumberRule extends MainModel {
      * save/update 请求体经 Jackson 反序列化为 Map，Service 转 Do 校验后序列化为字符串落库。
      * 禁止手工拼串（先例 SysProcessTemplateNodeConfigDo）。
      */
+    @Schema(description = "编号规则 JSON：存储态 / 列表响应为原文 JSON 字符串；load 响应为解析后的"
+            + "规则配置对象（SysNumberRuleConfigDo）；save / update 请求体传规则配置对象")
     private Object fieldRule;
 
     /** 所属接入项编码（numberRule.yml key），保存后锁定不可改（D3） */
+    @Schema(description = "所属接入项编码（numberRule.yml key），保存后锁定不可改（D3）")
     private String fieldModelId;
 
     /** 所属模型名（由接入项带出） */
+    @Schema(description = "所属模型名（由接入项带出，编辑时不受理变更）")
     private String fieldModelName;
 
     /** 所属模型字段（由接入项带出，通常为 fieldCode） */
+    @Schema(description = "所属模型字段（由接入项带出，通常为 fieldCode，编辑时不受理变更）")
     private String fieldModelField;
 }

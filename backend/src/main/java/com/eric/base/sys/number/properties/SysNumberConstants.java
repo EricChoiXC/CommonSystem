@@ -32,6 +32,8 @@ public class SysNumberConstants {
     public static final String ACTION_RULE_ENABLE = "sys.number.rule.enable";
     /** 编号规则删除（存在取号明细时拒绝 CRM_NUMBER_RULE_IN_USE；SYS_NUMBER_ADMIN 或 SYS_NUMBER_RULE_EDITOR） */
     public static final String ACTION_RULE_DELETE = "sys.number.rule.delete";
+    /** 编号规则接入项下拉数据源（登录即可；W5 补充接口：编辑页「所属接入项」下拉数据源，读 numberRule.yml 接入项缓存） */
+    public static final String ACTION_RULE_MODEL_OPTIONS = "sys.number.rule.modelOptions";
     /** 编号预览渲染（不推进计数器、不落任何记录；登录即可，供宿主组件复用） */
     public static final String ACTION_PREVIEW_RENDER = "sys.number.preview.render";
     /** 正式取号（登录即可，业务单据权限由调用方在取号前完成，禁止替代业务鉴权） */

@@ -164,4 +164,24 @@ class NumberResolverTest {
         login("ORDINARY_ROLE");
         assertTrue(resolver.resolve(ACTION_RULE_LIST));
     }
+
+    @Test
+    void modelOptionsRequiresLoginOnly() {
+        // W5 补充接口：接入项下拉数据源（NB3-BE-003 modelOptions），与列表同口径登录即可
+        login((String[]) null);
+        assertFalse(resolver.resolve(new AuthorizationContext(ACTION_RULE_MODEL_OPTIONS)),
+                "未登录应被拒绝: " + ACTION_RULE_MODEL_OPTIONS);
+
+        login("ORDINARY_ROLE");
+        assertTrue(resolver.resolve(new AuthorizationContext(ACTION_RULE_MODEL_OPTIONS)),
+                "登录用户应放行: " + ACTION_RULE_MODEL_OPTIONS);
+
+        login(ROLE_SYS_NUMBER_RULE_EDITOR);
+        assertTrue(resolver.resolve(new AuthorizationContext(ACTION_RULE_MODEL_OPTIONS)),
+                "规则维护者应放行: " + ACTION_RULE_MODEL_OPTIONS);
+
+        login(ROLE_SYS_NUMBER_ADMIN);
+        assertTrue(resolver.resolve(new AuthorizationContext(ACTION_RULE_MODEL_OPTIONS)),
+                "编号管理员应放行: " + ACTION_RULE_MODEL_OPTIONS);
+    }
 }
