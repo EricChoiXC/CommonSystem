@@ -1,0 +1,5 @@
+ROLE_LIST: ["SYS_DATASOURCE_ADMIN"]
+ROLE_MAP:
+  SYS_DATASOURCE_ADMIN:
+    NAME: "数据源管理"
+    DESC: "配置自定义数据源（查询能力、固定条件、返回字段）"

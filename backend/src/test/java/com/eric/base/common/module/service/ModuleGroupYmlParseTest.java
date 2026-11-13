@@ -25,9 +25,10 @@ import static org.mockito.Mockito.mock;
  * @author Eric
  * @date 2026/11/12
  * @description 走真实的 YmlResourceUtil classpath 扫描 + CommonModuleService#parseModuleGroups
- *              解析链路，固化首批清单（修订稿 5.2）：仅 calendar、org-group 两个模块组
- *              （third-party 仅设计占位，不建 yml，决策 D5），key / name / remark 与
- *              @ModuleGroup 注解值逐字一致（MOD3-BE-002 验收标准）。
+ *              解析链路，固化已声明清单：首批（修订稿 5.2）calendar、org-group 两个模块组
+ *              （third-party 仅设计占位，不建 yml，决策 D5），v1.8 起新增 datasource
+ *              （F18-OPS-001，与 SysDatasourceController#@ModuleGroup 的 moduleGroupKey 逐字一致），
+ *              key / name / remark 与 @ModuleGroup 注解值逐字一致（MOD3-BE-002 验收标准）。
  */
 class ModuleGroupYmlParseTest {
 
@@ -40,7 +41,7 @@ class ModuleGroupYmlParseTest {
                 mock(LogService.class));
 
         Resource[] resources = YmlResourceUtil.getResources("classpath*:properties/**/moduleGroup.yml");
-        assertTrue(resources.length >= 2, "expected at least calendar and org moduleGroup.yml on classpath");
+        assertTrue(resources.length >= 3, "expected at least calendar, org and datasource moduleGroup.yml on classpath");
 
         List<CommonModule> modules = new ArrayList<>();
         for (Resource resource : resources) {
@@ -57,10 +58,12 @@ class ModuleGroupYmlParseTest {
         for (CommonModule module : modules) {
             byKey.put(module.getFieldKey(), module);
         }
-        assertEquals(Set.of("calendar", "org-group"), byKey.keySet(), () -> "parsed keys: " + byKey.keySet());
+        assertEquals(Set.of("calendar", "org-group", "datasource"), byKey.keySet(), () -> "parsed keys: " + byKey.keySet());
         assertEquals("日程", byKey.get("calendar").getFieldName());
         assertEquals("日程模块", byKey.get("calendar").getFieldRemark());
         assertEquals("组织架构-群组", byKey.get("org-group").getFieldName());
         assertEquals("组织架构-群组模块", byKey.get("org-group").getFieldRemark());
+        assertEquals("数据源", byKey.get("datasource").getFieldName());
+        assertEquals("数据源模块（9 接口统一开关）", byKey.get("datasource").getFieldRemark());
     }
 }
