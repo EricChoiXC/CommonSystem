@@ -86,3 +86,32 @@ export function importExcel(path, file, params) {
   formData.append('params', JSON.stringify(params || {}))
   return http.post(path, formData)
 }
+
+// ==================== 模块组接口开关 ====================
+// 对应 docs/v1_1-common/05-增加接口开关/接口开关机制UI设计分册.md 第 1、6、8 节：
+// 管理员可整体启停一组接口；命中已关闭模块组的请求由响应拦截器统一提示 MODULE_DISABLED。
+
+/**
+ * 模块组列表
+ * POST /backend/common/module/list，list 通道请求体 { body, pages }；模块组量极小
+ * 默认全量返回（后端按 field_key 排序），metadata 不强制携带 total。
+ * @returns {Promise<Object>} BaseResponse，data 为模块组列表
+ *   （CommonModule：fieldId / fieldKey / fieldName / fieldEnable / fieldRemark / fieldUpdateTime）
+ */
+export function listModules() {
+  return request.post('/backend/common/module/list', {
+    body: {},
+    pages: { pageNo: 1, pageSize: 100, needPage: false }
+  })
+}
+
+/**
+ * 启停用模块组
+ * PATCH /backend/common/module/enable，请求体 { fieldId, fieldEnable }；
+ * 仅 SYS_MODULE_ADMIN（模块组管理员）可调用，SYS_ADMIN 自动放行。
+ * @param {Object} data { fieldId, fieldEnable }，fieldEnable 为目标状态 true 开启 / false 关闭
+ * @returns {Promise<Object>} BaseResponse
+ */
+export function updateModuleEnable(data) {
+  return request.patch('/backend/common/module/enable', data)
+}

@@ -50,8 +50,25 @@ export function handleUnauthorized(message = '登录已过期，请重新登录'
   }
 }
 
+/** 上次弹出模块未开启提示的时间戳，冷却期内忽略后续提示，避免并发请求重复弹消息 */
+let lastModuleTipAt = 0
+
+/**
+ * MODULE_DISABLED 统一提示：仅提示、不跳转、不清登录态（区别于 UNAUTHORIZED）。
+ * 拦截器提示后仍向调用方抛出失败结果，页面可按需再做局部处理。
+ */
+function showModuleDisabledTip(message = '该模块未开启，请联系管理员') {
+  const now = Date.now()
+  if (now - lastModuleTipAt < REDIRECT_COOLDOWN) {
+    return
+  }
+  lastModuleTipAt = now
+  ElMessage.warning(message)
+}
+
 // 响应拦截：统一解包 BaseResponse，code 非 SUCCESS 视为业务失败；
 // 凭证失效（UNAUTHORIZED / HTTP 401）时自动清理登录态并跳转登录页；
+// 模块组关闭（MODULE_DISABLED）仅统一提示不跳转；
 // blob 请求（responseType === 'blob'）按响应 Content-Type 区分文件流透传与 Blob 内 JSON 业务失败
 request.interceptors.response.use(
   async (response) => {
@@ -74,6 +91,10 @@ request.interceptors.response.use(
           handleUnauthorized(res.message)
           return Promise.reject(new Error(res.message || '登录已过期，请重新登录'))
         }
+        if (res && res.code === 'MODULE_DISABLED') {
+          showModuleDisabledTip(res.message)
+          return Promise.reject(new Error(res.message || '该模块未开启，请联系管理员'))
+        }
         if (res && res.code === 'SUCCESS') {
           return res
         }
@@ -87,6 +108,10 @@ request.interceptors.response.use(
     if (res && res.code === 'UNAUTHORIZED') {
       handleUnauthorized(res.message)
       return Promise.reject(new Error(res.message || '登录已过期，请重新登录'))
+    }
+    if (res && res.code === 'MODULE_DISABLED') {
+      showModuleDisabledTip(res.message)
+      return Promise.reject(new Error(res.message || '该模块未开启，请联系管理员'))
     }
     if (res && res.code === 'SUCCESS') {
       return res
