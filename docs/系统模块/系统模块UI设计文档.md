@@ -32,6 +32,7 @@
 ### 2.2 范围声明
 
 - 当前范围覆盖系统模块下的 `org`、`attachment`、`process`、`number`、`notify`、`audit`、`dict` 七个子模块。
+- 另含后续版本扩展页面：多语言管理（4.8，v1.1）、模块组开关（4.9，v1.1）、数据源（4.10，v1.8 新增）。
 - 当前文档优先覆盖后台管理页面、业务支撑弹窗与个人工作台页面。
 - 本轮不展开 ERP 业务模块页面，不补充未在需求文档中出现的跨模块门户首页。
 
@@ -93,6 +94,9 @@
 | 审计模块 | 审计记录页 | 列表页 | 审计管理员 | 查询审计记录 |
 | 码值模块 | 码值字典管理页 | 列表页 | 码值字典管理员 | 维护码值字典主表与明细 |
 | 码值模块 | 码值字典新增/编辑页 | 表单页 | 码值字典管理员 | 维护字典基本信息与明细项 |
+| 数据源模块 | 数据源管理页 | 列表页 | 数据源管理员 | 维护自定义数据源清单（查询、新建、编辑、启停用、删除） |
+| 数据源模块 | 数据源新增/编辑页 | 表单页 | 数据源管理员 | 配置自定义数据源（目标能力、固定条件、返回字段白名单） |
+| 数据源模块 | 数据源详情页 | 详情页 | 数据源管理员 | 查看数据源配置明细（只读） |
 
 ### 3.4 关键用户场景
 
@@ -439,6 +443,214 @@
 - 开关二次确认：启停用须二次确认是全工程硬规则——点击 `el-switch` 不立即变更显示态，先 `ElMessageBox.confirm`（文案按目标值区分并说明影响范围：关闭后该模块组全部接口停止服务、用户侧菜单隐藏并提示「模块未开启」）；确认后调 `updateModuleEnable({ fieldId, fieldEnable })`，成功更新显示态并同步刷新 `stores/module.js`，失败回滚开关显示态并提示，不残留半更新状态；取消不发起请求。
 - 菜单 `moduleGroup` 过滤：菜单配置项增加可选 `moduleGroup` 键声明所属模块组（首批映射 `/calendar → calendar`、`/org/group → org-group`），菜单按「权限 `auth` + 模块可用性」双重过滤，已关闭模块的菜单项**隐藏**（分组下无可见子项时分组随之隐藏）；模块状态缓存于 Pinia store `stores/module.js`（登录后应用初始化拉取），store 数据缺失时按开启放行（fail-open）。
 - 路由守卫「模块未开启」空态：路由 `meta.moduleGroup` 声明页面所属模块组（与菜单 `moduleGroup` 键同值同源，首批仅 `/calendar` 与 `/org/group` 及其子路由声明），所属模块组已关闭时渲染「模块未开启」空态提示（含模块组名称与「请联系管理员开启」说明），**不重定向首页**（避免与无权限重定向语义混淆），页面不挂载即不加载业务数据；空态判定由布局层按 `to.meta.moduleGroup` 落点渲染（beforeEach 无法渲染组件），store 数据缺失时按开启放行；模块恢复开启后菜单与页面自动恢复。
+
+### 4.10 数据源模块（v1.8 新增）
+
+#### 4.10.1 模块目标与边界
+
+- 承接自定义数据源管理页面（列表 / 新增编辑 / 详情）与数据源取数消费方式约定（v1.8 新增，任务 F18-DOC-004）。
+- 数据源是可复用的取数配置元数据，三元组 = **目标查询能力 + 固定条件 + 返回字段白名单**；业务定义、两类数据源与权限归属以[需求文档](系统模块需求文档.md)第 11 章为准；执行与安全设计见 [数据源功能设计方案](../v1_8-数据源/数据源功能设计方案.md)；接口契约见 API 文档 4.10；表结构见数据库设计 4.10。
+- 默认数据源由各模块代码 Provider 注册（不入库、不可改删），管理页只维护自定义数据源；`field_target` 保存后锁定。
+- 路由：`/datasource`（列表）、`/datasource/create`（新建）、`/datasource/edit/:id`（编辑）、`/datasource/detail/:id`（详情）；列表路由 `meta: { title: '数据源管理', parent: '系统管理', group: '后台管理', auth: 'SYS_DATASOURCE_ADMIN' }`，新建/编辑/详情路由同 parent/group/auth，编辑与详情为动态路由、设 `meta.tab: 'name'` 复用单标签。
+- 菜单入口：【系统管理】→【后台管理】→【数据源管理】（叶子菜单，与公共配置/模块管理/编号机制并列；后台管理子组 auth 下放由子项各自声明，沿用既有惯例）；`HomeView.vue` 的 `activeMenu` 补前缀归约——`/datasource` 前缀路由（create/edit/detail）归约到 `/datasource` 保持菜单高亮。
+- 显示权限：叶子菜单与路由 `meta.auth` 均绑定 `SYS_DATASOURCE_ADMIN`（`SYS_ADMIN` 经超管短路天然可见）；无权限用户不可见菜单入口、直访路由被既有路由守卫按 `meta.auth` 拦截。**消费面不受菜单权限影响**：`options` / `targets` / `query` 接口登录即可，普通用户业务页面仍可经数据源取数（取数越权由执行期委托目标 action 鉴权收敛，见 4.10.7）。
+
+#### 4.10.2 模块页面承接清单
+
+- 数据源管理页（`/datasource`，三段式列表页）
+- 数据源新增/编辑页（`/datasource/create`、`/datasource/edit/:id`，共用 `DatasourceFormView.vue` 按路由区分模式）
+- 数据源详情页（`/datasource/detail/:id`，只读）
+- 数据源取数消费（非独立页面：页面直调 `queryDatasource` 或可选通用组件 `DatasourceTable`，见 4.10.7）
+
+#### 4.10.3 关键页面约束
+
+- `field_target` 保存后锁定：表单编辑态只读展示，编辑提交不传该字段（后端以库值为准；改目标会使既有条件/字段白名单悬空）。
+- 管理列表须能暴露失效 target 行：目标能力不在 Registry（Provider 下线残留）的行加 danger tag「目标失效」，提示执行将报 `CS_DATASOURCE_TARGET_INVALID`（任务清单 R05）。
+- 消费侧列头以 `metadata.fields` / `options.fields` 为准渲染，**不假设固定列**——投影 null 跳过语义下个别行可能缺列（任务清单 R04）。
+- 启停用与删除均须二次确认；停用或删除后消费方取数报 `CS_DATASOURCE_NOT_FOUND`。
+- 码值翻译归属消费方：取数结果为原始值（如 `fieldType=PERSONAL`），显示名由消费方页面按码值模块自行翻译（TBD 裁决结论 1，2026-11-13）。
+
+#### 4.10.4 数据源管理页
+
+##### 页面元信息
+
+| 项 | 值 |
+| --- | --- |
+| 路由 | `/datasource`（`meta.title: '数据源管理'`） |
+| 页面组件 | `views/datasource/DatasourceManageView.vue` |
+| 页面类型 | 列表页（三段式：筛选区 → 工具区 → 列表区） |
+| 菜单入口 | 【系统管理】→【后台管理】→【数据源管理】 |
+| 显示权限 | 叶子菜单绑定 `SYS_DATASOURCE_ADMIN`；列表查询经 `/list` 接口由后端鉴权兜底 |
+| 页面样式 | 复用 `list-page.css`，不在页面内重复定义 |
+
+##### 页面目标与入口
+
+- 维护自定义数据源清单：查询、新建、编辑、启停用、删除；默认数据源不入库，不在本列表展示（如需查看可用数据源全集经 `options` 接口，登录即可）。
+- 入口：菜单进入列表页；【新建】跳 `/datasource/create`；行【编辑】跳 `/datasource/edit/:id`；行【详情】跳 `/datasource/detail/:id`。
+
+##### 页面布局 ASCII 示意图
+
+```text
+| 数据源名称 | 数据源编码 | 目标能力 | 启用状态(全部/启用/停用) |
+| sort-area(创建时间↑↓)                    | 查询  新建            |
+|----------------------------------------------------------------|
+| 编码 | 名称 | 目标能力 | 固定条件数 | 返回字段数 | 启用 | 创建时间 | 操作(详情/编辑/启停用/删除) |
+|----------------------------------------------------------------|
+| total, prev, pager, next, sizes                                 |
+```
+
+##### 结构树与布局约束
+
+- 筛选区：`el-form.filter-form` 一行四列（`el-col :span="6"`）——数据源名称（模糊）、数据源编码（模糊）、目标能力（精确）、启用状态（静态选项「全部/启用/停用」，默认「全部」——管理视角需同时看到停用源以便排查失效行）；输入框回车触发查询，空值提交 `null`。
+- 工具区：左侧 `sort-area` 仅创建时间单条件排序（选中项 `.active` + `.sort-arrow` 显示 `↑`/`↓`，默认创建时间降序，数据按后端固定创建时间降序返回）；右侧查询、新建（`hasAuth(['SYS_DATASOURCE_ADMIN'])` 显隐，前端预判不替代后端鉴权）。
+- 列表区：本页无批量操作，不设复选框列、不展示主键 `fieldId`；末列操作列 `fixed="right"`；分页 `layout="total, prev, pager, next, sizes"`、`page-sizes [10,20,50,100]`，切页大小回第 1 页。
+- 失效行标记（R05）：页面加载时调一次 `getDatasourceTargets()` 取目标能力编码全集，列表行 `fieldTarget` 不在该全集时，目标能力列追加 danger tag「目标失效」。
+
+##### 字段与组件规格
+
+| 列 / 项 | 字段 | 组件与规格 |
+| --- | --- | --- |
+| 数据源编码 | `fieldCode` | 文本，溢出省略 |
+| 数据源名称 | `fieldName` | 文本，溢出省略 |
+| 目标能力 | `fieldTarget` / `fieldTargetName` | 展示 `code（name）`；名称缺失（能力失效）时仅展示编码并加 danger tag「目标失效」 |
+| 固定条件数 | `fieldConditions` | 计数——列表响应为原文 JSON 字符串，前端解析数组取长度；空显示 `0`，解析失败显示 `-` |
+| 返回字段数 | `fieldFields` | 计数——同上；空/NULL 显示「全字段」（= 目标能力默认全字段） |
+| 启用 | `fieldEnable` | `el-tag`：启用 success / 停用 info |
+| 创建时间 | `fieldCreateTime` | 格式化时间 |
+| 操作 | — | 详情、编辑、启停用、删除（link 按钮，`fixed="right"`） |
+
+##### 操作与状态约束
+
+- 新建：`hasAuth` 预判显隐，跳 `/datasource/create`。
+- 详情：跳 `/datasource/detail/:id`（复用单标签），支撑新建/编辑/详情三态路由互相跳转。
+- 编辑：跳 `/datasource/edit/:id`（复用单标签）。
+- 启停用：二次确认；停用时提示「停用后消费方取数将报 CS_DATASOURCE_NOT_FOUND」；启用无互斥影响（数据源启用不切换互斥，与编号规则 D1 不同）；调 `updateDatasourceEnable({ fieldId, fieldEnable })`。
+- 删除：二次确认，文案提示影响面（删除后消费方取数报 `CS_DATASOURCE_NOT_FOUND`；启用中的自定义数据源删除须二次确认——需求文档第 11 章口径）；调 `deleteDatasource(fieldId)`。
+
+#### 4.10.5 数据源新增/编辑页
+
+##### 页面元信息
+
+| 项 | 值 |
+| --- | --- |
+| 路由 | `/datasource/create`（新建，`meta.title: '新增数据源'`）、`/datasource/edit/:id`（编辑，`meta.title: '编辑数据源'`，`meta.tab: 'name'` 复用单标签） |
+| 页面组件 | `views/datasource/DatasourceFormView.vue`（按 `route.path` 区分模式，新建 / 编辑共用） |
+| 页面类型 | 表单页 |
+| 菜单入口 | 列表页【新建】/ 行【编辑】进入，无独立菜单 |
+| 显示权限 | `SYS_DATASOURCE_ADMIN`（后端接口鉴权兜底） |
+| 页面样式 | 复用 `form-page.css`；页头按钮置于 `el-card` `#header` 内 `.page-header > .header-btns`，不用底部操作区 |
+
+##### 页面目标与入口
+
+- 新建：`onMounted` 调 `api/common.js#getInitID()`（`GET /backend/common/initID`）取 32 位 ID 赋 `fieldId`（当前尚无 `composables/useInitID.js` 统一封装，照现有页面直接调）；同时调 `getDatasourceTargets()` 拉取目标能力清单（含各能力 `conditionFields` / `resultFields` 定义）；保存调 `saveDatasource`。
+- 编辑：按路由 id 调 `loadDatasource` 回填（`fieldConditions` / `fieldFields` 为后端解析后的对象直接消费）；保存调 `updateDatasource`，提交不含 `fieldTarget`（后端以库值为准，锁定）。
+
+##### 页面布局 ASCII 示意图
+
+```text
+| 返回  保存                                    （#header 按钮区）|
+|---------------------------------------------------------------|
+| 目标能力(下拉,编辑态只读锁定) | 数据源编码(全局唯一)           |
+| 数据源名称                    | 备注                           |
+|---------------------------------------------------------------|
+| 固定条件（按所选能力 conditionFields 动态渲染行）整行 2:8       |
+|   [字段下拉][操作符下拉(按字段ops)][值输入|只读tag] [+添加][删] |
+|---------------------------------------------------------------|
+| 返回字段(el-select multiple, 空选=默认全字段提示) 整行 2:8      |
+|---------------------------------------------------------------|
+```
+
+##### 结构树与布局约束
+
+- 容器 100% 宽；基础字段一行两字段（`label-width="40%"` + `:span="12"`）；固定条件编辑器与返回字段为长内容字段，一行一字段（2:8，`label-width="20%"`）。
+- 目标能力选中后按该能力定义渲染条件编辑器与字段多选；**新建态切换目标能力时二次确认并清空已编排条件与字段选择**（防跨能力残留非法 key，保存期校验必拒）。
+- 编辑态目标能力只读锁定并提示「保存后锁定不可改」（对齐编号规则「所属接入项」D3 先例）；数据源编码/名称/条件/返回字段仍可编辑。
+- `literalAllowed=false` 的条件字段（如「创建人」）：值固定 `${CURRENT_USER_ID}`，展示为只读 tag「当前登录人」，不给输入框；操作符下拉仍按字段 `ops` 渲染。
+- 返回字段空选时表单内提示「不选择时默认返回目标能力全字段」。
+
+##### 字段与组件规格
+
+| 字段 | 组件 | 约束 |
+| --- | --- | --- |
+| 目标能力 | `el-select`（选项来自 `getDatasourceTargets()`，label 展示 `code（name）`） | 必填；选中带出该能力 `conditionFields` / `resultFields`；编辑态只读锁定 |
+| 数据源编码 | `el-input` | 必填；全局唯一（与默认数据源编码共用命名空间），重复报 `CS_DATASOURCE_CODE_DUPLICATED` |
+| 数据源名称 | `el-input` | 必填 |
+| 固定条件 | 动态行编辑器：字段 `el-select`（选项 `conditionFields`，label 显示名）+ 操作符 `el-select`（选项为所选字段 `ops`）+ 值输入（按字段 `type` 选型：STRING/NUMBER 文本输入、DATE/DATETIME 日期选择） | 可空（= 无固定条件）；每行带删除按钮，底部「添加条件」按钮；`literalAllowed=false` 字段值为只读 tag「当前登录人」 |
+| 返回字段 | `el-select multiple`（选项来自 `resultFields`，label 显示名） | 可空 = 默认全字段（表单内提示） |
+| 备注 | `el-input type="textarea"` | 可空 |
+
+##### 操作与状态约束
+
+- 保存载荷分流：新建提交 `{ fieldId, fieldCode, fieldName, fieldTarget, fieldConditions, fieldFields, fieldRemark }`；编辑仅 `{ fieldId, fieldCode, fieldName, fieldConditions, fieldFields, fieldRemark }`（`fieldTarget` 不传，后端以库值为准）。
+- 保存成功：`markTabToClose` 关标签返回列表；失败按接口 message 提示，`CS_DATASOURCE_CODE_DUPLICATED`（编码重复）、`CS_DATASOURCE_TARGET_INVALID`（目标能力失效）、`CS_DATASOURCE_CONDITION_INVALID`（条件白名单/字面量限制）、`CS_DATASOURCE_FIELD_INVALID`（返回字段白名单）均须有可读提示（错误码口径见 API 文档 4.10.6）。
+- 返回：`#header`【返回】关标签回列表。
+
+#### 4.10.6 数据源详情页
+
+##### 页面元信息
+
+| 项 | 值 |
+| --- | --- |
+| 路由 | `/datasource/detail/:id`（`meta.title: '数据源详情'`，`meta.tab: 'name'` 复用单标签） |
+| 页面组件 | `views/datasource/DatasourceDetailView.vue` |
+| 页面类型 | 详情页（只读） |
+| 菜单入口 | 列表页行【详情】进入，无独立菜单 |
+| 显示权限 | `SYS_DATASOURCE_ADMIN` |
+| 页面样式 | 复用 `form-page.css` 的 `.detail-grid` / `.detail-item` / `.is-full`，不用 `el-descriptions` 跨行 |
+
+##### 页面目标与入口
+
+- 只读查看数据源配置明细；按路由 id 调 `loadDatasource` 回填；`#header` 提供【返回】与【编辑】（跳 `/datasource/edit/:id`）。
+
+##### 页面布局 ASCII 示意图
+
+```text
+| 返回  编辑                                    （#header 按钮区）|
+|---------------------------------------------------------------|
+| 数据源编码        | 数据源名称                                 |
+| 目标能力          | 启用状态(tag)                               |
+| 固定条件数        | 返回字段数                                  |
+|---------------------------------------------------------------|
+| 固定条件明细（.detail-item.is-full，只读行列表）                |
+|---------------------------------------------------------------|
+| 返回字段白名单（.detail-item.is-full）                          |
+|---------------------------------------------------------------|
+| 备注（.detail-item.is-full）                                    |
+|---------------------------------------------------------------|
+| 创建人/创建时间 | 更新人/更新时间                               |
+```
+
+##### 结构树与布局约束
+
+- `.detail-grid` 自定义 flex 网格：默认一行两字段（`.detail-item`，字段名:字段值 = 2:3）；固定条件明细、返回字段白名单、备注用 `.detail-item.is-full`（一行一字段，2:8）；不使用 `el-descriptions`（非垂直模式单元格无法跨行实现 2:8）。
+- 固定条件明细逐行只读展示「字段显示名 + 操作符 + 值」；值为运行时变量（如 `${CURRENT_USER_ID}`）时展示为 tag「当前登录人」等中文语义。
+- 目标能力附展示目标接口路径 `fieldTargetPath`（仅展示）。
+
+##### 字段与组件规格
+
+| 字段 | 组件 | 约束 |
+| --- | --- | --- |
+| 数据源编码 / 数据源名称 | 文本 | `fieldCode` / `fieldName` |
+| 目标能力 | 文本 + 辅助说明 | `code（name）`，附接口路径 `fieldTargetPath`；能力失效时加 danger tag「目标失效」 |
+| 启用状态 | `el-tag` | 启用 success / 停用 info |
+| 固定条件数 / 返回字段数 | 文本 | 与列表页同口径（空 = `0` / 「全字段」） |
+| 固定条件明细 | `.is-full` 只读行列表 | `[{key, op, value}]` 解析展示；空显示「无固定条件」 |
+| 返回字段白名单 | `.is-full` | 字段显示名列表；空显示「目标能力默认全字段」 |
+| 备注 | `.is-full` | `fieldRemark`，空显示 `-` |
+| 创建人 / 创建时间、更新人 / 更新时间 | 文本 | 公共字段 |
+
+##### 操作与状态约束
+
+- 页面只读，不提供启停用/删除入口（均在列表页操作列承载）。
+- 【编辑】跳 `/datasource/edit/:id`；【返回】关标签回列表。
+
+#### 4.10.7 数据源取数消费方式（非独立页面）
+
+- 消费面权限口径：菜单入口仅对 `SYS_DATASOURCE_ADMIN` 展示，但 `options` / `targets` / `query` 接口登录即可——无权限用户虽看不到管理菜单，其业务页面仍可经数据源取数；取数越权由执行期委托目标 action 鉴权收敛（需求文档第 11 章、API 文档 4.10.5）。
+- 方式一（页面直调）：页面按 `code` 调 `queryDatasource({ code, body, pages, sortField, sortOrder })`，`body` 只传增量过滤条件（固定条件由服务端强制、同名 key 覆盖调用方条件）；列头以 `metadata.fields` / `options.fields` 为准渲染，**不假设固定列**（R04）；分页 `layout="total, prev, pager, next, sizes"`、`page-sizes [10,20,50,100]`；`sortField` 须命中目标能力可排序白名单，非法值由后端回退默认排序。示例见样例代码 §4.2「我的日程」直调 `calendar.my-created`。
+- 方式二（通用组件）：`components/DatasourceTable.vue`，props `code`（可选 `filters` / `sortField`），内部完成 `options` → 列头渲染 → `queryDatasource` 取数编排，适合快速搭建数据源驱动列表页。**可选组件，是否纳入 v1.8 见任务清单 F18-FE-005**；如后续纳入，须先同步 `docs/系统模块/前端公共组件.md` 组件契约再消费。
+- 数据源选择交互：消费页面如需让用户挑选数据源，用 `getDatasourceOptions()` 填充 `el-select`（label 为数据源名称，可按 `sourceType` 加 CODE/CUSTOM 辅助标记）；选项含 `fields` 有效字段集，与执行结果 `metadata.fields` 一致，可用于列头预渲染；`options` 不暴露固定条件原文，前端不可也不需感知固定条件内容。
+- 码值翻译：执行结果为原始值（如 `fieldType=PERSONAL`），码值显示名由消费方页面按码值模块自行翻译（TBD 裁决结论 1）；消费页面在渲染列时对枚举/码值字段按码值模块转换后再展示。
 
 ## 5. 待确认事项
 
