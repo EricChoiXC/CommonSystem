@@ -1,0 +1,8 @@
+ROLE_LIST: ["SYS_NUMBER_ADMIN", "SYS_NUMBER_RULE_EDITOR"]
+ROLE_MAP:
+  SYS_NUMBER_ADMIN:
+    NAME: "编号管理员"
+    DESC: "拥有编号模块所有业务权限，含重置、补号、作废"
+  SYS_NUMBER_RULE_EDITOR:
+    NAME: "编号规则维护者"
+    DESC: "拥有编号规则配置和启停用权限"
