@@ -214,6 +214,28 @@ const routes = [
         meta: { title: '执行记录详情', parent: '系统管理', group: '定时任务', auth: 'SYS_TASK_ADMIN', tab: 'name' }
       },
       {
+        // 编号管理列表页（NB4-FE-005）：菜单挂【后台管理】-【编号机制】三级分组下，
+        // group 取二级分组名渲染面包屑「系统管理 / 编号机制 / 编号管理」（对齐流程管理先例）
+        path: 'number',
+        name: 'NumberManage',
+        component: () => import('@/views/number/NumberManageView.vue'),
+        meta: { title: '编号管理', parent: '系统管理', group: '编号机制', auth: ['SYS_NUMBER_ADMIN', 'SYS_NUMBER_RULE_EDITOR'] }
+      },
+      {
+        // 编号新建页（NB4-FE-005）：与编辑共用 NumberFormView，按路由 path 区分模式
+        path: 'number/create',
+        name: 'NumberCreate',
+        component: () => import('@/views/number/NumberFormView.vue'),
+        meta: { title: '新增编号规则', parent: '系统管理', group: '编号机制', auth: ['SYS_NUMBER_ADMIN', 'SYS_NUMBER_RULE_EDITOR'] }
+      },
+      {
+        // 编号编辑页（NB4-FE-005）：tab: 'name' 复用单标签（对齐 org/task edit 先例）
+        path: 'number/edit/:id',
+        name: 'NumberEdit',
+        component: () => import('@/views/number/NumberFormView.vue'),
+        meta: { title: '编辑编号规则', parent: '系统管理', group: '编号机制', auth: ['SYS_NUMBER_ADMIN', 'SYS_NUMBER_RULE_EDITOR'], tab: 'name' }
+      },
+      {
         path: 'processSetting',
         name: 'ProcessSetting',
         component: () => import('@/views/process/ProcessSettingView.vue'),

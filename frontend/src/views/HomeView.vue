@@ -114,9 +114,16 @@
           <template #title>{{ group.title }}</template>
           <el-sub-menu v-for="sub in group.subMenus" :key="`${group.title}-${sub.title}`" :index="`${group.title}-${sub.title}`">
             <template #title>{{ sub.title }}</template>
-            <el-menu-item v-for="item in sub.children" :key="item.path" :index="item.path">
-              {{ item.title }}
-            </el-menu-item>
+            <!-- 三级分组（如 编号机制）：仅此一层嵌套，更深层级不支持；叶子与分组混排渲染 -->
+            <template v-for="item in sub.children" :key="item.path || `${group.title}-${sub.title}-${item.title}`">
+              <el-sub-menu v-if="item.children" :index="`${group.title}-${sub.title}-${item.title}`">
+                <template #title>{{ item.title }}</template>
+                <el-menu-item v-for="leaf in item.children" :key="leaf.path" :index="leaf.path">
+                  {{ leaf.title }}
+                </el-menu-item>
+              </el-sub-menu>
+              <el-menu-item v-else :index="item.path">{{ item.title }}</el-menu-item>
+            </template>
           </el-sub-menu>
           <el-menu-item v-for="item in group.leafChildren" :key="item.path" :index="item.path">
             {{ item.title }}
@@ -327,7 +334,18 @@ const menus = [
         auth: '',
         children: [
           { title: '公共配置', path: '/setting', auth: 'SYS_ADMIN' },
-          { title: '模块管理', path: '/module', auth: 'SYS_MODULE_ADMIN' }
+          { title: '模块管理', path: '/module', auth: 'SYS_MODULE_ADMIN' },
+          {
+            // 编号机制三级分组（方案 §7.1：【后台管理】-【编号机制】-【编号管理】）；auth 下放叶子声明。
+            // W4 口径：任务清单 W4 假设「后台管理组现为 auth: 'SYS_ADMIN'」已过时——该组当前已是 auth: ''
+            // （auth 下放子项各自声明，见上方子组注释），因此无需放宽组 auth，沿用现有惯例即可；
+            // SYS_ADMIN 用户经 hasAuth 超管短路天然可见全部叶子（G1 零回归）
+            title: '编号机制',
+            auth: '',
+            children: [
+              { title: '编号管理', path: '/number', auth: ['SYS_NUMBER_ADMIN', 'SYS_NUMBER_RULE_EDITOR'] }
+            ]
+          }
         ]
       },
       {
@@ -390,6 +408,9 @@ const activeMenu = computed(() => {
   if (path.startsWith('/task/')) return '/task'
   // 执行记录详情为执行记录列表的子页面，归约到执行记录菜单项
   if (path.startsWith('/taskHistory/')) return '/taskHistory'
+  // 编号新建/编辑为编号管理列表的子页面，归约到编号管理菜单项
+  // （/number、/number/create、/number/edit/... 均归约到 /number，无其他 /number 前缀路由）
+  if (path.startsWith('/number')) return '/number'
   // 流程模板新建/编辑/详情为模板管理列表的子页面，归约到模板管理菜单项
   if (path.startsWith('/processTemplate/')) return '/processTemplate'
   // /module 为顶层扁平叶子路径，无需归约
