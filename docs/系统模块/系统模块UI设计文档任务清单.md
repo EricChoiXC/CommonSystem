@@ -53,9 +53,9 @@
 | PAGE-SYS-011 | 流程模板新增/编辑页 | 表单页 | REQ-PROCESS-001、RULE-PROCESS-001、AC-PROCESS-002 | P0 | UI-SYS-011 | 4.3.5 | TODO |
 | PAGE-SYS-012 | 流程实例详情页 | 详情页 | REQ-PROCESS-002、RULE-PROCESS-002、AC-PROCESS-003 | P0 | UI-SYS-012 | 4.3.6 | TODO |
 | PAGE-SYS-013 | 流程监管页 | 列表页 | REQ-PROCESS-003、RULE-PROCESS-003、AC-PROCESS-004 | P1 | UI-SYS-013 | 4.3.7 | TODO |
-| PAGE-SYS-014 | 编号规则管理页 | 列表页 | REQ-NUM-001、RULE-NUM-001、AC-NUM-001 | P1 | UI-SYS-014 | 4.4.4 | TODO |
-| PAGE-SYS-015 | 编号规则新增/编辑页 | 表单页 | REQ-NUM-001、RULE-NUM-001、AC-NUM-002 | P1 | UI-SYS-015 | 4.4.5 | TODO |
-| PAGE-SYS-016 | 编号预览/测试弹窗 | 弹窗 | REQ-NUM-002、RULE-NUM-002、AC-NUM-003 | P1 | UI-SYS-016 | 4.4.6 | TODO |
+| PAGE-SYS-014 | 编号规则管理页 | 列表页 | REQ-NUM-001、RULE-NUM-001、AC-NUM-001 | P1 | UI-SYS-014 | 4.4.4 | DONE |
+| PAGE-SYS-015 | 编号规则新增/编辑页 | 表单页 | REQ-NUM-001、RULE-NUM-001、AC-NUM-002 | P1 | UI-SYS-015 | 4.4.5 | DONE |
+| PAGE-SYS-016 | 编号预览/测试弹窗 | 弹窗 | REQ-NUM-002、RULE-NUM-002、AC-NUM-003 | P1 | UI-SYS-016 | 4.4.6 | DONE |
 | PAGE-SYS-017 | 我的待办页 | 列表页 | REQ-NOTIFY-001、RULE-NOTIFY-001、AC-NOTIFY-001 | P0 | UI-SYS-017 | 4.5.4 | TODO |
 | PAGE-SYS-018 | 我的已办页 | 列表页 | REQ-NOTIFY-002、RULE-NOTIFY-001、AC-NOTIFY-002 | P1 | UI-SYS-018 | 4.5.5 | TODO |
 | PAGE-SYS-019 | 我的通知页 | 列表页 | REQ-NOTIFY-003、RULE-NOTIFY-002、AC-NOTIFY-003 | P1 | UI-SYS-019 | 4.5.6 | TODO |
@@ -81,9 +81,9 @@
 | UI-SYS-011 | 补齐流程模板新增/编辑页详细设计 | PAGE-SYS-011 | 4.3.5 | UI-SYS-010 | 完成流程模板表单页 6 个固定子章节，并覆盖节点顺序、审批规则、允许收回配置 | TODO |
 | UI-SYS-012 | 补齐流程实例详情页详细设计 | PAGE-SYS-012 | 4.3.6 | UI-SYS-010 | 完成流程详情页 6 个固定子章节，并覆盖流转记录、审批意见和待办联动结果 | TODO |
 | UI-SYS-013 | 补齐流程监管页详细设计 | PAGE-SYS-013 | 4.3.7 | UI-SYS-012 | 完成流程监管页 6 个固定子章节，并覆盖特权审批提示与只管理员可见入口 | TODO |
-| UI-SYS-014 | 补齐编号规则管理页详细设计 | PAGE-SYS-014 | 4.4.4 | 无 | 完成编号规则列表页 6 个固定子章节，并覆盖启停用与测试入口 | TODO |
-| UI-SYS-015 | 补齐编号规则新增/编辑页详细设计 | PAGE-SYS-015 | 4.4.5 | UI-SYS-014 | 完成编号规则表单页 6 个固定子章节，并覆盖组织范围、重置周期与失败提示 | TODO |
-| UI-SYS-016 | 补齐编号预览/测试弹窗详细设计 | PAGE-SYS-016 | 4.4.6 | UI-SYS-015 | 完成预览/测试弹窗 6 个固定子章节，并覆盖预览结果、失败原因和关闭回刷逻辑 | TODO |
+| UI-SYS-014 | 补齐编号规则管理页详细设计 | PAGE-SYS-014 | 4.4.4 | 无 | 完成编号规则列表页 6 个固定子章节，并覆盖启停用与测试入口 | DONE |
+| UI-SYS-015 | 补齐编号规则新增/编辑页详细设计 | PAGE-SYS-015 | 4.4.5 | UI-SYS-014 | 完成编号规则表单页 6 个固定子章节，并覆盖组织范围、重置周期与失败提示 | DONE |
+| UI-SYS-016 | 补齐编号预览/测试弹窗详细设计 | PAGE-SYS-016 | 4.4.6 | UI-SYS-015 | 完成预览/测试弹窗 6 个固定子章节，并覆盖预览结果、失败原因和关闭回刷逻辑 | DONE |
 | UI-SYS-017 | 补齐我的待办页详细设计 | PAGE-SYS-017 | 4.5.4 | 无 | 完成我的待办列表页 6 个固定子章节，并覆盖待处理跳转、空态和处理中反馈 | TODO |
 | UI-SYS-018 | 补齐我的已办页详细设计 | PAGE-SYS-018 | 4.5.5 | UI-SYS-017 | 完成我的已办列表页 6 个固定子章节，并覆盖处理结果、处理时间与详情跳转 | TODO |
 | UI-SYS-019 | 补齐我的通知页详细设计 | PAGE-SYS-019 | 4.5.6 | UI-SYS-017 | 完成我的通知列表页 6 个固定子章节，并覆盖已读、未读和无处理链路提示 | TODO |
@@ -417,7 +417,7 @@
 
 ### 5.14 UI-SYS-014 补齐编号规则管理页详细设计
 
-- 状态：TODO
+- 状态：DONE（2026-11-13，一句话结论：编号机制 v1.5 实现落地后回写 UI 详设文档 4.4.4——三段式列表页（筛选区一行四列：规则名称/规则编码模糊、所属模型字段精确、启用状态默认「全部」；sort-area 单条件排序 + 查询/新增按 `SYS_NUMBER_ADMIN`/`SYS_NUMBER_RULE_EDITOR` 显隐；列表列编码/名称/所属模型/模型字段/启用 tag/创建/更新时间，无复选框不展示主键，操作列编辑/启停用（D1 切换启用二次确认）/预览测试/删除（D9 保护提示）），复用 `list-page.css`；「编号测试」入口以预览测试弹窗承担（顺延模拟不落库，权限放宽为登录即可，偏差见方案 §0.2））
 - 任务类型：页面正文补齐
 - 目标 UI 详设文档：[系统模块UI设计文档](D:/Program/erp/docs/系统模块/系统模块UI设计文档.md)
 - 目标章节：`4.4.4 [PAGE-SYS-014] 编号规则管理页`
@@ -439,7 +439,7 @@
 
 ### 5.15 UI-SYS-015 补齐编号规则新增/编辑页详细设计
 
-- 状态：TODO
+- 状态：DONE（2026-11-13，一句话结论：编号机制 v1.5 实现落地后回写 UI 详设文档 4.4.5——`/number/create` 与 `/number/edit/:id` 共用 `NumberFormView.vue`（按路由区分模式），新建 `getInitID()` 取 ID、编辑 `loadNumberRule` 回填；一行两字段 + 整行 2:8 嵌入 `NumberRuleComposer fieldName="fieldRule"`；接入项下拉数据源 `modelOptions`、编辑态只读锁定（D3）；规则编码保存后可改；「是否启用」不在表单、启停走列表页 enable；编辑保存仅 `{ fieldId, fieldCode, fieldName, fieldRule }`；实现偏差说明：原完成定义中的「组织范围」不在 v1.5 范围——编号规则按接入项（numberRule.yml）配置，无组织范围概念；「重置周期 / 失败提示」由 Composer 属性面板 resetPeriod 与实时预览 errors 红字承担）
 - 任务类型：页面正文补齐
 - 目标 UI 详设文档：[系统模块UI设计文档](D:/Program/erp/docs/系统模块/系统模块UI设计文档.md)
 - 目标章节：`4.4.5 [PAGE-SYS-015] 编号规则新增/编辑页`
@@ -461,7 +461,7 @@
 
 ### 5.16 UI-SYS-016 补齐编号预览/测试弹窗详细设计
 
-- 状态：TODO
+- 状态：DONE（2026-11-13，一句话结论：编号机制 v1.5 实现落地后回写 UI 详设文档 4.4.6——列表页页内 `el-dialog`（不单独建路由），打开即调 `renderNumberPreview({ fieldId, count: 3 })`；样例区等宽字体逐行、校验区 errors 红字逐条 / 通过绿字（差异化表现满足）；基于当前计数器顺延模拟、无副作用，**关闭弹窗不回刷列表**（明确说明）；「规则未匹配 / 配置不完整」反馈由 errors 消息与 CRM_* 错误码口径承担；权限为登录即可（原「编号管理员 OR 编号规则维护者」口径按方案 §0.2 修订））
 - 任务类型：界面单元正文补齐
 - 目标 UI 详设文档：[系统模块UI设计文档](D:/Program/erp/docs/系统模块/系统模块UI设计文档.md)
 - 目标章节：`4.4.6 [PAGE-SYS-016] 编号预览/测试弹窗`

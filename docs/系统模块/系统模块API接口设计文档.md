@@ -97,6 +97,7 @@
 - **配置归属（偏离说明）**：该开关属部署运行参数，不是业务配置，因此**不写入 `common_setting`**，也不提供前端维护页面，只通过环境变量覆盖。这与「新增配置按 `CS_*` > `SETTING` > 代码兜底三段式」的常规约定不同，属有意偏离，勿在后续任务中把该开关迁入 `SETTING`。
 - **鉴权方案**：全局注册 `SecurityScheme`（apiKey / header / `X-Login-Token`），Swagger UI 的 Authorize 按钮可一次性填入登录凭证。登录、登出、`/backend/common/init`、`/backend/common/initID`、`/backend/common/setting/load`、个人资料第三方授权回调 `GET /backend/sys/org/profile/openid/callback`（第三方浏览器 302 回跳，无 Authorization header）与 SSE 订阅（凭证走 URL 参数 `token`）不依赖该请求头，对应方法以 `@SecurityRequirements` 取消全局要求。
 - **注解规范**：每个 Controller 必须有 `@Tag`（中文名 + 页面/权限概述）；每个接口方法必须有 `@Operation(summary=…, description="鉴权动作 <ACTION 常量值>；…")`；`@RequestParam`、`MultipartFile` 等非请求体参数补 `@Parameter(description=…)`；公共模型与排序字段用 `@Schema` 说明，字段级请求/响应卡片不在本表逐项维护。
+- **编号机制分组**（v1.5）：编号模块四个 Controller（rule / preview / generate / manage）类级统一 `@Tag(name = "编号机制", description = "编号规则维护、预览、取号与特权管理")`，在线文档按该分组浏览；开关仍由 `CS_API_DOCS_ENABLED` 统一控制（见上「访问控制」）。
 - **与 SPA 回退的关系**：`SpaWebConfig` 的前端回退已排除 `swagger-ui`、`v3/api-docs`、`webjars` 三个路径前缀，直接访问文档地址不会被前端路由接管。
 
 ## 4. 模块接口设计骨架
@@ -214,21 +215,67 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 
 #### 4.4.1 模块目标与接口边界
 
-- 提供编号规则维护、编号生成、预览测试、重置、补号、作废等能力。
+- 提供编号规则维护（多规则配置、单启用、切换式启用）、编号预览、正式取号（幂等 / 周期 / 重置 / 作废 / 补号）与取号明细查询能力（v1.5 已实现）。
+- 模块 key `SYS-NUMBER`；权限码 `SYS_NUMBER_ADMIN`（编号管理员）/ `SYS_NUMBER_RULE_EDITOR`（编号规则维护者）定义于 `properties/sys/number/roles.yml`，接口标识常量（13 个 `ACTION_*`）定义于 `SysNumberConstants`；`NumberResolver` 继承 `BaseResolver` 按动作判定（`SYS_ADMIN` 自动放行，分支不列举），Controller 经 `authorize(action, documentId)` 最终鉴权——未登录抛 `UNAUTHORIZED`、无权限抛 `FORBIDDEN`（HTTP 200 + code 体系，全工程惯例）。
+- 基础路径 `/backend/sys/number/{rule|preview|generate|manage}/...`；在线文档四个 Controller 类级 `@Tag(name = "编号机制", …)`，经 springdoc 生成（见 3.5）。
 
 #### 4.4.2 模块接口分组
 
-| 接口组 | 建议次级模块 | 说明 |
+| 接口组 | 次级模块 | 说明 |
 | --- | --- | --- |
-| 编号规则维护 | `rule` | 规则查询、读取、新建、编辑、启停用 |
-| 编号测试预览 | `preview` | 规则预览、编号测试 |
-| 编号生成 | `generate` | 业务模块正式取号 |
-| 特权维护 | `manage` | 重置、补号、作废 |
+| 编号规则维护 | `rule` | 规则查询、读取、新建、编辑、启停用、删除 + 接入项下拉数据源 `modelOptions` |
+| 编号测试预览 | `preview` | 规则预览、编号测试（基于当前计数器顺延模拟，不推进计数器、不落库） |
+| 编号生成 | `generate` | 业务模块正式取号（幂等、周期切换、失败语义） |
+| 取号管理 | `manage` | 取号明细查询、重置、作废、补号（特权操作，落操作日志 module=SYS-NUMBER） |
 
 #### 4.4.3 当前冻结的接口方向
 
 - 编号生成属于被动服务型接口，应重点定义幂等与失败语义。
 - 预览测试与正式取号必须接口隔离，避免测试动作污染正式流水。
+
+#### 4.4.4 接口清单（v1.5，四分组 13 接口）
+
+`sys.number.rule.modelOptions` 为 W5 评审补充接口（先例 notify modelOptions，编辑页「所属接入项」下拉数据源）；接口契约明细同 `docs/v1_5-编号功能/编号机制实现方案.md` §3.2。
+
+| 接口 | 方法 | 鉴权动作 | 权限 | 说明 |
+| --- | --- | --- | --- | --- |
+| `/backend/sys/number/rule/list` | POST | `sys.number.rule.list` | 登录即可 | 规则列表；请求体 `{ body: { fieldName?, fieldCode?, fieldModelField?, fieldEnable? }, pages }`；`field_rule` 原文返回（列表页不解析），固定创建时间降序 |
+| `/backend/sys/number/rule/load?fieldId=` | GET | `sys.number.rule.load` | ADMIN or EDITOR | 完整读取；`field_rule` 解析为规则对象返回（前端 NumberRuleComposer 直接消费） |
+| `/backend/sys/number/rule/save` | POST | `sys.number.rule.save` | ADMIN or EDITOR | 新建（默认启用）：C1~C5 校验 → 编码查重 → 接入项存在性（否则 `CRM_NUMBER_RULE_MODEL_NOT_FOUND`）；同事务自动停用同接入项原启用规则（切换启用） |
+| `/backend/sys/number/rule/update` | PATCH | `sys.number.rule.update` | ADMIN or EDITOR | 编辑：另校验 C7（seq 项 id 锁定）；接入项三字段与启用态以库值不受理 |
+| `/backend/sys/number/rule/enable` | PATCH | `sys.number.rule.enable` | ADMIN or EDITOR | 请求体 `{ fieldId, fieldEnable }`；启用先校验（C1~C5）再同事务切换启用，停用仅自身 |
+| `/backend/sys/number/rule/delete?fieldId=` | DELETE | `sys.number.rule.delete` | ADMIN or EDITOR | 已产生取号明细拒绝删除（`CRM_NUMBER_RULE_IN_USE`），仅可停用 |
+| `/backend/sys/number/rule/modelOptions` | GET | `sys.number.rule.modelOptions` | 登录即可 | 接入项下拉数据源（W5 补充接口）：返回 `numberRule.yml` 进程内缓存列表 `{ key, name, modelName, modelField }` |
+| `/backend/sys/number/preview/render` | POST | `sys.number.preview.render` | 登录即可 | 请求 `{ fieldId?, rule?, count? }`（二选一，count 默认 3 上限 10）；响应 `{ samples, errors: [{ code, itemId, message }] }`；顺延模拟、**绝不写库**，周期临近耗尽时样例含越界提示（C6 语义） |
+| `/backend/sys/number/generate/acquire` | POST | `sys.number.generate.acquire` | 登录即可（不替代业务鉴权） | 请求 `{ modelName, modelField, modelId }`；响应 `{ code, recordDetailId, reused }`（`reused=true` 幂等命中已有编号）；同进程业务后端建议直注 `SysNumberGenerateService`，本接口保留给跨服务与调试场景 |
+| `/backend/sys/number/manage/recordList` | POST | `sys.number.manage.recordList` | 仅 ADMIN | 明细查询 `{ body: { fieldScopeKey?, fieldRuleId?, fieldPeriod?, voidFlag?, recordTimeBegin?, recordTimeEnd? }, pages }`（voidFlag 三态：null 全部 / true 已作废 / false 有效） |
+| `/backend/sys/number/manage/reset` | POST | `sys.number.manage.reset` | 仅 ADMIN | 重置计数器：封存当前行（可限定流水项 / 周期），下次取号从 start 重开；会造成重号，落操作日志 |
+| `/backend/sys/number/manage/void` | PATCH | `sys.number.manage.void` | 仅 ADMIN | 请求体 `{ fieldId, fieldVoidReason }`；仅更新 void 两字段、不回退计数器；重复作废幂等返回原状态 |
+| `/backend/sys/number/manage/reissue` | POST | `sys.number.manage.reissue` | 仅 ADMIN | 请求体 `{ fieldId }`（须已作废）；为原 `field_model_id` 顺延取新号、旧号留作废审计，落操作日志 |
+
+#### 4.4.5 鉴权口径（D6 / D7）
+
+- **登录即可**（D6）：`rule/list`、`preview/render`、`generate/acquire`、`rule/modelOptions` 仅要求登录。预览无副作用、不落库，属纯渲染，NumberRuleComposer 会被「分类编辑页」等宿主复用，宿主操作者通常无编号权限，按需求原口径设权会导致宿主表单实时预览 403（偏差修订见方案 §0.2）；「编号测试」能力由预览接口顺延模拟承担，正式流水不受影响。
+- **取号不替代业务鉴权**（D7）：`generate/acquire` 的 `AuthorizationContext` 不携带业务单据语义，业务单据权限由调用方在取号前自行完成，禁止用本接口替代业务鉴权。
+- **规则维护五动作**（load / save / update / enable / delete）：`SYS_NUMBER_ADMIN` or `SYS_NUMBER_RULE_EDITOR`。
+- **取号管理四动作**（recordList / reset / void / reissue）：仅 `SYS_NUMBER_ADMIN`；reset / void / reissue 落操作日志（module=SYS-NUMBER，审计联动）。
+
+#### 4.4.6 错误码与承载方式
+
+| 错误码 | 场景 |
+| --- | --- |
+| `CRM_NUMBER_RULE_INVALID` | 规则配置非法（C1~C5、C7） |
+| `CRM_NUMBER_RULE_NOT_FOUND` | 规则不存在 / 接入项未配置 |
+| `CRM_NUMBER_RULE_MODEL_NOT_FOUND` | 接入项编码不在 `numberRule.yml` 缓存 |
+| `CRM_NUMBER_RULE_DISABLED` | 同接入项无启用规则 |
+| `CRM_NUMBER_RULE_DUPLICATED` | 规则编码重复（启用唯一性由切换机制保证，不用于启用冲突） |
+| `CRM_NUMBER_RULE_IN_USE` | 已产生取号明细，拒绝删除 |
+| `CRM_NUMBER_SERIAL_EXHAUSTED` | 流水超出 seq length 容量（C6），取号失败随事务回滚 |
+
+承载方式（联调实测口径）：
+
+- 上述 `CRM_*` 业务错误码以**异常 message 前缀**承载：异常命中 `GlobalExceptionHandler` 既有分支，`BaseResponse.code` 统一为 `BAD_REQUEST`，前端按 message 前缀识别具体错误码；
+- 鉴权失败 `BaseResponse.code` 为 `UNAUTHORIZED`（未登录）/ `FORBIDDEN`（无权限），HTTP 状态仍为 200 + code 体系（全工程惯例）。
 
 ### 4.5 待办模块
 

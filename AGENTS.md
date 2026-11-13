@@ -40,7 +40,7 @@ cd frontend && npm run build          # 产物直出 backend/src/main/resources/
 只包含以下模块；新增模块须先补设计文档并确认包名、接口路径、表结构与权限模型：
 
 - `com.eric.base.common`：`base`（基类）、`cache`、`config`、`exception`、`properties`、`resolver`、`session`、`setting`、`utils`
-- `com.eric.base.sys`：`org`、`att`、`calendar`、`dict`、`log`、`notify`、`process`、`task`
+- `com.eric.base.sys`：`org`、`att`、`calendar`、`dict`、`log`、`notify`、`number`、`process`、`task`
 
 ```text
 com.eric.base.sys.{模块}
@@ -55,7 +55,7 @@ com.eric.base.sys.{模块}
 
 `request` / `response` / `mapper` 与 `model` **平级**，不采用 `docs/开发规范.md`「三：系统统一规范」中的 `model/{vos,dos,mappers}` 子包形态。
 
-前端：`api`（按模块拆 `common.js`、`org.js`、`dict.js`、`task.js` 等，统一经 `index.js` 导出实例）、`components`（公共组件 + `process/`）、`router`、`stores`、`styles`（`base.css` / `list-page.css` / `form-page.css`）、`utils`、`views`（`att` / `calendar` / `dict` / `log` / `notify` / `org` / `process` / `setting` / `task`）。公共组件样例页 `views/ui.vue`，契约见 `docs/系统模块/前端公共组件.md`。
+前端：`api`（按模块拆 `common.js`、`org.js`、`dict.js`、`task.js` 等，统一经 `index.js` 导出实例）、`components`（公共组件 + `process/`）、`router`、`stores`、`styles`（`base.css` / `list-page.css` / `form-page.css`）、`utils`、`views`（`att` / `calendar` / `dict` / `log` / `notify` / `number` / `org` / `process` / `setting` / `task`）。公共组件样例页 `views/ui.vue`，契约见 `docs/系统模块/前端公共组件.md`。
 
 ## 3. 后端约束
 
@@ -76,7 +76,7 @@ com.eric.base.sys.{模块}
 
 **鉴权**：核心参数是「接口标识（action）+ 文档 ID」，由 `AuthorizationContext` 承载。接口标识用 `ACTION_*` 常量定义在模块 `properties` 常量类（如 `SysOrgElementProperties.ACTION_SAVE = "sys.org.element.save"`），Controller 与 resolver 静态引用，禁止手写字符串。每个模块必须有 resolver（`ElementResolver`、`DictResolver`、`TaskResolver` 等）继承 `BaseResolver`，按 `switch (context.getAction())` 判定；`SYS_ADMIN` 已在 `BaseResolver` 中自动放行，模块分支不要再列举。Controller 经 `authorize(action, documentId)` 做最终鉴权，未登录抛 `UNAUTHORIZED`、无权限抛 `FORBIDDEN`。编辑、启停用、删除必须传被操作对象 `fieldId`。
 
-权限码取 `sys_org_role.field_code`，在 `properties/{common,sys}/{模块}/roles.yml` 定义：`SYS_ADMIN`（全权）、`SYS_ORG_*`、`SYS_ATT_MAIN`、`SYS_CALENDAR_SENDLEADER`、`SYS_DICT_ADMIN`、`SYS_LOG_ADMIN`、`SYS_NOTIFY_ADMIN`、`SYS_PROCESS_*`、`SYS_TASK_ADMIN`。批量鉴权接口只供前端按钮预判，不能替代最终鉴权。
+权限码取 `sys_org_role.field_code`，在 `properties/{common,sys}/{模块}/roles.yml` 定义：`SYS_ADMIN`（全权）、`SYS_ORG_*`、`SYS_ATT_MAIN`、`SYS_CALENDAR_SENDLEADER`、`SYS_DICT_ADMIN`、`SYS_LOG_ADMIN`、`SYS_NOTIFY_ADMIN`、`SYS_NUMBER_ADMIN` / `SYS_NUMBER_RULE_EDITOR`（编号机制）、`SYS_PROCESS_*`、`SYS_TASK_ADMIN`。批量鉴权接口只供前端按钮预判，不能替代最终鉴权。
 
 **接口文档同步（强制）**：在线文档由代码注解生成（`GET /swagger-ui.html`、`GET /v3/api-docs`），**新增或修改接口必须与代码同批更新文档信息**，不允许留下一份与代码不一致的 api-docs。
 
