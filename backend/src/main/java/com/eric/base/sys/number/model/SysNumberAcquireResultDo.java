@@ -1,5 +1,6 @@
 package com.eric.base.sys.number.model;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 /**
@@ -13,14 +14,18 @@ import lombok.Data;
  *              同进程业务后端直接注入 SysNumberGenerateService 时亦消费本对象。
  */
 @Data
+@Schema(description = "取号结果：{ code, recordDetailId, reused }（generate/acquire 响应契约）")
 public class SysNumberAcquireResultDo {
 
     /** 发出的完整编号（幂等命中时为原编号） */
+    @Schema(description = "发出的完整编号（幂等命中时为原编号）")
     private String code;
 
     /** 取号明细 ID（sys_number_record_detail.field_id；幂等命中时为原明细 ID） */
+    @Schema(description = "取号明细 ID（sys_number_record_detail.field_id；幂等命中时为原明细 ID）")
     private String recordDetailId;
 
     /** 是否幂等命中已有编号（true=复用原编号，未推进计数器） */
+    @Schema(description = "是否幂等命中已有编号（true=复用原编号，未推进计数器）")
     private boolean reused;
 }
