@@ -87,6 +87,9 @@
         FROM sys_calendar_main m
         LEFT JOIN sys_calendar_persons p ON p.field_calendar_id = m.field_id
         WHERE (m.field_creator_id = #{userId} OR p.field_person_id = #{userId})
+        <if test="model.fieldCreatorId != null and model.fieldCreatorId != ''">
+            AND m.field_creator_id = #{model.fieldCreatorId}
+        </if>
         <if test="model.fieldName != null and model.fieldName != ''">
             AND m.field_name LIKE CONCAT('%', #{model.fieldName}, '%')
         </if>
@@ -131,6 +134,9 @@
         FROM sys_calendar_main m
         LEFT JOIN sys_calendar_persons p ON p.field_calendar_id = m.field_id
         WHERE (m.field_creator_id = #{userId} OR p.field_person_id = #{userId})
+        <if test="model.fieldCreatorId != null and model.fieldCreatorId != ''">
+            AND m.field_creator_id = #{model.fieldCreatorId}
+        </if>
         <if test="model.fieldName != null and model.fieldName != ''">
             AND m.field_name LIKE CONCAT('%', #{model.fieldName}, '%')
         </if>

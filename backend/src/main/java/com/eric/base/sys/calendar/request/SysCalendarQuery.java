@@ -33,4 +33,7 @@ public class SysCalendarQuery {
 
     /** 月份查询-月 */
     private Integer month;
+
+    /** 创建人（数据源通道专用：自定义数据源「我创建的」固定条件；原 list 接口不受理该字段） */
+    private String fieldCreatorId;
 }
