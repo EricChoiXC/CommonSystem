@@ -411,7 +411,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 - 执行收口：消费方统一按 `code` 调 `POST /backend/sys/datasource/query` 取数，前端不读取配置自行拼条件调目标接口——固定条件属服务端强制语义（方案 A1）。
 - 模块 key `datasource`；权限码 `SYS_DATASOURCE_ADMIN`（数据源管理员）定义于 `properties/sys/datasource/roles.yml`；接口标识常量（9 个 `ACTION_*`）定义于 `SysDatasourceConstants`；`DatasourceResolver` 继承 `BaseResolver` 按动作判定（`SYS_ADMIN` 由 `BaseResolver` 自动放行，分支不重复列举），Controller 经 `authorize(...)` 最终鉴权——未登录抛 `UNAUTHORIZED`、无权限抛 `FORBIDDEN`（HTTP 200 + code 体系，全工程惯例）。
 - 基础路径 `/backend/sys/datasource`；在线文档 Controller 类级 `@Tag(name = "数据源", …)`，经 springdoc 生成（见 3.5）。
-- 设计依据：概念模型、ADR、执行流程与安全设计见 [数据源功能设计方案](../v1_8-数据源/数据源功能设计方案.md)（下称「方案」）；接口契约细节与样例报文以 [样例代码-日程数据源](../v1_8-数据源/样例代码-日程数据源.md) 为准。
+- 设计依据：概念模型、ADR、执行流程与安全设计见 [数据源功能设计方案](../v1_3-数据源/数据源功能设计方案.md)（下称「方案」）；接口契约细节与样例报文以 [样例代码-日程数据源](../v1_3-数据源/样例代码-日程数据源.md) 为准。
 
 #### 4.10.2 模块接口分组
 
