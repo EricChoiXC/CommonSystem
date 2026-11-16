@@ -7,7 +7,7 @@ package com.eric.base.sys.datasource.properties;
  * @date 2026/11/13
  * @description 数据源模块接口标识（resolver 鉴权使用）、错误码与角色编码，
  *              供 Controller / Resolver / Service 静态引用，禁止手写字符串。
- *              鉴权口径依据 docs/v1_8-数据源/数据源功能设计方案.md「§5.1 接口清单」：
+ *              鉴权口径依据 docs/v1_3-数据源/数据源功能设计方案.md「§5.1 接口清单」：
  *              <ul>
  *              <li>管理六动作（list / load / save / update / enable / delete）：
  *                  SYS_DATASOURCE_ADMIN；</li>

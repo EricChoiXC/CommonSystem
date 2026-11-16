@@ -13,7 +13,7 @@ import static com.eric.base.sys.datasource.properties.SysDatasourceConstants.*;
  * @author Eric
  * @date 2026/11/13
  * @description 数据源模块接口的专属 resolver，按「接口标识 + 文档 ID」完成最终鉴权
- *              （鉴权口径依据 docs/v1_8-数据源/数据源功能设计方案.md「§5.2 执行期鉴权委托」、
+ *              （鉴权口径依据 docs/v1_3-数据源/数据源功能设计方案.md「§5.2 执行期鉴权委托」、
  *              系统模块API接口设计文档「4.10.5 鉴权口径（两段式）」）：
  *              <ul>
  *              <li>自定义数据源管理（list / load / save / update / enable / delete）：

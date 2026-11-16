@@ -9,7 +9,7 @@
     field_conditions / field_fields 为 JSON 列：存储态原文字符串（列表响应不解析），
     load 解析为对象由 Service 完成（F18-BE-004）；落库前由 Service 序列化为 JSON 字符串
     （禁止手工拼串，先例 sys_number_rule.field_rule）。
-    依据 docs/v1_8-数据源/样例代码-日程数据源.md「§2.7 Mapper XML」，
+    依据 docs/v1_3-数据源/样例代码-日程数据源.md「§2.7 Mapper XML」，
     列清单与 V1_01_046__sys_datasource_schema.sql 保持一致。
     field_target 保存后锁定（D3 先例），update 不提供更新入口；
     /enable 通道走 updateEnable（仅更新 field_enable 与审计字段）。
