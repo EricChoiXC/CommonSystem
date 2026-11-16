@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eric.base.common.source.mapper.CommonSourceSyncLogMapper">
+
+<!--
+    表结构注解同步审计表(common_source_sync_log)映射（F19-BE-005，设计方案 §5.3）
+    流水类口径只增不改：仅 insert 与 managed 清单查询，无 update / delete 语句。
+    field_sync_time / field_create_time 由库默认 CURRENT_TIMESTAMP 维护，insert 不写；
+    field_changes 为 JSON 列：Service 层经 Jackson 序列化 SchemaChange 数组后按字符串写入
+    （[{level,type,table,detail,sql}]，禁止手工拼串，先例 sys_number_rule.field_rule）。
+-->
+
+    <!--
+        汇总审计行落库（SUCCESS / FAILED 各一条，重跑产生新行）；
+        field_id 由应用侧 IDUtil.initID 生成（32 位主键，库无默认值），
+        field_sync_time / field_create_time 走库默认 CURRENT_TIMESTAMP
+    -->
+    <insert id="insert">
+        INSERT INTO common_source_sync_log (
+        field_id, field_mode, field_status, field_table_total, field_change_total,
+        field_changes, field_error, field_cost_ms, field_creator_id
+        ) VALUES (
+        #{fieldId}, #{fieldMode}, #{fieldStatus}, #{fieldTableTotal}, #{fieldChangeTotal},
+        #{fieldChanges}, #{fieldError}, #{fieldCostMs}, #{fieldCreatorId}
+        )
+    </insert>
+
+    <!--
+        managed 历史表清单（设计方案 §4.4）：managed = 当前标注表 ∪ 历史审计行出现过的表。
+        历史表名从 field_changes JSON 明细（[{level,type,table,detail,sql}]）经 JSON_TABLE 展开
+        提取去重（MySQL 8.0.14+ 支持对 FROM 前表列的 lateral 引用；field_changes 为 NULL 或
+        空数组时展开为空集，NULL ON ERROR 兜底非对象元素）。
+        实现口径与 §4.4「common_source_sync_log.field_tables 独立列」有偏差（§5.3 表结构无该列）：
+        历史表仅限产生过变更的表，从未产生 diff 的表失去标注时不产孤儿告警，由主控回写设计方案。
+    -->
+    <select id="selectManagedTables" resultType="string">
+        SELECT DISTINCT jt.table_name
+        FROM common_source_sync_log lg,
+        JSON_TABLE(lg.field_changes, '$[*]'
+            COLUMNS (table_name VARCHAR(64) PATH '$.table' NULL ON ERROR)
+        ) jt
+        WHERE lg.field_changes IS NOT NULL
+          AND jt.table_name IS NOT NULL
+    </select>
+
+</mapper>

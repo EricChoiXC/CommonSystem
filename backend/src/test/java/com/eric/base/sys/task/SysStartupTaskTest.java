@@ -3,6 +3,7 @@ package com.eric.base.sys.task;
 import com.eric.base.common.cache.ModelCacheService;
 import com.eric.base.common.module.service.CommonModuleService;
 import com.eric.base.common.setting.service.CommonSettingService;
+import com.eric.base.common.source.service.CommonSourceSyncService;
 import com.eric.base.sys.dict.service.SysDictService;
 import com.eric.base.sys.i18n.service.SysI18nSyncService;
 import com.eric.base.sys.number.service.SysNumberModelCacheService;
@@ -46,6 +47,7 @@ class SysStartupTaskTest {
     private SysI18nSyncService sysI18nSyncService;
     private CommonModuleService commonModuleService;
     private SysNumberModelCacheService sysNumberModelCacheService;
+    private CommonSourceSyncService commonSourceSyncService;
     private SysStartupTask task;
 
     @BeforeEach
@@ -61,9 +63,11 @@ class SysStartupTaskTest {
         sysI18nSyncService = mock(SysI18nSyncService.class);
         commonModuleService = mock(CommonModuleService.class);
         sysNumberModelCacheService = mock(SysNumberModelCacheService.class);
+        commonSourceSyncService = mock(CommonSourceSyncService.class);
         task = new SysStartupTask(sysOrgUserService, sysOrgElementService, sysOrgAuthService,
                 sysOrgRoleService, modelCacheService, sysTaskSchedulerService, commonSettingService,
-                sysDictService, sysI18nSyncService, commonModuleService, sysNumberModelCacheService);
+                sysDictService, sysI18nSyncService, commonModuleService, sysNumberModelCacheService,
+                commonSourceSyncService);
     }
 
     @Test
@@ -109,5 +113,7 @@ class SysStartupTaskTest {
         verify(commonModuleService).syncFromYml();
         // 第十一个启动任务：编号接入项缓存构建 + 失效接入项告警被调用
         verify(sysNumberModelCacheService).syncFromYml();
+        // 第十二个启动任务：表结构注解同步引擎比对/执行（CS_SOURCE_SYNC_MODE 门禁）被调用
+        verify(commonSourceSyncService).sync();
     }
 }

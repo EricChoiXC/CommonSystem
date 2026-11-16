@@ -3,6 +3,7 @@ package com.eric.base.sys.task;
 import com.eric.base.common.cache.ModelCacheService;
 import com.eric.base.common.module.service.CommonModuleService;
 import com.eric.base.common.setting.service.CommonSettingService;
+import com.eric.base.common.source.service.CommonSourceSyncService;
 import com.eric.base.sys.dict.service.SysDictService;
 import com.eric.base.sys.i18n.service.SysI18nSyncService;
 import com.eric.base.sys.number.service.SysNumberModelCacheService;
@@ -51,6 +52,7 @@ public class SysStartupTask implements ApplicationRunner {
     private final SysI18nSyncService sysI18nSyncService;
     private final CommonModuleService commonModuleService;
     private final SysNumberModelCacheService sysNumberModelCacheService;
+    private final CommonSourceSyncService commonSourceSyncService;
 
     public SysStartupTask(SysOrgUserService sysOrgUserService,
                           SysOrgElementService sysOrgElementService,
@@ -62,7 +64,8 @@ public class SysStartupTask implements ApplicationRunner {
                           SysDictService sysDictService,
                           SysI18nSyncService sysI18nSyncService,
                           CommonModuleService commonModuleService,
-                          SysNumberModelCacheService sysNumberModelCacheService) {
+                          SysNumberModelCacheService sysNumberModelCacheService,
+                          CommonSourceSyncService commonSourceSyncService) {
         this.sysOrgUserService = sysOrgUserService;
         this.sysOrgElementService = sysOrgElementService;
         this.sysOrgAuthService = sysOrgAuthService;
@@ -74,6 +77,7 @@ public class SysStartupTask implements ApplicationRunner {
         this.sysI18nSyncService = sysI18nSyncService;
         this.commonModuleService = commonModuleService;
         this.sysNumberModelCacheService = sysNumberModelCacheService;
+        this.commonSourceSyncService = commonSourceSyncService;
     }
 
     @Override
@@ -103,6 +107,21 @@ public class SysStartupTask implements ApplicationRunner {
         // 第十一个启动任务：扫描 properties/ 下各模块 numberRule.yml 构建编号接入项缓存，
         // 并校验 sys_number_rule.field_model_id 对失效接入项输出告警（不阻断启动）
         syncNumberModelsFromYml();
+        // 第十二个启动任务：表结构注解同步引擎比对/执行（CS_SOURCE_SYNC_MODE 门禁）
+        syncSourceSchema();
+    }
+
+    /**
+     * 第十二个启动任务：表结构注解同步引擎比对/执行（CS_SOURCE_SYNC_MODE 门禁）。
+     * <p>调 {@link CommonSourceSyncService#sync()}：解析同步模式（VALIDATE 只报告 /
+     * INSTALL 仅缺失对象新增 / APPLY L1 执行 L2 告警 L3 fail-fast）、
+     * GET_LOCK('common_source_schema_sync', 30) 多实例互斥、自举两张审计表
+     * （common_source_sync_log / common_source_migration_log）、扫描 @TableSource
+     * 标注实体与 information_schema 比对按语义矩阵分流执行/报告，汇总落同步审计表；
+     * 数据迁移（第十三个启动任务，F19-BE-006）在表结构同步之后执行（先结构后数据）。</p>
+     */
+    private void syncSourceSchema() {
+        commonSourceSyncService.sync();
     }
 
     /**
