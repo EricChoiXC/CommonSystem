@@ -31,6 +31,8 @@ import java.util.Set;
  *              </ul>
  *              重复 target / 默认数据源编码按方案 A3 输出 WARN 且首个生效，不阻断启动；
  *              经 Spring 构造注入收集，无需追加 SysStartupTask 启动任务。
+ *              构造期对每个 Provider 预热调用一次 getConditionFields/getResultFields
+ *              （A8：字段定义注解扫描归一），注解配置错误启动期即暴露，不等首个 /targets 请求。
  */
 @Component
 public class SysDatasourceRegistry {
@@ -72,6 +74,12 @@ public class SysDatasourceRegistry {
         this.defaultsByCode = Collections.unmodifiableMap(defaults);
         this.providersByDefaultCode = Collections.unmodifiableMap(defaultOwners);
         this.occupiedCodes = Collections.unmodifiableSet(occupied);
+        // A8 启动期 fail-fast：预热每个 Provider 的字段定义（含重复编码被跳过者），
+        // 注解配置错误（ops 非法、key 不合口径等）在启动期即抛出，不等首个 /targets 请求
+        for (SysDatasourceProvider provider : providerList) {
+            provider.getConditionFields();
+            provider.getResultFields();
+        }
         log.info("datasource registry built: {} targets, {} default datasources",
                 targets.size(), defaults.size());
     }
