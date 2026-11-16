@@ -550,6 +550,179 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 - **只读边界**：数据源只做查询型取数（可分页、单条件排序），写操作仍走各模块 save / update / delete；跨数据源 join、SQL 直配数据源（永久排除）、外系统 REST 数据源（v1.9+）不在 v1.8 范围（方案 §9）。
 - **前端契约**：`src/api/datasource.js` 九个具名函数（`queryDatasource` / `getDatasourceOptions` / `getDatasourceTargets` / `listDatasources` / `loadDatasource` / `saveDatasource` / `updateDatasource` / `updateDatasourceEnable` / `deleteDatasource`）经 `api/index.js` 实例以 `/backend/sys/datasource/**` 相对路径请求；`update` / `enable` 用 PATCH、`delete` 用 DELETE，与后端方法一一对应。
 
+### 4.11 公式定义器模块（v1.4 新增）
+
+#### 4.11.1 模块目标与接口边界
+
+- 提供公共表达式服务：公式解析校验（`validate`）、受限沙箱试算（`simulate`）、函数注册中心清单（`functions`）、公式组件左树聚合（`options`）与命名公式（`sys_formula` 表）管理六动作。公式引擎（AviatorScript）封装于 `service/engine`（`FormulaEngine` / `FormulaContext` / `FormulaFunctionRegistry`），业务模块与前端不直接触碰表达式引擎；数据面不直连任何 Mapper——业务数据只经注册函数 `DS_QUERY` 走数据源统一执行入口（`SysDatasourceService#execute`，内部已委托目标 action 鉴权），`ORG_*` 取值函数归二期由 org 模块注册。
+- 变量引用统一 `${code}` 占位符（扩展两级路径投影 `${list.field}`，变量码约束 `[a-zA-Z_][a-zA-Z0-9_]*`），存储态即 `${}` 形态；返回类型枚举 `NUMBER / STRING / BOOLEAN / DATE / ARRAY`，公式类型枚举 `FIELD / CONDITION / VALIDATION / VISIBILITY / WORKFLOW / CUSTOM`（仅分类标记，不改变执行语义）。
+- 公式形态两类：内联公式（消费方自身配置 JSON 直接存 `expression` 文本）与命名公式（`sys_formula` 表，管理员维护，消费方按 `field_code` 引用、执行时加载启用中的公式）；两类公式共用同一套 `/validate` / `/simulate`，管理六动作仅覆盖命名公式。
+- 模块 key `formula`；权限码 `SYS_FORMULA_ADMIN`（公式管理员）定义于 `properties/sys/formula/roles.yml`；接口标识常量（10 个 `ACTION_*`）定义于 `SysFormulaConstants`，风格对齐 `SysDatasourceConstants`；`FormulaResolver` 继承 `BaseResolver` 按动作判定（`SYS_ADMIN` 自动放行，分支不重复列举），Controller 经 `authorize(...)` 最终鉴权——未登录抛 `UNAUTHORIZED`、无权限抛 `FORBIDDEN`（HTTP 200 + code 体系，全工程惯例）。
+- 基础路径 `/backend/sys/formula`（`SysFormulaController` 承载管理六动作、`SysFormulaDesignerController` 承载组件四动作）；在线文档 Controller 类级 `@Tag(name = "公式定义器", …)`，经 springdoc 生成（见 3.5）。
+- 设计依据：概念模型、ADR、执行流程与安全设计见 [公式定义器功能设计方案](../v1_4-公式定义器/公式定义器功能设计方案.md)（下称「方案」）；校验与试算契约细节以方案 §5.2 为准。
+
+#### 4.11.2 模块接口分组
+
+| 接口组 | 说明 |
+| --- | --- |
+| 命名公式管理 | `list` / `load` / `save` / `update` / `enable` / `delete` 六动作，仅 `SYS_FORMULA_ADMIN`（`save` / `update` 保存期强制 validate 同源校验通过） |
+| 公式组件 | `options`（左树聚合）、`functions`（函数清单）、`validate`（语法/类型/依赖检查）、`simulate`（受限沙箱试算），登录即可（鉴权分层见 4.11.5） |
+
+#### 4.11.3 接口清单（v1.4，两组 10 接口）
+
+接口标识、路径与鉴权口径与方案 §5.1 一一对应；契约明细见 4.11.4。
+
+| 接口 | 方法 | 鉴权动作 | 权限 | 说明 |
+| --- | --- | --- | --- | --- |
+| `/backend/sys/formula/list` | POST | `sys.formula.list` | 仅 `SYS_FORMULA_ADMIN` | 命名公式分页列表；请求体 `{ body, pages }`，支持 `fieldCode` / `fieldName` / `fieldType` / `fieldEnable` 筛选，总数走 `metadata.total` |
+| `/backend/sys/formula/load?fieldId=` | GET | `sys.formula.load` | 仅 `SYS_FORMULA_ADMIN` | 命名公式完整读取，供编辑/查看回填 |
+| `/backend/sys/formula/save` | POST | `sys.formula.save` | 仅 `SYS_FORMULA_ADMIN` | 新建命名公式；编码全局查重，保存前强制 validate 同源校验通过 |
+| `/backend/sys/formula/update` | PATCH | `sys.formula.update` | 仅 `SYS_FORMULA_ADMIN` | 编辑命名公式；同 save 强制校验，`fieldId` 必填 |
+| `/backend/sys/formula/enable` | PATCH | `sys.formula.enable` | 仅 `SYS_FORMULA_ADMIN` | 启停用；请求体 `{ fieldId, fieldEnable }`（与全工程 `/enable` 通道一致） |
+| `/backend/sys/formula/delete?fieldId=` | DELETE | `sys.formula.delete` | 仅 `SYS_FORMULA_ADMIN` | 删除命名公式 |
+| `/backend/sys/formula/options` | GET | `sys.formula.options` | 登录即可 | 公式组件左树聚合三组节点：变量、业务模型、函数（见 4.11.4） |
+| `/backend/sys/formula/functions` | GET | `sys.formula.functions` | 登录即可 | 函数注册中心清单，含分类 / 参数 / 返回值 / 说明；同一份元数据驱动前端函数面板与后端参数类型校验 |
+| `/backend/sys/formula/validate` | POST | `sys.formula.validate` | 登录即可 | 语法 / 类型 / 依赖检查，纯静态分析无副作用（契约见 4.11.4） |
+| `/backend/sys/formula/simulate` | POST | `sys.formula.simulate` | 登录即可 | 受限沙箱试算，资源限制内执行、入参由调用方自负（契约见 4.11.4） |
+
+#### 4.11.4 接口契约明细
+
+管理组公共约定：`/list` 请求体 `{ body, pages: { pageNo, pageSize, needPage } }`，总数经 `metadata.total`；`/enable` 请求体 `{ fieldId, fieldEnable }`（与全工程 `/enable` 通道一致）；响应统一 `BaseResponse`。组件组 `validate` / `simulate` 的校验失败与执行失败以 `data.errors` 数组承载、**HTTP 仍 200**（HTTP 200 + code 体系，全工程惯例），错误码语义见 4.11.6。
+
+**`/list`（命名公式管理列表）**
+
+- 请求体 `{ body: { fieldCode?, fieldName?, fieldType?, fieldEnable? }, pages: { pageNo, pageSize, needPage } }`；默认创建时间降序。
+- 响应 `data = List<SysFormulaVo>`：字段与 `sys_formula` 表对应——`fieldId` / `fieldCode` / `fieldName` / `fieldType` / `fieldExpression`（表达式原文）/ `fieldReturnType` / `fieldDependencies`（保存时解析提取的变量码数组）/ `fieldRemark` / 公共字段，`metadata.total` 为总数。
+
+**`/load?fieldId=`（命名公式详情）**
+
+- 响应 `data = SysFormulaVo`：与列表条目同构的完整行，含 `fieldExpression` 表达式原文与 `fieldDependencies` 变量码数组，供编辑/查看回填。
+
+**`/save`（新建）与 `/update`（编辑）**
+
+- 请求体字段语义（`save` / `update` 共用）：
+
+| 字段 | 语义 |
+| --- | --- |
+| `fieldId` | 编辑必填；新建由前端经 `GET /backend/common/initID` 预生成 32 位 ID |
+| `fieldCode` | 公式编码，全局唯一（唯一键 `uk_formula_code`，保存期查重） |
+| `fieldName` | 公式名称 |
+| `fieldType` | 公式类型 `FIELD/CONDITION/VALIDATION/VISIBILITY/WORKFLOW/CUSTOM` |
+| `fieldExpression` | 表达式文本（`${code}` 变量引用 + 注册函数调用 + 字面量与运算符） |
+| `fieldReturnType` | 期望返回类型 `NUMBER/STRING/BOOLEAN/DATE/ARRAY` |
+| `fieldRemark` | 备注/使用说明 |
+
+- 保存期强制校验：`fieldExpression` 先经 validate 同源校验（语法 / 函数注册 / 参数与返回类型 / 变量码约束），校验不过即拒绝保存；通过后解析表达式提取变量依赖落 `field_dependencies`（JSON 数组）。公式引用失效变量不阻断保存，由 validate 报告、消费方决定处置。
+- 响应 `data = SysFormulaVo`（保存后完整行）。
+
+**`/enable`（启停用）**
+
+- PATCH，请求体 `{ fieldId, fieldEnable }`；停用后命名公式对执行期引用不可见（消费方按 `field_code` 执行时报 `CS_FORMULA_NOT_FOUND`），管理列表仍可查询与重新启用。
+
+**`/delete?fieldId=`（删除）**
+
+- 按 `fieldId` 删除命名公式行；消费方按 `field_code` 引用执行，删除后引用方执行报 `CS_FORMULA_NOT_FOUND`，前端删除须二次确认（列表页通用口径）。
+
+**`/options`（公式组件左树聚合，登录即可）**
+
+- 响应 `data` 为左树三组节点：
+
+| 节点组 | 内容 |
+| --- | --- |
+| 变量 | 系统变量（当前用户 / 部门 / 角色等会话上下文，服务端注入）+ 组织架构上下文 |
+| 业务模型 | 复用数据源 `GET /backend/sys/datasource/targets` 聚合的「能力 → 字段」两级节点——各模块声明 Provider 即自动进入公式组件，公式模块不维护第二份字段台账（方案 A6） |
+| 函数 | 按注册中心九类分类分组（明细见 `/functions`） |
+
+- 前端节点插入语义：变量节点写入 `${code}`，函数节点写入带占位参数模板（组件行为，数据来源为本接口与 `/functions`）。
+
+**`/functions`（函数注册中心清单，登录即可）**
+
+- 响应 `data = List<SysFormulaFunctionVo>`，元素为函数元数据 `{ functionCode, functionName, category, description, parameters: [{ name, type, required, defaultValue }], returnType }`；函数名全局唯一。
+- 一期内置九类函数（MATH / LOGIC / COMPARE / STRING / DATE / COLLECTION / CONVERT / SYSTEM / DATA）；扩展函数经 SPI `FormulaFunctionProvider` 注册后由本接口一并透出。`DS_QUERY(code, body)` 为取数函数，经数据源统一执行入口取业务模型数据（数据边界委托见 4.11.5）。
+
+**`/validate`（语法 / 类型 / 依赖检查，登录即可）**
+
+- 请求体：
+
+```jsonc
+{
+  "expression": "ROUND(${applyAmount} * ${taxRate}, 2)",
+  "expectedReturnType": "NUMBER",
+  "vars": [ { "code": "applyAmount", "type": "NUMBER" }, { "code": "taxRate", "type": "NUMBER" } ]
+}
+```
+
+- 模式语义：`vars` 声明变量码与类型，**`vars` 缺省 = 宽松模式**——变量视为未知，仅做语法与函数校验；`vars` 非空 = 严格模式，按注册元数据校验参数/返回类型并与 `expectedReturnType` 比对，不符报 `CS_FORMULA_TYPE_MISMATCH`。
+- 响应 `data`：
+
+```jsonc
+{ "syntax": true, "returnType": "NUMBER", "dependencies": ["applyAmount", "taxRate"], "errors": [] }
+```
+
+| 字段 | 语义 |
+| --- | --- |
+| `syntax` | 语法与函数校验是否通过 |
+| `returnType` | 引擎推断的返回类型 |
+| `dependencies` | 表达式中提取的变量码数组 |
+| `errors` | 错误数组，元素 `{ code, message }`，`code` ∈ 4.11.6 的 `CS_FORMULA_*` |
+
+- **校验失败 HTTP 仍 200**：`errors` 非空即未通过，不抛 HTTP 错误；本接口纯静态分析无副作用。
+- 依赖语义：`dependencies` 供消费方存储并自建依赖图（联动重算 / 失效引用检查，方案 A8——联动执行不在公式模块）；命名公式在 save / update 时落 `field_dependencies`。
+
+**`/simulate`（受限沙箱试算，登录即可）**
+
+- 请求体：
+
+```jsonc
+{
+  "expression": "ROUND(${applyAmount} * ${taxRate}, 2)",
+  "vars": { "applyAmount": 1000, "taxRate": 0.13 },
+  "expectedReturnType": "NUMBER"
+}
+```
+
+- 响应 `data`：
+
+```jsonc
+{ "success": true, "result": 130.00, "resultType": "NUMBER" }
+```
+
+- 成功：`success=true` + `result`（结果值，NUMBER 经 BigDecimal 规整）+ `resultType`（实际返回类型）。
+- 失败：`success=false` + `errors: [{ code, message }]`（`code` ∈ `CS_FORMULA_*`），**HTTP 仍 200**——资源限制检查、解析、编译、受限执行、类型适配任一步失败均以 `errors` 数组返回，错误码语义见 4.11.6。
+- 执行边界：仅在资源限制内执行——表达式长度上限、变量个数上限、变量值序列化体积上限、循环次数封顶（`Options.MAX_LOOP_COUNT`）、独立执行线程 + 超时上限，常量收口 `SysFormulaConstants`；变量表只读包装（公式无赋值 / 副作用）；系统变量仅服务端注入，不信任前端传入的 `CURRENT_*` 覆盖。管理员预判命名公式复用本接口，不单设预览接口（对齐数据源范围裁决先例）。
+
+#### 4.11.5 鉴权口径（A7 分层）
+
+- **管理六动作**（list / load / save / update / enable / delete）：`FormulaResolver` 分支 `hasAnyRole(SYS_FORMULA_ADMIN)`；`SYS_ADMIN` 由 `BaseResolver` 自动放行，分支不重复列举。
+- **组件四接口**（options / functions / validate / simulate）：登录即可（`resolveLoggedIn()`）——公式组件被各业务页面内嵌使用，v1.5 表单设计者、v1.7 流程配置者未必持有公式管理角色（方案 A7）；`DS_QUERY` 开放给非管理员配置场景为方案 TBD 裁决结论 2（2026-11-16，随 F14-DOC-001 落定），鉴权口径不变、数据边界由取数函数委托承担。
+- **数据边界委托（方案 A4）**：公式模块自身不对业务数据设权——取数函数 `DS_QUERY` 内部调用 `SysDatasourceService#execute`，由其既有「执行期委托目标 action 鉴权」承担数据边界（先例见 4.10.5：`AuthorizationHelper.authorize(provider.getTargetResolver(), …)` 按目标接口自身 `ACTION_*` 与 resolver 判定），未登录抛 `UNAUTHORIZED`、无目标权限抛 `FORBIDDEN`，拒绝事件照常进入安全审计；公式引擎不持有任何业务查询逻辑。
+- 模拟计算入参由调用方自负：`/simulate` 的 `vars` 赋值仅用于沙箱试算，不代表任何真实业务数据授权。
+- 在线文档注解口径：10 个接口方法 `@Operation.description` 统一以「鉴权动作 <ACTION 常量值>（权限说明）；」开头——管理接口标注 `SYS_FORMULA_ADMIN`（如 `鉴权动作 sys.formula.save（仅 SYS_FORMULA_ADMIN，保存期强制 validate 同源校验通过）；`），组件接口标注登录即可（如 `鉴权动作 sys.formula.simulate（登录即可）；`），与 3.5 注解规范一致；实现期与 Controller 同批完成（对齐方案 §10 自检清单）。
+
+#### 4.11.6 错误码与承载方式
+
+| 错误码 | 场景 |
+| --- | --- |
+| `CS_FORMULA_NOT_FOUND` | 公式编码/ID 不存在，或命名公式已停用 |
+| `CS_FORMULA_CODE_DUPLICATED` | 保存时公式编码重复 |
+| `CS_FORMULA_EXPRESSION_TOO_LONG` | 表达式长度超上限 |
+| `CS_FORMULA_SYNTAX_INVALID` | 词法/语法错误（附引擎错误信息与位置） |
+| `CS_FORMULA_FUNCTION_NOT_FOUND` | 调用了未注册函数 |
+| `CS_FORMULA_TYPE_MISMATCH` | 参数/返回类型与注册元数据或 expectedReturnType 不符 |
+| `CS_FORMULA_VARIABLE_INVALID` | 变量码不合法（不符合标识符约束）或路径投影格式错误 |
+| `CS_FORMULA_EXECUTE_FAILED` | 执行期失败（除零、空值拒绝、集合规模超限等） |
+| `CS_FORMULA_EXECUTE_TIMEOUT` | 执行超时 |
+
+承载方式（对齐数据源 `CS_DATASOURCE_*` 口径）：**管理接口**中上述业务错误码以**异常 message 前缀**承载，`BaseResponse.code` 统一为 `BAD_REQUEST`，前端按 message 前缀识别具体错误码；**组件接口**（validate / simulate）中以 `data.errors` 数组元素 `{ code, message }` 承载、HTTP 仍 200（见 4.11.4）；鉴权失败 `BaseResponse.code` 为 `UNAUTHORIZED`（未登录）/ `FORBIDDEN`（无权限），HTTP 状态仍为 200 + code 体系（全工程惯例）。
+
+#### 4.11.7 当前冻结的接口方向
+
+- **校验权威在后端**（方案 A1）：前端编辑器（CodeMirror 6，回退预案 `el-input type="textarea"`）只做输入辅助，不做最终语法裁决；`validate` 接口即权威，避免前后端两套语法各自漂移。
+- **取数收口**：公式不出现 HTTP / SQL；业务数据只经 `DS_QUERY`（复用数据源「能力白名单 + 委托鉴权 + 投影」链路）与模块注册的取值函数，权限、超时、缓存策略随被调用模块既有语义。
+- **联动边界**：公式间依赖联动（拓扑排序、循环依赖检测）不进 v1.4（方案 A8），一期只提供单公式变量依赖提取；消费方（v1.5 表单引擎）以 `dependencies` 建有向图做联动重算、循环检测与失效引用检查。
+- **前端契约**：`src/api/formula.js` 十个具名函数（`listFormulas` / `loadFormula` / `saveFormula` / `updateFormula` / `enableFormula` / `deleteFormula` / `getFormulaOptions` / `getFormulaFunctions` / `validateFormula` / `simulateFormula`）经 `api/index.js` 实例以 `/backend/sys/formula/**` 相对路径请求；`update` / `enable` 用 PATCH、`delete` 用 DELETE，与后端方法一一对应。
+- **存量弱公式不迁移**：既有流程节点触发条件（`triggerType=condition` + `${field}`）v1.4 不改 process 代码；v1.7 流程改造时迁移为统一公式（`${field}` 语法与本模块 `${code}` 同源）。
+
 ## 5. 待确认事项
 
 - 组织架构模块中“角色分配”和“角色权限”的需求表述存在表名映射不一致，需在详细设计任务中确认接口术语。

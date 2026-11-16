@@ -32,7 +32,7 @@
 ### 2.2 范围声明
 
 - 当前范围覆盖系统模块下的 `org`、`attachment`、`process`、`number`、`notify`、`audit`、`dict` 七个子模块。
-- 另含后续版本扩展页面：多语言管理（4.8，v1.1）、模块组开关（4.9，v1.1）、数据源（4.10，v1.8 新增）。
+- 另含后续版本扩展页面：多语言管理（4.8，v1.1）、模块组开关（4.9，v1.1）、数据源（4.10，v1.8 新增）、公式定义器（4.11，v1.4 新增）。
 - 当前文档优先覆盖后台管理页面、业务支撑弹窗与个人工作台页面。
 - 本轮不展开 ERP 业务模块页面，不补充未在需求文档中出现的跨模块门户首页。
 
@@ -97,6 +97,10 @@
 | 数据源模块 | 数据源管理页 | 列表页 | 数据源管理员 | 维护自定义数据源清单（查询、新建、编辑、启停用、删除） |
 | 数据源模块 | 数据源新增/编辑页 | 表单页 | 数据源管理员 | 配置自定义数据源（目标能力、固定条件、返回字段白名单） |
 | 数据源模块 | 数据源详情页 | 详情页 | 数据源管理员 | 查看数据源配置明细（只读） |
+| 公式定义器 | 公式定义器管理页 | 列表页 | 公式管理员 | 维护命名公式清单（查询、新建、编辑、启停用、删除） |
+| 公式定义器 | 公式定义器新增/编辑页 | 表单页 | 公式管理员 | 配置命名公式元数据、表达式设计与模拟试算 |
+| 公式定义器 | 公式定义器详情页 | 详情页 | 公式管理员 | 查看命名公式配置明细（只读） |
+| 公式定义器 | 公式设计弹窗（FormulaDesigner） | 嵌入组件 | 业务页面用户 | 在业务页面完成公式编辑、校验与模拟试算（v1.5/v1.7 内嵌消费） |
 
 ### 3.4 关键用户场景
 
@@ -651,6 +655,268 @@
 - 方式二（通用组件）：`components/DatasourceTable.vue`，props `code`（可选 `filters` / `sortField`），内部完成 `options` → 列头渲染 → `queryDatasource` 取数编排，适合快速搭建数据源驱动列表页。**可选组件，是否纳入 v1.8 见任务清单 F18-FE-005**；如后续纳入，须先同步 `docs/系统模块/前端公共组件.md` 组件契约再消费。
 - 数据源选择交互：消费页面如需让用户挑选数据源，用 `getDatasourceOptions()` 填充 `el-select`（label 为数据源名称，可按 `sourceType` 加 CODE/CUSTOM 辅助标记）；选项含 `fields` 有效字段集，与执行结果 `metadata.fields` 一致，可用于列头预渲染；`options` 不暴露固定条件原文，前端不可也不需感知固定条件内容。
 - 码值翻译：执行结果为原始值（如 `fieldType=PERSONAL`），码值显示名由消费方页面按码值模块自行翻译（TBD 裁决结论 1）；消费页面在渲染列时对枚举/码值字段按码值模块转换后再展示。
+
+### 4.11 公式定义器模块（v1.4 新增）
+
+#### 4.11.1 模块目标与边界
+
+- 承接命名公式管理页面（列表 / 新增编辑 / 详情）与公式设计弹窗 FormulaDesigner 组件消费方式约定（v1.4 新增，任务 F14-DOC-004）。
+- 公式定义器是本工程的公共表达式服务：后端 AviatorScript 引擎封装 + 沙箱与资源限制 + 函数注册中心 + 统一校验/试算入口 + 前端可视化公式组件；业务定义、两类公式与函数体系以[需求文档](系统模块需求文档.md)第 12 章为准；引擎与安全设计见 [公式定义器功能设计方案](../v1_4-公式定义器/公式定义器功能设计方案.md)；接口契约见 API 文档 4.11；表结构见数据库设计 4.11。
+- 两类公式口径：本模块管理页只维护**命名公式**（`sys_formula`，公式管理员维护，消费方按 `field_code` 引用执行）；**内联公式**存于消费方自身配置 JSON（v1.5 表单字段配置、v1.7 流程分支配置），不经管理页维护，但与命名公式共用同一套 validate / simulate（需求文档 12.3）。
+- 函数不落表：九类内置函数由代码注册中心承载、模块扩展函数经 SPI `FormulaFunctionProvider` 注册，经 `/functions` 接口透出；前端函数面板与后端参数校验共用同一份注册元数据（需求文档 12.3）。
+- 路由：`/formula`（列表）、`/formula/create`（新建）、`/formula/edit/:id`（编辑）、`/formula/detail/:id`（详情）；列表路由 `meta: { title: '公式定义器管理', parent: '系统管理', group: '后台管理', auth: 'SYS_FORMULA_ADMIN' }`，新建/编辑/详情路由同 parent/group/auth，编辑与详情为动态路由、设 `meta.tab: 'name'` 复用单标签。
+- 菜单入口：【系统管理】→【后台管理】→【公式定义器管理】（叶子菜单，与公共配置/模块管理/数据源管理并列；后台管理子组 auth 下放由子项各自声明，沿用既有惯例）；`HomeView.vue` 的 `activeMenu` 补前缀归约——`/formula` 前缀路由（create/edit/detail）归约到 `/formula` 保持菜单高亮。
+- 显示权限（鉴权分层 A7，与需求文档 12.2.2 一致）：叶子菜单与路由 `meta.auth` 均绑定 `SYS_FORMULA_ADMIN`（`SYS_ADMIN` 经超管短路天然可见）；无权限用户不可见菜单入口、直访路由被既有路由守卫按 `meta.auth` 拦截。**消费面不受菜单权限影响**：`options` / `functions` / `validate` / `simulate` 组件四接口登录即可——公式组件被各业务页面内嵌使用，v1.5 表单设计者、v1.7 流程配置者未必持有公式管理角色；`DS_QUERY` 开放给非管理员配置场景（方案 TBD② 裁决，2026-11-16，随 F14-DOC-001 落定），取数数据边界由取数函数委托数据源执行期鉴权承担（见 4.11.7）。
+
+#### 4.11.2 模块页面承接清单
+
+- 公式定义器管理页（`/formula`，三段式列表页）
+- 公式定义器新增/编辑页（`/formula/create`、`/formula/edit/:id`，共用 `FormulaFormView.vue` 按路由区分模式）
+- 公式定义器详情页（`/formula/detail/:id`，只读）
+- 公式设计弹窗 FormulaDesigner（非独立页面：公共弹窗组件 `components/formula/FormulaDesigner.vue`，公式表单页经【设计公式】打开；v1.5 自定义表单、v1.7 流程管理作为内嵌消费方接入，见 4.11.7）
+
+#### 4.11.3 关键页面约束
+
+- 编辑器只做输入辅助、权威校验在后端（方案 A1）：CodeMirror 6 进一期（TBD① 裁决，2026-11-16，随 F14-DOC-001 落定；回退预案 `el-input type="textarea"` 保留不删）；前端不做最终语法裁决，validate 接口即权威。
+- 保存期强制校验：save / update 时 `fieldExpression` 先经 validate 同源校验（语法 / 函数注册 / 参数与返回类型 / 变量码约束），校验不过即拒绝保存（API 文档 4.11.4）；公式引用失效变量不阻断保存，由 validate 报告、消费方决定处置。
+- 系统变量（`CURRENT_USER` / `CURRENT_DEPT` / `CURRENT_ROLE` 等会话上下文）为服务端注入语义，不可被前端赋值覆盖（后端不信任前端传入的 `CURRENT_*` 覆盖），模拟区不为其生成赋值行（见 4.11.7）。
+- 左树业务模型节点来自数据源 targets 聚合（`GET /backend/sys/datasource/targets`，各模块 Provider 声明的 resultFields），公式模块**不另建字段台账**（方案 A6）；Provider 下线后左树业务模型组随之变化，公式引用失效变量由 validate 报告、不阻断保存。
+- 启停用与删除均须二次确认；停用或删除后消费方按 `field_code` 执行报 `CS_FORMULA_NOT_FOUND`（API 文档 4.11.4）。
+- 模拟区赋值仅用于沙箱试算，入参由调用方自负（API 文档 4.11.5），不代表任何真实业务数据授权；`/simulate` 仅在资源限制内执行（表达式长度 / 变量个数 / 序列化体积 / 循环次数 / 超时上限，常量收口 `SysFormulaConstants`）。
+
+#### 4.11.4 公式定义器管理页
+
+##### 页面元信息
+
+| 项 | 值 |
+| --- | --- |
+| 路由 | `/formula`（`meta.title: '公式定义器管理'`） |
+| 页面组件 | `views/formula/FormulaManageView.vue` |
+| 页面类型 | 列表页（三段式：筛选区 → 工具区 → 列表区） |
+| 菜单入口 | 【系统管理】→【后台管理】→【公式定义器管理】 |
+| 显示权限 | 叶子菜单绑定 `SYS_FORMULA_ADMIN`；列表查询经 `/list` 接口由后端鉴权兜底 |
+| 页面样式 | 复用 `list-page.css`，不在页面内重复定义 |
+
+##### 页面目标与入口
+
+- 维护命名公式清单：查询、新建、编辑、启停用、删除；命名公式是跨模块复用的公共公式库（如「含税金额」口径），内联公式不入库、不在本列表展示。
+- 入口：菜单进入列表页；【新建】跳 `/formula/create`；行【编辑】跳 `/formula/edit/:id`；行【详情】跳 `/formula/detail/:id`。
+
+##### 页面布局 ASCII 示意图
+
+```text
+| 公式编码 | 公式名称 | 公式类型(全部/六类枚举) | 启用状态(全部/启用/停用) |
+| sort-area(创建时间↑↓)                    | 查询  新建            |
+|----------------------------------------------------------------|
+| 编码 | 名称 | 类型 | 返回类型 | 变量依赖数 | 启用 | 创建时间 | 操作(详情/编辑/启停用/删除) |
+|----------------------------------------------------------------|
+| total, prev, pager, next, sizes                                 |
+```
+
+##### 结构树与布局约束
+
+- 筛选区：`el-form.filter-form` 一行四列（`el-col :span="6"`）——公式编码（模糊）、公式名称（模糊）、公式类型（静态选项 `FIELD/CONDITION/VALIDATION/VISIBILITY/WORKFLOW/CUSTOM`，默认「全部」）、启用状态（静态选项「全部/启用/停用」，默认「全部」——管理视角需同时看到停用公式以便排查消费方引用）；输入框回车触发查询，空值提交 `null`。
+- 工具区：左侧 `sort-area` 仅创建时间单条件排序（选中项 `.active` + `.sort-arrow` 显示 `↑`/`↓`，默认创建时间降序，数据按后端固定创建时间降序返回）；右侧查询、新建（`hasAuth(['SYS_FORMULA_ADMIN'])` 显隐，前端预判不替代后端鉴权）。
+- 列表区：本页无批量操作，不设复选框列、不展示主键 `fieldId`；末列操作列 `fixed="right"`；分页 `layout="total, prev, pager, next, sizes"`、`page-sizes [10,20,50,100]`，切页大小回第 1 页。
+
+##### 字段与组件规格
+
+| 列 / 项 | 字段 | 组件与规格 |
+| --- | --- | --- |
+| 公式编码 | `fieldCode` | 文本，溢出省略 |
+| 公式名称 | `fieldName` | 文本，溢出省略 |
+| 公式类型 | `fieldType` | 展示枚举原文（仅作用途分类标记，不改变执行语义，需求文档 12.1） |
+| 返回类型 | `fieldReturnType` | 展示枚举原文 `NUMBER/STRING/BOOLEAN/DATE/ARRAY` |
+| 变量依赖数 | `fieldDependencies` | 计数——列表响应为保存期解析提取的变量码数组，前端解析取长度；空显示 `0` |
+| 启用 | `fieldEnable` | `el-tag`：启用 success / 停用 info |
+| 创建时间 | `fieldCreateTime` | 格式化时间 |
+| 操作 | — | 详情、编辑、启停用、删除（link 按钮，`fixed="right"`） |
+
+##### 操作与状态约束
+
+- 新建：`hasAuth` 预判显隐，跳 `/formula/create`。
+- 详情：跳 `/formula/detail/:id`（复用单标签），支撑新建/编辑/详情三态路由互相跳转。
+- 编辑：跳 `/formula/edit/:id`（复用单标签）。
+- 启停用：二次确认；停用时提示「停用后消费方按 field_code 执行将报 CS_FORMULA_NOT_FOUND」；启用恢复对执行期引用可见；调 `updateFormulaEnable({ fieldId, fieldEnable })`。
+- 删除：二次确认，文案提示影响面（删除后消费方执行报 `CS_FORMULA_NOT_FOUND`）；调 `deleteFormula(fieldId)`。
+
+#### 4.11.5 公式定义器新增/编辑页
+
+##### 页面元信息
+
+| 项 | 值 |
+| --- | --- |
+| 路由 | `/formula/create`（新建，`meta.title: '新增公式'`）、`/formula/edit/:id`（编辑，`meta.title: '编辑公式'`，`meta.tab: 'name'` 复用单标签） |
+| 页面组件 | `views/formula/FormulaFormView.vue`（按 `route.path` 区分模式，新建 / 编辑共用） |
+| 页面类型 | 表单页（内嵌公式设计弹窗入口） |
+| 菜单入口 | 列表页【新建】/ 行【编辑】进入，无独立菜单 |
+| 显示权限 | `SYS_FORMULA_ADMIN`（后端接口鉴权兜底） |
+| 页面样式 | 复用 `form-page.css`；页头按钮置于 `el-card` `#header` 内 `.page-header > .header-btns`，不用底部操作区 |
+
+##### 页面目标与入口
+
+- 新建：`onMounted` 调 `api/common.js#getInitID()`（`GET /backend/common/initID`）取 32 位 ID 赋 `fieldId`（当前尚无 `composables/useInitID.js` 统一封装，照现有页面直接调）；保存调 `saveFormula`。
+- 编辑：按路由 id 调 `loadFormula` 回填（含 `fieldExpression` 表达式原文与 `fieldDependencies` 变量码数组）；保存调 `updateFormula`。
+- 表达式编排：经【设计公式】打开 FormulaDesigner 弹窗（编辑 + 校验 + 模拟，消费方式见 4.11.7），确认后回写 `fieldExpression`；保存期由后端强制 validate 同源校验（API 文档 4.11.4）。
+
+##### 页面布局 ASCII 示意图
+
+```text
+| 返回  设计公式  保存                          （#header 按钮区）|
+|----------------------------------------------------------------|
+| 公式编码(全局唯一)            | 公式名称                        |
+| 公式类型(下拉六类枚举)        | 返回类型(下拉五类枚举)          |
+|----------------------------------------------------------------|
+| 表达式 fieldExpression（monospace 只读回显，【设计公式】打开弹窗）|
+|----------------------------------------------------------------|
+| 备注（textarea）整行 2:8                                        |
+|----------------------------------------------------------------|
+```
+
+##### 结构树与布局约束
+
+- 容器 100% 宽；元数据字段一行两字段（`label-width="40%"` + `:span="12"`）；表达式与备注为长内容字段，一行一字段（2:8，`label-width="20%"`）。
+- 表达式字段本体以 monospace 只读回显，编排入口唯一——经【设计公式】打开 FormulaDesigner 弹窗编辑（编辑器只做输入辅助、权威校验在后端 validate，方案 A1），确认后回写，避免表单与弹窗两处编辑源不一致。
+- 公式类型 / 返回类型下拉按枚举原文渲染（枚举口径见需求文档 12.3、API 文档 4.11.4）。
+
+##### 字段与组件规格
+
+| 字段 | 组件 | 约束 |
+| --- | --- | --- |
+| 公式编码 | `el-input` | 必填；全局唯一（唯一键 `uk_formula_code`，保存期查重），重复报 `CS_FORMULA_CODE_DUPLICATED` |
+| 公式名称 | `el-input` | 必填 |
+| 公式类型 | `el-select`（`FIELD/CONDITION/VALIDATION/VISIBILITY/WORKFLOW/CUSTOM`） | 必填；仅作分类标记，不改变执行语义 |
+| 返回类型 | `el-select`（`NUMBER/STRING/BOOLEAN/DATE/ARRAY`） | 必填；作为 `expectedReturnType` 参与 validate / simulate |
+| 表达式 | FormulaDesigner 弹窗编排 + monospace 只读回显 | 必填；保存期强制 validate 通过；长度超上限报 `CS_FORMULA_EXPRESSION_TOO_LONG` |
+| 备注 | `el-input type="textarea"` | 可空（`fieldRemark`） |
+
+##### 操作与状态约束
+
+- 保存载荷：新建 / 编辑均提交 `{ fieldId, fieldCode, fieldName, fieldType, fieldExpression, fieldReturnType, fieldRemark }`；变量依赖 `fieldDependencies` 由后端保存期解析落库，前端不传。
+- 保存成功：`markTabToClose` 关标签返回列表；失败按接口 message 提示（管理接口业务错误码以异常 message 前缀承载，API 文档 4.11.6），`CS_FORMULA_CODE_DUPLICATED`（编码重复）、`CS_FORMULA_EXPRESSION_TOO_LONG`（表达式超长）、`CS_FORMULA_SYNTAX_INVALID`（语法错误）、`CS_FORMULA_FUNCTION_NOT_FOUND`（未注册函数）、`CS_FORMULA_TYPE_MISMATCH`（类型不符）、`CS_FORMULA_VARIABLE_INVALID`（变量码不合法）均须有可读提示。
+- 返回：`#header`【返回】关标签回列表。
+
+#### 4.11.6 公式定义器详情页
+
+##### 页面元信息
+
+| 项 | 值 |
+| --- | --- |
+| 路由 | `/formula/detail/:id`（`meta.title: '公式详情'`，`meta.tab: 'name'` 复用单标签） |
+| 页面组件 | `views/formula/FormulaDetailView.vue` |
+| 页面类型 | 详情页（只读） |
+| 菜单入口 | 列表页行【详情】进入，无独立菜单 |
+| 显示权限 | `SYS_FORMULA_ADMIN` |
+| 页面样式 | 复用 `form-page.css` 的 `.detail-grid` / `.detail-item` / `.is-full`，不用 `el-descriptions` 跨行 |
+
+##### 页面目标与入口
+
+- 只读查看命名公式配置明细；按路由 id 调 `loadFormula` 回填；`#header` 提供【返回】与【编辑】（跳 `/formula/edit/:id`）。
+
+##### 页面布局 ASCII 示意图
+
+```text
+| 返回  编辑                                    （#header 按钮区）|
+|----------------------------------------------------------------|
+| 公式编码          | 公式名称                                    |
+| 公式类型          | 返回类型                                    |
+| 变量依赖数        | 启用状态(tag)                               |
+|----------------------------------------------------------------|
+| 表达式（.detail-item.is-full，monospace 只读代码块）            |
+|----------------------------------------------------------------|
+| 变量依赖明细（.detail-item.is-full，${code} 变量码只读列表）     |
+|----------------------------------------------------------------|
+| 备注（.detail-item.is-full）                                    |
+|----------------------------------------------------------------|
+| 创建人/创建时间 | 更新人/更新时间                               |
+```
+
+##### 结构树与布局约束
+
+- `.detail-grid` 自定义 flex 网格：默认一行两字段（`.detail-item`，字段名:字段值 = 2:3）；表达式、变量依赖明细、备注用 `.detail-item.is-full`（一行一字段，2:8）；不使用 `el-descriptions`（非垂直模式单元格无法跨行实现 2:8）。
+- 表达式以 monospace 只读代码块原样展示 `${code}` 形态文本（存储态即 `${}` 形态，方案 A5）。
+- 变量依赖明细逐项只读展示变量码（`fieldDependencies` 数组）；空显示「无变量依赖」。
+
+##### 字段与组件规格
+
+| 字段 | 组件 | 约束 |
+| --- | --- | --- |
+| 公式编码 / 公式名称 | 文本 | `fieldCode` / `fieldName` |
+| 公式类型 / 返回类型 | 文本 | 枚举原文（`fieldType` / `fieldReturnType`） |
+| 变量依赖数 | 文本 | `fieldDependencies` 数组长度，空显示 `0` |
+| 启用状态 | `el-tag` | 启用 success / 停用 info |
+| 表达式 | `.is-full` monospace 只读代码块 | `fieldExpression` 原文 |
+| 变量依赖明细 | `.is-full` 只读列表 | 变量码逐项展示；空显示「无变量依赖」 |
+| 备注 | `.is-full` | `fieldRemark`，空显示 `-` |
+| 创建人 / 创建时间、更新人 / 更新时间 | 文本 | 公共字段 |
+
+##### 操作与状态约束
+
+- 页面只读，不提供启停用/删除入口（均在列表页操作列承载）。
+- 【编辑】跳 `/formula/edit/:id`；【返回】关标签回列表。
+
+#### 4.11.7 公式设计弹窗 FormulaDesigner 组件消费方式（非独立页面）
+
+- 组件定位：`components/formula/FormulaDesigner.vue`，需求「a-model 弹窗」在本仓库 Element Plus 体系落地为 `el-dialog` 公式设计弹窗（左树 + 右上编辑区 + 右下模拟区）；样例登记 `views/ui.vue`，组件契约登记 `docs/系统模块/前端公共组件.md`。管理侧由公式新增/编辑页经【设计公式】打开；业务侧由 v1.5 自定义表单、v1.7 流程管理、v1.9 消息通知等内嵌消费方打开（承接方式见本节末）。
+- 权限口径（需求文档 12.2.2、API 文档 4.11.5）：组件四接口 `options` / `functions` / `validate` / `simulate` 登录即可——内嵌页面的使用者无需持有 `SYS_FORMULA_ADMIN`；`DS_QUERY` 开放给非管理员配置场景（方案 TBD② 裁决），取数数据边界由 `DS_QUERY` 委托数据源执行期鉴权承担（`SysDatasourceService#execute` 委托目标 action 鉴权），公式组件与弹窗自身不做二次数据鉴权。
+
+##### 弹窗布局 ASCII 示意图
+
+```text
+| 公式设计                                                 （×） |
+|--------------------------------|------------------------------|
+| 左树 el-tree（三组节点）        | 编辑区（CodeMirror 6 底座）   |
+|  变量（系统/组织上下文/外部追加）|  高亮 + ${}/函数 token 提示   |
+|  业务模型（能力→字段两级）       |  validate 错误行号/错误码提示 |
+|  函数分类（九类分组）            |------------------------------|
+|                                 | 函数面板（分类/参数/说明）     |
+|--------------------------------|------------------------------|
+| 模拟区：变量赋值行（控件随 type）  [试算]  结果/错误展示        |
+|----------------------------------------------------------------|
+|                                             取消  确认回写     |
+```
+
+##### 左树节点（数据来自 `getFormulaOptions()`）
+
+| 节点组 | 内容 | 插入语义 |
+| --- | --- | --- |
+| 变量 | 系统变量（当前用户 / 部门 / 角色等会话上下文，服务端注入）+ 组织架构上下文（一期注入当前用户 / 部门，出自会话 `UserUtil`；org 任意字段读取 `ORG_*` 二期随 v1.7 注册）+ `availableVars` 外部追加变量声明 | 双击或【插入】按钮写入编辑区，变量插入 `${code}` |
+| 业务模型 | 复用数据源 `GET /backend/sys/datasource/targets` 聚合的「能力 → 字段」两级节点——各模块声明 Provider 即自动进入公式组件，公式模块不另建字段台账（方案 A6） | 双击字段节点或【插入】按钮写入编辑区；明细汇总场景以路径投影 `${list.field}` 书写 |
+| 函数分类 | 按注册中心九类分组（MATH / LOGIC / COMPARE / STRING / DATE / COLLECTION / CONVERT / SYSTEM / DATA），明细见函数面板 | 双击或【插入】按钮写入带占位参数模板 |
+
+##### 编辑区（右上）
+
+- 底座：**CodeMirror 6**（TBD① 已裁决进一期，版本以 `frontend/package.json` 实装为准）——语法高亮 + 括号匹配 + `${}` / 函数 token 提示；回退预案 `el-input type="textarea"`（monospace + 插入按钮 + validate 错误行号提示）保留不删。
+- 校验联动：编辑后调 `validateFormula({ expression, expectedReturnType, vars })`，`errors` 数组按「错误码 + message（附引擎错误信息与位置/行号）」可读展示（如 `CS_FORMULA_SYNTAX_INVALID` 附语法错误位置），同时展示返回的 `dependencies` 变量依赖；编辑器只做输入辅助、权威校验在后端 validate（方案 A1），前端不做最终语法裁决。
+- vars 口径：弹窗以已知变量声明（左树变量组 + `availableVars`）构造 `vars` 入参（元素 `{ code, type }`）；`vars` 缺省 = 宽松模式（变量视为未知，仅语法与函数校验）、非空 = 严格模式（按注册元数据校验参数 / 返回类型并比对 `expectedReturnType`，API 文档 4.11.4）。
+
+##### 函数面板
+
+- 数据来自 `getFormulaFunctions()`，元素为函数元数据 `{ functionCode, functionName, category, description, parameters: [{ name, type, required, defaultValue }], returnType }`；按分类折叠展示函数名 / 参数 / 说明，前后端共用一份注册定义。
+- 插入语义：选中函数按注册元数据 `parameters` 生成「函数名(占位参数…)」占位参数模板写入编辑区；`DS_QUERY(code, body)` 为取数函数，经数据源统一执行入口取业务模型数据（数据边界委托见本节权限口径）。
+
+##### 模拟区（右下）
+
+- 赋值行：按声明 vars（弹窗声明 + `availableVars` 追加）生成「变量码（只读）+ 赋值控件」行，控件随变量 `type` 选型——NUMBER 数字输入、STRING 文本、BOOLEAN 开关、DATE 日期选择、ARRAY 以 JSON 文本输入；**系统变量（`CURRENT_USER` / `CURRENT_DEPT` / `CURRENT_ROLE`）为服务端注入语义，不生成赋值行**（后端不信任前端传入的 `CURRENT_*` 覆盖）。
+- 试算：【试算】按钮调 `simulateFormula({ expression, vars, expectedReturnType })`；成功展示 `result`（NUMBER 经 BigDecimal 规整）+ `resultType`；失败 `success=false`，`errors` 数组（元素 `{ code, message }`，`code` ∈ `CS_FORMULA_*`，HTTP 仍 200）可读展示，**失败不阻断弹窗操作**（可继续编辑、校验、再试算）。
+- 边界：模拟赋值仅用于沙箱试算，入参由调用方自负（API 文档 4.11.5）；管理员预判命名公式复用 `/simulate`，不单设预览接口（对齐数据源范围裁决先例）。
+
+##### 组件 props 契约（v1.5 / v1.7 内嵌预留）
+
+| prop | 语义 | 说明 |
+| --- | --- | --- |
+| `visible` | 弹窗显隐控制 | 内嵌消费方控制打开 / 关闭 |
+| `availableVars` | 外部追加变量声明 | 如 v1.5 表单字段声明（含明细行数组变量，支持 `${list.field}` 路径投影场景）；并入左树变量组、validate `vars` 入参与模拟区赋值行 |
+| `functionCategories` | 函数分类过滤 | 仅展示指定分类；缺省 = 全部九类 |
+| `expectedReturnType` | 期望返回类型 | 作为 validate / simulate 的 `expectedReturnType` 入参；类型不符报 `CS_FORMULA_TYPE_MISMATCH` |
+| `expression` | 公式文本（v-model） | 弹窗【确认】将编辑后的表达式回写 v-model（管理表单页回写 `fieldExpression`；内联消费方回写自身配置 JSON） |
+
+##### 内嵌消费承接（v1.5 / v1.7 可从本节独立读通）
+
+- v1.5 自定义表单——字段自动计算：字段配置内嵌 FormulaDesigner 编写内联公式，`availableVars` 传表单字段声明（含明细行数组变量）、`expectedReturnType` 随字段类型；validate 返回 `dependencies` 供表单引擎自建依赖图做联动重算 / 失效引用检查（方案 A8，联动执行不在公式模块）。
+- v1.5 级联 / 显隐 / 禁用 / 必填 / 校验：内嵌 BOOLEAN 内联公式（IF / 比较函数），表单引擎按求值结果控制组件状态。
+- v1.7 流程管理改造：条件分支 / 审批人配置内嵌 BOOLEAN 公式（`expectedReturnType=BOOLEAN`）；后端流程引擎执行时调 `FormulaEngine`（服务内调用，不经 HTTP）；存量流程节点触发条件（`triggerType=condition` + `${field}` 弱公式）v1.4 不改 process 代码，v1.7 改造时迁移为统一公式。
+- v1.9 消息通知：通知模板配置 STRING 公式（CONCAT / 日期函数）拼接通知文本。
 
 ## 5. 待确认事项
 
