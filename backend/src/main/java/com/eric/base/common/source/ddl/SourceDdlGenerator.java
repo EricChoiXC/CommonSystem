@@ -69,11 +69,13 @@ public final class SourceDdlGenerator {
     }
 
     /**
-     * 生成 CREATE TABLE IF NOT EXISTS 语句：列定义 → PRIMARY KEY → 索引
-     * （UNIQUE KEY / KEY）→ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='...'，
-     * 输出形态对齐既有建表脚本（全量等价基线 V1_01_046）
+     * 生成 CREATE TABLE IF NOT EXISTS 语句：列定义 → PRIMARY KEY（有效主键列集，
+     * 单列/组合按声明序，F19-DOC-005）→ 索引（UNIQUE KEY / KEY）→ ) ENGINE=InnoDB
+     * DEFAULT CHARSET=utf8mb4 COMMENT='...'，输出形态对齐既有建表脚本
+     * （全量等价基线 V1_01_046；组合主键基线 V1_01_001 sys_org_post_user）
      *
-     * @param table 表定义（列清单含公共列模板内建列，索引清单为二级索引）
+     * @param table 表定义（列清单含公共列模板内建列或 primaryKeyColumns 声明主键的全部
+     *              业务列，索引清单为二级索引）
      * @return DDL 文本（不带结尾分号）
      */
     public static String createTable(TableDef table) {
@@ -83,24 +85,12 @@ public final class SourceDdlGenerator {
         if (columns.isEmpty()) {
             throw new IllegalStateException("表定义缺少列: " + table.getName());
         }
-        ColumnDef primaryKey = null;
-        for (ColumnDef column : columns) {
-            if (column.isPrimaryKey()) {
-                if (null != primaryKey) {
-                    throw new IllegalStateException("主键列不唯一: "
-                            + table.getName() + " -> " + column.getName());
-                }
-                primaryKey = column;
-            }
-        }
-        if (null == primaryKey) {
-            throw new IllegalStateException("表定义缺少主键列（公共列模板内建 field_id）: " + table.getName());
-        }
+        String primaryKeyColumns = resolvePrimaryKeyColumns(table, columns);
         StringBuilder sql = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(table.getName()).append(" (\n");
         for (ColumnDef column : columns) {
             sql.append("    ").append(columnDefinition(column)).append(",\n");
         }
-        sql.append("    PRIMARY KEY (").append(primaryKey.getName()).append(')');
+        sql.append("    PRIMARY KEY (").append(primaryKeyColumns).append(')');
         for (IndexDef index : table.getIndexes()) {
             sql.append(",\n    ").append(indexKeyDefinition(table, index));
         }
@@ -202,6 +192,48 @@ public final class SourceDdlGenerator {
     }
 
     /* ==================== 内部 ==================== */
+
+    /**
+     * 有效主键列集解析（F19-DOC-005）：注解声明非空时按声明序输出（组合/单列均支持），
+     * 逐列防御再校验——列名白名单 + field_ 前缀、该表列集合子集、声明不重复（对齐扫描器
+     * 规则 10 前置通道）；缺省时维持公共列模板内建 field_id 口径（ColumnDef#primaryKey
+     * 标记列唯一），违例 fail-fast 文案与扩展前一致
+     */
+    private static String resolvePrimaryKeyColumns(TableDef table, List<ColumnDef> columns) {
+        List<String> declared = table.getPrimaryKeyColumns();
+        if (!declared.isEmpty()) {
+            Set<String> tableColumns = new HashSet<>();
+            for (ColumnDef column : columns) {
+                tableColumns.add(column.getName());
+            }
+            Set<String> seen = new HashSet<>();
+            for (String column : declared) {
+                requireColumnIdentifier(column);
+                if (!tableColumns.contains(column)) {
+                    throw new IllegalStateException("主键列必须是该表列集合的子集: "
+                            + column + " (" + table.getName() + ")");
+                }
+                if (!seen.add(column)) {
+                    throw new IllegalStateException("主键列重复: " + column + " (" + table.getName() + ")");
+                }
+            }
+            return String.join(", ", declared);
+        }
+        ColumnDef primaryKey = null;
+        for (ColumnDef column : columns) {
+            if (column.isPrimaryKey()) {
+                if (null != primaryKey) {
+                    throw new IllegalStateException("主键列不唯一: "
+                            + table.getName() + " -> " + column.getName());
+                }
+                primaryKey = column;
+            }
+        }
+        if (null == primaryKey) {
+            throw new IllegalStateException("表定义缺少主键列（公共列模板内建 field_id）: " + table.getName());
+        }
+        return primaryKey.getName();
+    }
 
     /**
      * 单列完整定义渲染：{列名} {类型} {可空与默认值} COMMENT '{注释}'，

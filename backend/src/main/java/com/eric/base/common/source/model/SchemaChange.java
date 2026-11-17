@@ -71,6 +71,9 @@ public class SchemaChange {
     /** ENGINE / CHARSET 与内建默认不一致（矩阵「ENGINE / CHARSET 与内建默认不一致」）：L2，无 DDL */
     public static final String ENGINE_CHARSET_DIFF = "ENGINE_CHARSET_DIFF";
 
+    /** 主键不一致（矩阵「实际主键（列集/顺序）与注解声明不一致」，F19-DOC-005 新增行）：L2，无 DDL，引擎永不修改主键 */
+    public static final String PRIMARY_KEY_MISMATCH = "PRIMARY_KEY_MISMATCH";
+
     /** managed 历史表失去标注（矩阵「managed 表失去标注」，疑似误删注解）：L2，无 DDL */
     public static final String MANAGED_ORPHAN_TABLE = "MANAGED_ORPHAN_TABLE";
 

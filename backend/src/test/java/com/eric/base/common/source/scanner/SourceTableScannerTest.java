@@ -32,9 +32,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * @author Eric
  * @date 2026/11/16
- * @description 覆盖任务 F19-BE-002 验收标准：§3.5 九条 fail-fast 规则逐条用例、
- *              公共列模板按基类内建（MainModel 审计五列 / BaseModel 仅主键）、
- *              字段重声明遮蔽（D5，子类定义入列 + Lombok 读写器覆盖父类实现）、
+ * @description 覆盖任务 F19-BE-002 验收标准：§3.5 fail-fast 规则逐条用例（九条 + F19-BE-011
+ *              补充的规则 10~12 主键列集声明）、公共列模板按基类内建（MainModel 审计五列 /
+ *              BaseModel 仅主键）及其 primaryKeyColumns 条件化（BaseModel + 非空声明 → 无
+ *              任何内建列）、字段重声明遮蔽（D5，子类定义入列 + Lombok 读写器覆盖父类实现）、
  *              进程内缓存与结果不可变。类发现经可注入的 parse / scan(List) 验证，
  *              不耦合 classpath 扫描行为（scan() 为薄发现层）。
  */
@@ -96,6 +97,18 @@ class SourceTableScannerTest {
 
         @ColumnField(name = "field_name", comment = "名称", type = ColumnType.STRING, length = 200)
         private String fieldName;
+    }
+
+    /** 主键列集声明成功桩（F19-DOC-005）：BaseModel + 组合主键声明，无内建列、全部列走业务列标注 */
+    @TableSource(name = "mock_scan_pk_declared", comment = "扫描测试声明主键表（BaseModel + 组合主键）",
+            primaryKeyColumns = {"field_user_id", "field_post_id"})
+    static class DeclaredPrimaryKeyEntity extends BaseModel {
+
+        @ColumnField(name = "field_user_id", comment = "人员ID", type = ColumnType.STRING, length = 32)
+        private String fieldUserId;
+
+        @ColumnField(name = "field_post_id", comment = "岗位ID", type = ColumnType.STRING, length = 32)
+        private String fieldPostId;
     }
 
     // ---------------------------------------------------------------- 扫描桩类（fail-fast 违例）
@@ -262,6 +275,51 @@ class SourceTableScannerTest {
         private Integer fieldName;
     }
 
+    /** 规则 10：primaryKeyColumns 声明列缺同名业务列 @ColumnField */
+    @TableSource(name = "mock_scan_pk_missing_col", comment = "规则 10 违例表",
+            primaryKeyColumns = {"field_missing"})
+    static class PrimaryKeyMissingColumnEntity extends BaseModel {
+    }
+
+    /** 规则 11：主键列 nullable=true */
+    @TableSource(name = "mock_scan_pk_nullable", comment = "规则 11 违例表",
+            primaryKeyColumns = {"field_remark"})
+    static class PrimaryKeyNullableEntity extends BaseModel {
+
+        @ColumnField(name = "field_remark", comment = "备注", type = ColumnType.STRING, length = 200, nullable = true)
+        private String fieldRemark;
+    }
+
+    /** 规则 12：MainModel + 非空 primaryKeyColumns（该属性仅 BaseModel 开放） */
+    @TableSource(name = "mock_scan_pk_main", comment = "规则 12 违例表",
+            primaryKeyColumns = {"field_code"})
+    static class PrimaryKeyOnMainModelEntity extends MainModel {
+
+        @ColumnField(name = "field_code", comment = "编码", type = ColumnType.STRING, length = 100)
+        private String fieldCode;
+    }
+
+    /** 规则 10 前置：声明列重复 */
+    @TableSource(name = "mock_scan_pk_dup", comment = "声明列重复违例表",
+            primaryKeyColumns = {"field_user_id", "field_user_id"})
+    static class DuplicatePrimaryKeyEntity extends BaseModel {
+
+        @ColumnField(name = "field_user_id", comment = "人员ID", type = ColumnType.STRING, length = 32)
+        private String fieldUserId;
+    }
+
+    /** 规则 10 前置：声明列名违反标识符正则 */
+    @TableSource(name = "mock_scan_pk_bad_name", comment = "声明列名违例表",
+            primaryKeyColumns = {"UserId"})
+    static class BadPrimaryKeyNameEntity extends BaseModel {
+    }
+
+    /** 规则 10 前置：声明列名缺 field_ 前缀 */
+    @TableSource(name = "mock_scan_pk_no_prefix", comment = "声明列名缺前缀违例表",
+            primaryKeyColumns = {"user_id"})
+    static class NoPrefixPrimaryKeyEntity extends BaseModel {
+    }
+
     /** 未标注 @TableSource（完整性校验） */
     static class PlainEntity {
     }
@@ -410,7 +468,7 @@ class SourceTableScannerTest {
                 "scan(List) 按表名升序输出，与入参顺序无关");
         assertEquals(first, second, "表名升序归一后结果一致");
 
-        TableDef extra = new TableDef("mock_scan_extra", "多余表", null, List.of(), List.of());
+        TableDef extra = new TableDef("mock_scan_extra", "多余表", null, List.of(), List.of(), List.of());
         assertThrows(UnsupportedOperationException.class, () -> first.add(extra), "扫描结果不可变");
         ColumnDef extraColumn = new ColumnDef("field_extra", "多余列", ColumnType.STRING, 1, 0,
                 false, null, DefaultFunction.NONE, false);
@@ -584,6 +642,70 @@ class SourceTableScannerTest {
                 () -> SourceTableScanner.parse(BadShadowChild.class));
         assertTrue(error.getMessage().contains("重声明字段类型与被遮蔽的父类字段不一致"));
         assertTrue(error.getMessage().contains("fieldName"));
+    }
+
+    // ---------------------------------------------------------------- 主键列集声明（F19-DOC-005 规则 10~12）
+
+    @Test
+    void declaredPrimaryKeyTemplateSkipsBuiltinColumns() {
+        TableDef table = SourceTableScanner.parse(DeclaredPrimaryKeyEntity.class);
+
+        assertEquals(List.of("field_user_id", "field_post_id"), table.getPrimaryKeyColumns(),
+                "声明主键列集保留原样（数组顺序即 PRIMARY KEY 列序）");
+        assertEquals(List.of("field_user_id", "field_post_id"),
+                table.getColumns().stream().map(ColumnDef::getName).toList(),
+                "BaseModel + 非空 primaryKeyColumns 无任何内建列（无 field_id、无审计列），全部列走业务列标注");
+        assertEquals(List.of("field_user_id", "field_post_id"), table.getEffectivePrimaryKeyColumns(),
+                "有效主键 = 声明列集（声明序）");
+        assertFalse(table.getColumns().stream().anyMatch(ColumnDef::isPrimaryKey),
+                "声明主键列仍为业务列（primaryKey 标记仅公共列模板内建 field_id 专用）");
+        ColumnDef userId = table.getColumns().get(0);
+        assertFalse(userId.isNullable(), "主键列必须 nullable=false（规则 11）");
+        assertEquals(ColumnType.STRING, userId.getType());
+        assertEquals(32, userId.getLength());
+    }
+
+    @Test
+    void declaredPrimaryKeyMissingBusinessColumnFailsFast() {
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> SourceTableScanner.parse(PrimaryKeyMissingColumnEntity.class));
+        assertTrue(error.getMessage().contains("primaryKeyColumns 声明列必须是该表业务列集合的子集"));
+        assertTrue(error.getMessage().contains("field_missing"), "提示缺失的声明列");
+    }
+
+    @Test
+    void declaredPrimaryKeyNullableColumnFailsFast() {
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> SourceTableScanner.parse(PrimaryKeyNullableEntity.class));
+        assertTrue(error.getMessage().contains("primaryKeyColumns 主键列必须 nullable=false"));
+        assertTrue(error.getMessage().contains("field_remark"));
+    }
+
+    @Test
+    void declaredPrimaryKeyOnMainModelFailsFast() {
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> SourceTableScanner.parse(PrimaryKeyOnMainModelEntity.class));
+        assertTrue(error.getMessage().contains("primaryKeyColumns 仅 BaseModel 开放"));
+    }
+
+    @Test
+    void duplicateDeclaredPrimaryKeyFailsFast() {
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> SourceTableScanner.parse(DuplicatePrimaryKeyEntity.class));
+        assertTrue(error.getMessage().contains("primaryKeyColumns 声明列重复"));
+        assertTrue(error.getMessage().contains("field_user_id"));
+    }
+
+    @Test
+    void declaredPrimaryKeyNameViolationsFailFast() {
+        IllegalStateException badIdentifier = assertThrows(IllegalStateException.class,
+                () -> SourceTableScanner.parse(BadPrimaryKeyNameEntity.class));
+        assertTrue(badIdentifier.getMessage().contains("列名不符合标识符规范 [a-z][a-z0-9_]*"),
+                "声明列名不符合命名规则走既有列名校验通道");
+        IllegalStateException noPrefix = assertThrows(IllegalStateException.class,
+                () -> SourceTableScanner.parse(NoPrefixPrimaryKeyEntity.class));
+        assertTrue(noPrefix.getMessage().contains("列名必须以 field_ 为前缀"),
+                "声明列名缺 field_ 前缀走既有列名校验通道");
     }
 
     // ---------------------------------------------------------------- 完整性

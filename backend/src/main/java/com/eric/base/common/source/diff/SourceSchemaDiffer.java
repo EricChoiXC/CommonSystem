@@ -49,8 +49,9 @@ import java.util.stream.Collectors;
  *              归一模型，单测直接构造两侧对象驱动。</p>
  *              <p>语义矩阵（§4.3）逐行落地：缺失表/列/索引、VARCHAR 扩长、DECIMAL 精度
  *              提升、默认值变更（含 ON UPDATE 子句）、列/表 COMMENT 变更 → L1；
- *              可空收紧、孤儿列、索引差异、多余索引、ENGINE/CHARSET 不一致、managed
- *              孤儿表 → L2；长度收窄/类型不兼容、同表缺失列+孤儿列疑似改名 → L3。
+ *              可空收紧、孤儿列、索引差异、多余索引、ENGINE/CHARSET 不一致、主键不一致
+ *              （实际主键列集/顺序与有效主键不符，F19-DOC-005 新增行，引擎永不修改主键）、
+ *              managed 孤儿表 → L2；长度收窄/类型不兼容、同表缺失列+孤儿列疑似改名 → L3。
  *              类型映射（注解 ColumnType ↔ 实际 DATA_TYPE）：STRING↔varchar、TEXT↔text、
  *              INT↔int、BIGINT↔bigint、DECIMAL↔decimal（比 NUMERIC_PRECISION/SCALE）、
  *              BOOLEAN↔bit（COLUMN_TYPE 比对 bit(1)）、DATE↔date、DATETIME↔datetime、
@@ -102,7 +103,8 @@ public class SourceSchemaDiffer {
     /** 内建 CHARSET 默认（collation 前缀比对） */
     private static final String DEFAULT_CHARSET = "utf8mb4";
 
-    /** 主键索引名（STATISTICS 中跳过，公共列模板内建 field_id 由 ColumnDef#primaryKey 表达） */
+    /** 主键索引名（STATISTICS 中主键读取源：PRIMARY 行按 SEQ_IN_INDEX 排序取列集，F19-DOC-005；
+     *  PRIMARY 不进二级索引比对范围——不参与缺失/多余索引比对） */
     private static final String PRIMARY_INDEX = "PRIMARY";
 
     /** BTREE 索引类型（注解侧唯一合法类型） */
@@ -203,6 +205,9 @@ public class SourceSchemaDiffer {
         }
         // ENGINE / CHARSET 与内建默认不一致（矩阵 L2）
         compareEngineAndCharset(expected, actual, changes);
+        // 主键比对（矩阵「实际主键（列集/顺序）与注解声明不一致」，F19-DOC-005 新增行）：
+        // L2 告警不执行（引擎永不修改主键）
+        comparePrimaryKey(expected, actual, changes);
         // 列比对：缺失列收集后统一产出（改名检测需要全量清单）
         Map<String, ActualColumn> actualColumns = new HashMap<>();
         for (ActualColumn column : actual.getColumns()) {
@@ -372,6 +377,24 @@ public class SourceSchemaDiffer {
     }
 
     /**
+     * 主键比对（矩阵「实际主键（列集/顺序）与注解声明不一致」L2，F19-DOC-005 新增行）：
+     * 实际主键列集或顺序与有效主键（注解声明非空用声明集、缺省公共列模板内建 field_id）
+     * 不一致时仅告警，无 DDL——引擎永不修改主键（任何模式仅告警不执行），改主键走人工 SQL；
+     * 缺省表实际主键仍为 field_id 时不产变更
+     */
+    private void comparePrimaryKey(TableDef expected, ActualTable actual, List<SchemaChange> changes) {
+        List<String> annotated = expected.getEffectivePrimaryKeyColumns();
+        List<String> running = actual.getPrimaryKeyColumns();
+        if (running.equals(annotated)) {
+            return;
+        }
+        changes.add(new SchemaChange(ChangeLevel.L2, SchemaChange.PRIMARY_KEY_MISMATCH, expected.getName(),
+                null, null, "主键不一致：注解 (" + String.join(", ", annotated) + ") ↔ 实际 ("
+                + String.join(", ", running) + ")，引擎永不修改主键（任何模式仅告警不执行），请以人工 SQL 处置",
+                null));
+    }
+
+    /**
      * 单索引比对（矩阵「索引定义差异」L2）：列集（组合索引按序）/ 唯一性 / 类型逐项核对，
      * 重建 = 删 + 加，引擎不自动执行
      */
@@ -442,7 +465,8 @@ public class SourceSchemaDiffer {
 
     /**
      * 三源行组装：TABLES 行建表元数据、COLUMNS 行按 ORDINAL_POSITION 挂列、STATISTICS 行
-     * 聚合索引（PRIMARY 跳过、SEQ_IN_INDEX 排序），产出表名 → ActualTable
+     * 聚合索引（PRIMARY 跳过、SEQ_IN_INDEX 排序）与主键列集（PRIMARY 行按 SEQ_IN_INDEX
+     * 排序，F19-DOC-005 主键读取源），产出表名 → ActualTable
      *
      * @param tableRows  TABLES 查询行
      * @param columnRows COLUMNS 查询行
@@ -471,18 +495,20 @@ public class SourceSchemaDiffer {
             }
         }
         Map<String, List<ActualIndex>> indexesByTable = groupIndexRows(indexRows);
+        Map<String, List<String>> primaryKeysByTable = groupPrimaryKeyRows(indexRows);
         Map<String, ActualTable> tables = new LinkedHashMap<>();
         for (Map.Entry<String, ActualTable> entry : metas.entrySet()) {
             ActualTable meta = entry.getValue();
             tables.put(entry.getKey(), new ActualTable(meta.getName(), meta.getEngine(), meta.getTableComment(),
                     meta.getTableCollation(), columnsByTable.get(entry.getKey()),
-                    indexesByTable.getOrDefault(entry.getKey(), List.of())));
+                    indexesByTable.getOrDefault(entry.getKey(), List.of()),
+                    primaryKeysByTable.getOrDefault(entry.getKey(), List.of())));
         }
         return tables;
     }
 
     /**
-     * TABLES 行 → 表元数据 ActualTable（columns / indexes 待组装，占位空清单）
+     * TABLES 行 → 表元数据 ActualTable（columns / indexes / 主键待组装，占位空清单）
      */
     static ActualTable mapTableRow(Map<String, Object> row) {
         String name = str(row, "TABLE_NAME");
@@ -490,7 +516,34 @@ public class SourceSchemaDiffer {
             return null;
         }
         return new ActualTable(name, str(row, "ENGINE"), str(row, "TABLE_COMMENT"),
-                str(row, "TABLE_COLLATION"), List.of(), List.of());
+                str(row, "TABLE_COLLATION"), List.of(), List.of(), List.of());
+    }
+
+    /**
+     * STATISTICS 行聚合 → 表名 → 主键列集（F19-DOC-005 主键读取源）：INDEX_NAME='PRIMARY'
+     * 行按 SEQ_IN_INDEX 升序拼主键列（与既有索引三源读取同一通道）；无 PRIMARY 行的表
+     * 不入 Map（无主键表归一为空集）
+     */
+    static Map<String, List<String>> groupPrimaryKeyRows(List<Map<String, Object>> rows) {
+        Map<String, List<Map<String, Object>>> grouped = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            String tableName = str(row, "TABLE_NAME");
+            String indexName = str(row, "INDEX_NAME");
+            if (null == tableName || null == indexName || !PRIMARY_INDEX.equalsIgnoreCase(indexName)) {
+                continue;
+            }
+            grouped.computeIfAbsent(tableName, key -> new ArrayList<>()).add(row);
+        }
+        Map<String, List<String>> result = new HashMap<>();
+        for (Map.Entry<String, List<Map<String, Object>>> entry : grouped.entrySet()) {
+            List<Map<String, Object>> primaryKeyRows = entry.getValue();
+            primaryKeyRows.sort(Comparator.comparingInt(row -> {
+                Integer seq = num(row, "SEQ_IN_INDEX");
+                return null == seq ? Integer.MAX_VALUE : seq;
+            }));
+            result.put(entry.getKey(), primaryKeyRows.stream().map(row -> str(row, "COLUMN_NAME")).toList());
+        }
+        return result;
     }
 
     /**

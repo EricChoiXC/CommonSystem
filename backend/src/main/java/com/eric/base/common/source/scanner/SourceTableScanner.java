@@ -39,17 +39,23 @@ import java.util.regex.Pattern;
  *              <p>公共列模板按基类内建（设计方案 §3.3，不开放标注）：BaseModel → 仅
  *              field_id 主键固定最前；MainModel → field_id + 审计五列固定最后。列清单 =
  *              内建主键（最前）+ 显式标注业务列（沿类层级声明序，子类先于父类，单类内
- *              依 getDeclaredFields 返回序即 javac 声明序）+ 内建审计列（最后）。</p>
+ *              依 getDeclaredFields 返回序即 javac 声明序）+ 内建审计列（最后）。
+ *              公共列模板条件化（F19-DOC-005 补充评审裁决）：@TableSource.primaryKeyColumns
+ *              非空时 BaseModel 无任何内建列（含 field_id），全部列（含主键列）走业务列
+ *              标注；MainModel 不开放该属性（非空一律 fail-fast）。</p>
  *              <p>MainModel 的 fieldName / fieldCode 属业务列、不入模板（D5）：需要入列的
  *              实体在子类重声明同名字段并标注 {@link ColumnField}（字段遮蔽 + Lombok 读写器
  *              覆盖父类实现），子类重声明只取子类定义、父类同名字段不再入列，重声明 Java
  *              类型须与被遮蔽的父类字段一致。</p>
- *              <p>fail-fast 校验清单（设计方案 §3.5 九条）逐条落地，违例抛
+ *              <p>fail-fast 校验清单（设计方案 §3.5 十二条）逐条落地，违例抛
  *              IllegalStateException 阻断启动：1 标识符正则与 field_ 前缀；2 表名全局唯一 /
  *              列名表内唯一 / 索引名表内唯一；3 comment 必填非空；4 STRING / DECIMAL 显式
  *              length ≥ 1；5 defaultValue 与 defaultFunction 互斥 + 字面量粗校验；6 索引列
  *              ⊆ 表列集合（含内建列）；7 必须继承 BaseModel / MainModel；8 禁止标注
- *              static / synthetic 字段；9 重声明字段类型一致。</p>
+ *              static / synthetic 字段；9 重声明字段类型一致；10 primaryKeyColumns 非空时
+ *              声明列集 ⊆ 该表业务列集合（声明列名先走既有列名校验通道、声明列不得重复）；
+ *              11 primaryKeyColumns 非空时主键列 nullable=false；12 primaryKeyColumns 非空
+ *              且基类为 MainModel fail-fast（该属性仅 BaseModel 开放）。</p>
  */
 public final class SourceTableScanner {
 
@@ -156,7 +162,7 @@ public final class SourceTableScanner {
     }
 
     /**
-     * 逐类归一：fail-fast 校验（§3.5 九条）+ 公共列模板内建 + 索引归一
+     * 逐类归一：fail-fast 校验（§3.5 十二条）+ 公共列模板条件化内建 + 索引归一
      */
     private static TableDef doParse(Class<?> clazz) {
         TableSource tableSource = clazz.getAnnotation(TableSource.class);
@@ -166,6 +172,31 @@ public final class SourceTableScanner {
         if (!BaseModel.class.isAssignableFrom(clazz)) {
             // 规则 7：标注类必须继承 BaseModel / MainModel（决定公共列模板）
             throw new IllegalStateException("标注类必须继承 BaseModel/MainModel: " + clazz.getName());
+        }
+        // 主键列集声明（F19-DOC-005）：声明原样保留，数组顺序即 PRIMARY KEY 列序
+        List<String> declaredPrimaryKeys = List.of(tableSource.primaryKeyColumns());
+        boolean explicitPrimaryKey = !declaredPrimaryKeys.isEmpty();
+        if (explicitPrimaryKey && MainModel.class.isAssignableFrom(clazz)) {
+            // 规则 12：primaryKeyColumns 仅 BaseModel 开放（MainModel + 非空 fail-fast）
+            throw new IllegalStateException("primaryKeyColumns 仅 BaseModel 开放（MainModel 不支持主键列集声明）: "
+                    + clazz.getName());
+        }
+        Set<String> declaredSeen = new HashSet<>();
+        for (String primaryKeyColumn : declaredPrimaryKeys) {
+            if (!IDENTIFIER_PATTERN.matcher(primaryKeyColumn).matches()) {
+                // 规则 10 前置：声明列名为空/不符合命名规则走既有列名校验通道（规则 1）
+                throw new IllegalStateException("列名不符合标识符规范 [a-z][a-z0-9_]*: " + primaryKeyColumn
+                        + " (primaryKeyColumns, " + clazz.getName() + ")");
+            }
+            if (!primaryKeyColumn.startsWith(COLUMN_PREFIX)) {
+                throw new IllegalStateException("列名必须以 field_ 为前缀: " + primaryKeyColumn
+                        + " (primaryKeyColumns, " + clazz.getName() + ")");
+            }
+            if (!declaredSeen.add(primaryKeyColumn)) {
+                // 规则 10 前置：声明列不得重复
+                throw new IllegalStateException("primaryKeyColumns 声明列重复: " + primaryKeyColumn
+                        + " (" + clazz.getName() + ")");
+            }
         }
         if (!IDENTIFIER_PATTERN.matcher(tableSource.name()).matches()) {
             // 规则 1：表名标识符正则
@@ -179,9 +210,12 @@ public final class SourceTableScanner {
         DataSource dataSource = clazz.getAnnotation(DataSource.class);
         String dataSourceName = null == dataSource ? null : dataSource.name();
 
-        // 公共列模板（§3.3）：内建列名先占位，业务列与内建列同名即规则 2 违例
+        // 公共列模板（§3.3 条件化）：primaryKeyColumns 非空时 BaseModel 无任何内建列（含
+        // field_id），全部列走业务列标注；缺省时内建列名先占位，业务列与内建列同名即规则 2 违例
         Set<String> columnNames = new HashSet<>();
-        columnNames.add(PRIMARY_KEY_COLUMN);
+        if (!explicitPrimaryKey) {
+            columnNames.add(PRIMARY_KEY_COLUMN);
+        }
         List<ColumnDef> auditColumns = MainModel.class.isAssignableFrom(clazz) ? builtinAuditColumns() : List.of();
         for (ColumnDef audit : auditColumns) {
             columnNames.add(audit.getName());
@@ -216,9 +250,31 @@ public final class SourceTableScanner {
             }
         }
 
-        // 列清单 = 内建主键（最前）+ 业务列（声明序）+ 内建审计列（最后）
+        if (explicitPrimaryKey) {
+            // 规则 10/11：声明列集 ⊆ 该表业务列集合（每个主键列都有同名 @ColumnField 业务列标注）、
+            // 每个主键列 nullable 必须为 false
+            Map<String, ColumnDef> businessColumnsByName = new HashMap<>();
+            for (ColumnDef business : businessColumns) {
+                businessColumnsByName.put(business.getName(), business);
+            }
+            for (String primaryKeyColumn : declaredPrimaryKeys) {
+                ColumnDef business = businessColumnsByName.get(primaryKeyColumn);
+                if (null == business) {
+                    throw new IllegalStateException("primaryKeyColumns 声明列必须是该表业务列集合的子集: "
+                            + primaryKeyColumn + " (" + clazz.getName() + ")");
+                }
+                if (business.isNullable()) {
+                    throw new IllegalStateException("primaryKeyColumns 主键列必须 nullable=false: "
+                            + primaryKeyColumn + " (" + clazz.getName() + ")");
+                }
+            }
+        }
+
+        // 列清单 = 内建主键（最前，primaryKeyColumns 非空时省略）+ 业务列（声明序）+ 内建审计列（最后）
         List<ColumnDef> columns = new ArrayList<>(1 + businessColumns.size() + auditColumns.size());
-        columns.add(builtinFieldId());
+        if (!explicitPrimaryKey) {
+            columns.add(builtinFieldId());
+        }
         columns.addAll(businessColumns);
         columns.addAll(auditColumns);
 
@@ -246,7 +302,8 @@ public final class SourceTableScanner {
             }
             indexes.add(new IndexDef(index.name(), List.of(index.columns()), index.unique(), index.type()));
         }
-        return new TableDef(tableSource.name(), tableSource.comment(), dataSourceName, columns, indexes);
+        return new TableDef(tableSource.name(), tableSource.comment(), dataSourceName, columns, indexes,
+                declaredPrimaryKeys);
     }
 
     /**

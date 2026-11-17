@@ -73,10 +73,11 @@ class SourceSchemaExportToolParseTest {
                 col("field_enable", "bit(1)", false, "b'1'", "", "是否启用", null, null, null));
     }
 
-    /** 实际表构造 */
+    /** 实际表构造（主键缺省 field_id 单列，与公共列模板一致） */
     private static ActualTable table(String name, String comment, List<ActualColumn> columns,
                                      List<ActualIndex> indexes) {
-        return new ActualTable(name, "InnoDB", comment, "utf8mb4_0900_ai_ci", columns, indexes);
+        return new ActualTable(name, "InnoDB", comment, "utf8mb4_0900_ai_ci", columns, indexes,
+                List.of("field_id"));
     }
 
     /** 实际索引构造 */

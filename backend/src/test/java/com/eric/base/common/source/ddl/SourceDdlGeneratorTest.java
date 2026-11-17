@@ -35,7 +35,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *              ALTER COLUMN SET DEFAULT（字面量 + 函数式）/ ALTER COMMENT / ADD INDEX
  *              各语句文本断言；标识符白名单与原样输出字面量白名单 fail-fast（防御纵深）；
  *              TEXT/JSON 禁默认值、ON UPDATE 非 TIMESTAMP、无默认值 SET DEFAULT 等
- *              违例 fail-fast；COMMENT 与字符串字面量单引号转义。
+ *              违例 fail-fast；COMMENT 与字符串字面量单引号转义。补充 F19-BE-011：
+ *              primaryKeyColumns 声明主键列集——组合主键建表 DDL 与 V1_01_001
+ *              sys_org_post_user 脚本段整段文本等价、单列非 field_id 主键、声明列集
+ *              子集/重复/白名单防御 fail-fast。
  */
 class SourceDdlGeneratorTest {
 
@@ -85,6 +88,34 @@ class SourceDdlGeneratorTest {
         private String fieldRemark;
     }
 
+    /**
+     * 组合主键桩（F19-DOC-005）：注解定义与 V1_01_001 sys_org_post_user 建表脚本逐列一致
+     * （BaseModel + primaryKeyColumns 复合主键声明 + 二级索引，主键列以业务列标注）
+     */
+    @TableSource(name = "sys_org_post_user", comment = "岗位-人员关联表",
+            primaryKeyColumns = {"field_user_id", "field_post_id"},
+            indexes = @TableIndex(name = "idx_post_user_post", columns = "field_post_id"))
+    static class SysOrgPostUserEntity extends BaseModel {
+
+        @ColumnField(name = "field_user_id", comment = "人员ID", type = ColumnType.STRING, length = 32)
+        private String fieldUserId;
+
+        @ColumnField(name = "field_post_id", comment = "岗位ID", type = ColumnType.STRING, length = 32)
+        private String fieldPostId;
+    }
+
+    /** 单列非 field_id 主键桩（F19-DOC-005）：BaseModel + 单列主键声明 */
+    @TableSource(name = "mock_ddl_single_pk", comment = "DDL 生成测试单列主键表（BaseModel + 单列主键声明）",
+            primaryKeyColumns = {"field_user_id"})
+    static class SinglePrimaryKeyEntity extends BaseModel {
+
+        @ColumnField(name = "field_user_id", comment = "人员ID", type = ColumnType.STRING, length = 32)
+        private String fieldUserId;
+
+        @ColumnField(name = "field_remark", comment = "备注", type = ColumnType.STRING, length = 200, nullable = true)
+        private String fieldRemark;
+    }
+
     // ---------------------------------------------------------------- 基线常量与工具
 
     /** V1_01_046 sys_datasource 建表语句原文（验收基线；比对时空白归一化并去掉结尾分号） */
@@ -130,7 +161,7 @@ class SourceDdlGeneratorTest {
 
     /** 最小表定义构造（仅主键，供 ALTER 语句文本断言） */
     private static TableDef table(String name) {
-        return new TableDef(name, "DDL 生成测试表", null, List.of(primaryKey()), List.of());
+        return new TableDef(name, "DDL 生成测试表", null, List.of(primaryKey()), List.of(), List.of());
     }
 
     // ---------------------------------------------------------------- CREATE TABLE 等价基线
@@ -269,7 +300,7 @@ class SourceDdlGeneratorTest {
 
     @Test
     void alterTableCommentRendersSetComment() {
-        TableDef table = new TableDef("mock_ddl_table", "新表注释", null, List.of(primaryKey()), List.of());
+        TableDef table = new TableDef("mock_ddl_table", "新表注释", null, List.of(primaryKey()), List.of(), List.of());
         assertEquals("ALTER TABLE mock_ddl_table COMMENT='新表注释'",
                 SourceDdlGenerator.alterTableComment(table), "表 COMMENT 取 TableDef 携带的最新注释");
     }
@@ -281,7 +312,7 @@ class SourceDdlGeneratorTest {
                         column("field_code", "编码", ColumnType.STRING, 100, 0, false, null, DefaultFunction.NONE),
                         column("field_name", "名称", ColumnType.STRING, 200, 0, false, null, DefaultFunction.NONE),
                         column("field_enable", "是否启用", ColumnType.BOOLEAN, 0, 0, false, "b'1'", DefaultFunction.NONE)),
-                List.of());
+                List.of(), List.of());
         assertEquals("ALTER TABLE mock_ddl_table ADD UNIQUE INDEX uk_mock_code (field_code)",
                 SourceDdlGenerator.addIndex(table, new IndexDef("uk_mock_code", List.of("field_code"), true, IndexType.BTREE)),
                 "唯一索引用 ADD UNIQUE INDEX");
@@ -324,7 +355,7 @@ class SourceDdlGeneratorTest {
 
     @Test
     void identifierViolationsFailFast() {
-        TableDef badTable = new TableDef("Mock_Table", "违例表名", null, List.of(primaryKey()), List.of());
+        TableDef badTable = new TableDef("Mock_Table", "违例表名", null, List.of(primaryKey()), List.of(), List.of());
         assertThrows(IllegalStateException.class, () -> SourceDdlGenerator.createTable(badTable), "表名违例");
         assertThrows(IllegalStateException.class, () -> SourceDdlGenerator.alterTableComment(badTable), "表名违例（入口全覆盖）");
 
@@ -347,7 +378,7 @@ class SourceDdlGeneratorTest {
 
         TableDef badColumnTable = new TableDef("mock_ddl_table", "DDL 生成测试表", null,
                 List.of(primaryKey(), column("Bad_Column", "违例列", ColumnType.STRING, 32, 0, false, null, DefaultFunction.NONE)),
-                List.of());
+                List.of(), List.of());
         assertThrows(IllegalStateException.class, () -> SourceDdlGenerator.createTable(badColumnTable),
                 "CREATE TABLE 内列名违例");
     }
@@ -398,12 +429,12 @@ class SourceDdlGeneratorTest {
     void createTableRequiresSinglePrimaryKey() {
         TableDef noPk = new TableDef("mock_ddl_table", "DDL 生成测试表", null,
                 List.of(column("field_remark", "备注", ColumnType.STRING, 100, 0, false, null, DefaultFunction.NONE)),
-                List.of());
+                List.of(), List.of());
         assertThrows(IllegalStateException.class, () -> SourceDdlGenerator.createTable(noPk), "缺少主键列");
         TableDef twoPk = new TableDef("mock_ddl_table", "DDL 生成测试表", null,
                 List.of(primaryKey(), new ColumnDef("field_dup", "重复主键", ColumnType.STRING, 32, 0,
                         false, null, DefaultFunction.NONE, true)),
-                List.of());
+                List.of(), List.of());
         assertThrows(IllegalStateException.class, () -> SourceDdlGenerator.createTable(twoPk), "主键列不唯一");
     }
 
@@ -418,8 +449,81 @@ class SourceDdlGeneratorTest {
                 SourceDdlGenerator.alterColumnDefault(table,
                         column("field_status", "状态", ColumnType.STRING, 50, 0, false, "It's ok", DefaultFunction.NONE)),
                 "字符串字面量单引号成对转义");
-        TableDef quotedTable = new TableDef("mock_ddl_table", "含'引号'注释", null, List.of(primaryKey()), List.of());
+        TableDef quotedTable = new TableDef("mock_ddl_table", "含'引号'注释", null, List.of(primaryKey()), List.of(), List.of());
         assertEquals("ALTER TABLE mock_ddl_table COMMENT='含''引号''注释'",
                 SourceDdlGenerator.alterTableComment(quotedTable), "表 COMMENT 单引号成对转义");
+    }
+
+    // ---------------------------------------------------------------- 声明主键列集（F19-DOC-005）
+
+    /** V1_01_001 sys_org_post_user 建表语句原文（比对时空白归一化并去掉结尾分号） */
+    private static final String V1_01_001_SYS_ORG_POST_USER_DDL = """
+            CREATE TABLE IF NOT EXISTS sys_org_post_user (
+                field_user_id VARCHAR(32) NOT NULL COMMENT '人员ID',
+                field_post_id VARCHAR(32) NOT NULL COMMENT '岗位ID',
+                PRIMARY KEY (field_user_id, field_post_id),
+                KEY idx_post_user_post (field_post_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='岗位-人员关联表';
+            """;
+
+    @Test
+    void createTableCompositePrimaryKeyMatchesV1_01_001Baseline() {
+        TableDef table = SourceTableScanner.parse(SysOrgPostUserEntity.class);
+        String normalized = normalize(SourceDdlGenerator.createTable(table));
+
+        // 核心验收：空白归一化后与 V1_01_001 sys_org_post_user 建表语句整段逐字等价
+        assertEquals(normalize(V1_01_001_SYS_ORG_POST_USER_DDL), normalized,
+                "组合主键建表 DDL 与 V1_01_001 脚本段整段等价（无内建列、主键列以业务列标注）");
+
+        // 语义片段逐一断言：组合主键按声明序渲染、位于列定义之后二级索引之前
+        List<String> fragments = List.of(
+                "field_user_id VARCHAR(32) NOT NULL COMMENT '人员ID'",
+                "field_post_id VARCHAR(32) NOT NULL COMMENT '岗位ID'",
+                "PRIMARY KEY (field_user_id, field_post_id)",
+                "KEY idx_post_user_post (field_post_id)");
+        int position = -1;
+        for (String fragment : fragments) {
+            int found = normalized.indexOf(fragment);
+            assertTrue(found >= 0, "缺失语义片段: " + fragment);
+            assertTrue(found > position, "列序/主键/索引序错位: " + fragment);
+            position = found;
+        }
+        assertFalse(normalized.contains("field_id"), "primaryKeyColumns 非空时引擎不再内建 field_id");
+        assertTrue(normalized.endsWith(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='岗位-人员关联表'"));
+    }
+
+    @Test
+    void createTableSingleNonFieldIdPrimaryKey() {
+        TableDef table = SourceTableScanner.parse(SinglePrimaryKeyEntity.class);
+        String normalized = normalize(SourceDdlGenerator.createTable(table));
+
+        assertTrue(normalized.contains("PRIMARY KEY (field_user_id)"),
+                "单列非 field_id 主键按声明渲染: " + normalized);
+        assertFalse(normalized.contains("PRIMARY KEY (field_id)"), "不再渲染内建 field_id 主键");
+        assertTrue(normalized.contains("field_user_id VARCHAR(32) NOT NULL COMMENT '人员ID'"));
+        assertTrue(normalized.contains("field_remark VARCHAR(200) DEFAULT NULL COMMENT '备注'"));
+        assertTrue(normalized.endsWith(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                + " COMMENT='DDL 生成测试单列主键表（BaseModel + 单列主键声明）'"));
+    }
+
+    @Test
+    void declaredPrimaryKeyViolationsFailFast() {
+        // 声明主键列不在表列集合（防御纵深，对齐扫描器规则 10）
+        TableDef unknownColumn = new TableDef("mock_ddl_table", "DDL 生成测试表", null,
+                List.of(primaryKey()), List.of(), List.of("field_not_exists"));
+        assertThrows(IllegalStateException.class, () -> SourceDdlGenerator.createTable(unknownColumn),
+                "声明主键列必须是该表列集合的子集");
+
+        // 声明主键列重复（防御纵深）
+        TableDef duplicated = new TableDef("mock_ddl_table", "DDL 生成测试表", null,
+                List.of(primaryKey(), column("field_remark", "备注", ColumnType.STRING, 100, 0, true, null, DefaultFunction.NONE)),
+                List.of(), List.of("field_remark", "field_remark"));
+        assertThrows(IllegalStateException.class, () -> SourceDdlGenerator.createTable(duplicated), "声明主键列不得重复");
+
+        // 声明主键列名违反标识符正则（注入面收口）
+        TableDef badName = new TableDef("mock_ddl_table", "DDL 生成测试表", null,
+                List.of(primaryKey()), List.of(), List.of("field_id; DROP TABLE x"));
+        assertThrows(IllegalStateException.class, () -> SourceDdlGenerator.createTable(badName),
+                "声明主键列名过白名单");
     }
 }

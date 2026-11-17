@@ -37,7 +37,10 @@ import static org.mockito.Mockito.when;
  *              检测（同表缺失列 + 孤儿列 → L3）；managed 孤儿表告警；「永不 DROP/RENAME」
  *              对全部产出变更遍历断言；稳定排序（两次比对结果一致）。比对核心为纯函数
  *              （verifyNoInteractions 断言不触库）；information_schema 读取层以模拟行驱动
- *              assemble 归一 + SQL 文本断言，全类不连 MySQL。
+ *              assemble 归一 + SQL 文本断言，全类不连 MySQL。补充 F19-BE-011：矩阵新行
+ *              「实际主键（列集/顺序）与注解声明不一致」→ L2 PRIMARY_KEY_MISMATCH 仅告警
+ *              不执行（引擎永不修改主键）；实际主键读取源 = STATISTICS PRIMARY 行按
+ *              SEQ_IN_INDEX 排序；PRIMARY 不落入缺失/多余索引比对。
  */
 class SourceSchemaDifferTest {
 
@@ -62,7 +65,7 @@ class SourceSchemaDifferTest {
         List<ColumnDef> columns = new ArrayList<>();
         columns.add(primaryKey());
         columns.addAll(businessColumns);
-        return new TableDef(TABLE, "diff 比对测试表", null, columns, indexes);
+        return new TableDef(TABLE, "diff 比对测试表", null, columns, indexes, List.of());
     }
 
     private static TableDef annotated(List<ColumnDef> businessColumns) {
@@ -74,7 +77,13 @@ class SourceSchemaDifferTest {
         List<ColumnDef> columns = new ArrayList<>();
         columns.add(primaryKey());
         columns.addAll(businessColumns);
-        return new TableDef(TABLE, comment, null, columns, indexes);
+        return new TableDef(TABLE, comment, null, columns, indexes, List.of());
+    }
+
+    /** 注解侧表构造（primaryKeyColumns 声明主键列集，F19-DOC-005）：列 = 业务列，有效主键 = 声明集 */
+    private static TableDef annotatedWithDeclaredPrimaryKey(List<String> primaryKeyColumns,
+                                                            List<ColumnDef> columns, List<IndexDef> indexes) {
+        return new TableDef(TABLE, "diff 比对测试表", null, columns, indexes, primaryKeyColumns);
     }
 
     /** 实际列全字段构造 */
@@ -97,9 +106,16 @@ class SourceSchemaDifferTest {
         return actualColumn("field_id", "varchar", "varchar(32)", false, null, "", "主键ID", 32, null, null);
     }
 
-    /** 实际表构造：ENGINE/CHARSET/COMMENT 与注解侧一致（无差异基线） */
+    /** 实际表构造：ENGINE/CHARSET/COMMENT 与注解侧一致（无差异基线），主键缺省 field_id */
     private static ActualTable actual(List<ActualColumn> columns, List<ActualIndex> indexes) {
-        return new ActualTable(TABLE, "InnoDB", "diff 比对测试表", "utf8mb4_0900_ai_ci", columns, indexes);
+        return actual(columns, List.of("field_id"), indexes);
+    }
+
+    /** 实际表构造（显式主键列集，F19-DOC-005） */
+    private static ActualTable actual(List<ActualColumn> columns, List<String> primaryKeyColumns,
+                                      List<ActualIndex> indexes) {
+        return new ActualTable(TABLE, "InnoDB", "diff 比对测试表", "utf8mb4_0900_ai_ci",
+                columns, indexes, primaryKeyColumns);
     }
 
     private static ActualTable actual(List<ActualColumn> columns) {
@@ -555,7 +571,8 @@ class SourceSchemaDifferTest {
         TableDef expected = annotated(List.of(
                 column("field_name", "名称", ColumnType.STRING, 200, 0, false, null, DefaultFunction.NONE)));
         ActualTable both = new ActualTable(TABLE, "MyISAM", "diff 比对测试表", "latin1_swedish_ci",
-                List.of(actualFieldId(), actualVarchar("field_name", "名称", 200, false, null)), List.of());
+                List.of(actualFieldId(), actualVarchar("field_name", "名称", 200, false, null)),
+                List.of(), List.of("field_id"));
         List<SchemaChange> changes = differ.compare(expected, both);
 
         SchemaChange change = single(changes, SchemaChange.ENGINE_CHARSET_DIFF);
@@ -565,10 +582,92 @@ class SourceSchemaDifferTest {
                 "ENGINE 与 CHARSET 合并为一条告警: " + change.getDetail());
 
         ActualTable engineOnly = new ActualTable(TABLE, "MyISAM", "diff 比对测试表", "utf8mb4_0900_ai_ci",
-                List.of(actualFieldId(), actualVarchar("field_name", "名称", 200, false, null)), List.of());
+                List.of(actualFieldId(), actualVarchar("field_name", "名称", 200, false, null)),
+                List.of(), List.of("field_id"));
         SchemaChange engine = single(differ.compare(expected, engineOnly), SchemaChange.ENGINE_CHARSET_DIFF);
         assertTrue(engine.getDetail().contains("ENGINE=MyISAM"));
         assertFalse(engine.getDetail().contains("CHARSET"), "CHARSET 一致时不进明细");
+    }
+
+    // ---------------------------------------------------------------- 矩阵新行：主键不一致（F19-DOC-005，任何模式仅告警不执行）
+
+    @Test
+    void primaryKeyOrderMismatchProducesWarnWithoutDdl() {
+        SourceSchemaDiffer differ = differ(mock(JdbcTemplate.class));
+        TableDef expected = annotatedWithDeclaredPrimaryKey(
+                List.of("field_user_id", "field_post_id"),
+                List.of(column("field_user_id", "人员ID", ColumnType.STRING, 32, 0, false, null, DefaultFunction.NONE),
+                        column("field_post_id", "岗位ID", ColumnType.STRING, 32, 0, false, null, DefaultFunction.NONE)),
+                List.of());
+        ActualTable running = actual(
+                List.of(actualVarchar("field_user_id", "人员ID", 32, false, null),
+                        actualVarchar("field_post_id", "岗位ID", 32, false, null)),
+                List.of("field_post_id", "field_user_id"), List.of());
+
+        List<SchemaChange> changes = differ.compare(expected, running);
+
+        SchemaChange change = single(changes, SchemaChange.PRIMARY_KEY_MISMATCH);
+        assertEquals(ChangeLevel.L2, change.getLevel());
+        assertNull(change.getColumnName());
+        assertNull(change.getIndexName());
+        assertNull(change.getDdl(), "L2 主键不一致不产 DDL（引擎永不修改主键，改主键走人工 SQL）");
+        assertTrue(change.getDetail().contains("注解 (field_user_id, field_post_id) ↔ 实际 (field_post_id, field_user_id)"),
+                "明细写两侧列集与顺序: " + change.getDetail());
+        assertTrue(change.getDetail().contains("永不修改主键"), "明细给处理指引");
+    }
+
+    @Test
+    void primaryKeyColumnSetMismatchProducesWarnWithoutDdl() {
+        SourceSchemaDiffer differ = differ(mock(JdbcTemplate.class));
+        TableDef expected = annotatedWithDeclaredPrimaryKey(
+                List.of("field_user_id", "field_post_id"),
+                List.of(column("field_user_id", "人员ID", ColumnType.STRING, 32, 0, false, null, DefaultFunction.NONE),
+                        column("field_post_id", "岗位ID", ColumnType.STRING, 32, 0, false, null, DefaultFunction.NONE)),
+                List.of());
+        // 实际为缺省单列主键（field_id）→ 列集不一致
+        ActualTable running = actual(
+                List.of(actualFieldId(),
+                        actualVarchar("field_user_id", "人员ID", 32, false, null),
+                        actualVarchar("field_post_id", "岗位ID", 32, false, null)),
+                List.of("field_id"), List.of());
+
+        List<SchemaChange> changes = differ.compare(expected, running);
+
+        SchemaChange change = single(changes, SchemaChange.PRIMARY_KEY_MISMATCH);
+        assertEquals(ChangeLevel.L2, change.getLevel());
+        assertTrue(change.getDetail().contains("注解 (field_user_id, field_post_id) ↔ 实际 (field_id)"),
+                "列集不一致明细: " + change.getDetail());
+    }
+
+    @Test
+    void primaryKeyMatchProducesNoPrimaryKeyChange() {
+        SourceSchemaDiffer differ = differ(mock(JdbcTemplate.class));
+        TableDef expected = annotatedWithDeclaredPrimaryKey(
+                List.of("field_user_id", "field_post_id"),
+                List.of(column("field_user_id", "人员ID", ColumnType.STRING, 32, 0, false, null, DefaultFunction.NONE),
+                        column("field_post_id", "岗位ID", ColumnType.STRING, 32, 0, false, null, DefaultFunction.NONE)),
+                List.of());
+        ActualTable running = actual(
+                List.of(actualVarchar("field_user_id", "人员ID", 32, false, null),
+                        actualVarchar("field_post_id", "岗位ID", 32, false, null)),
+                List.of("field_user_id", "field_post_id"), List.of());
+
+        assertTrue(differ.compare(expected, running).isEmpty(),
+                "实际主键（列集与顺序）与声明一致时零 diff（含主键维度）");
+    }
+
+    @Test
+    void defaultTablePrimaryKeyUnchangedProducesNoPrimaryKeyChange() {
+        SourceSchemaDiffer differ = differ(mock(JdbcTemplate.class));
+        TableDef expected = annotated(List.of(
+                column("field_name", "名称", ColumnType.STRING, 200, 0, false, null, DefaultFunction.NONE)));
+        ActualTable running = actual(List.of(actualFieldId(), actualVarchar("field_name", "名称", 200, false, null)),
+                List.of("field_id"), List.of());
+
+        List<SchemaChange> changes = differ.compare(expected, running);
+
+        assertEquals(0, byType(changes, SchemaChange.PRIMARY_KEY_MISMATCH).size(),
+                "缺省（field_id）表实际主键仍为 field_id → 不产主键变更（回归断言）");
     }
 
     // ---------------------------------------------------------------- 矩阵行 14：managed 表失去标注
@@ -780,6 +879,27 @@ class SourceSchemaDifferTest {
         assertFalse(multi.isUnique());
         assertEquals("BTREE", multi.getIndexType());
         assertTrue(byName(actual.getIndexes(), "uk_code").isUnique(), "NON_UNIQUE = 0 归一为唯一索引");
+    }
+
+    @Test
+    void assembleExtractsPrimaryKeyColumnsFromStatisticsPrimaryRows() {
+        List<Map<String, Object>> tableRows = List.of(
+                tableRow(TABLE, "InnoDB", "读取层测试表", "utf8mb4_0900_ai_ci"),
+                tableRow("no_pk_table", "InnoDB", "无主键表", "utf8mb4_0900_ai_ci"));
+        List<Map<String, Object>> columnRows = List.of();
+        // PRIMARY 行乱序给出（SEQ_IN_INDEX 恢复列序），无主键表无 PRIMARY 行
+        List<Map<String, Object>> indexRows = List.of(
+                statRow(TABLE, "PRIMARY", 2, 0, "field_post_id", "BTREE"),
+                statRow(TABLE, "idx_post_user_post", 1, 1, "field_post_id", "BTREE"),
+                statRow(TABLE, "PRIMARY", 1, 0, "field_user_id", "BTREE"));
+
+        Map<String, ActualTable> tables = SourceSchemaDiffer.assemble(tableRows, columnRows, indexRows);
+
+        assertEquals(List.of("field_user_id", "field_post_id"), tables.get(TABLE).getPrimaryKeyColumns(),
+                "实际主键列集按 SEQ_IN_INDEX 排序（STATISTICS PRIMARY 行，与索引三源读取同一通道）");
+        assertEquals(1, tables.get(TABLE).getIndexes().size(),
+                "PRIMARY 不落入二级索引比对范围（不参与缺失/多余索引比对）");
+        assertTrue(tables.get("no_pk_table").getPrimaryKeyColumns().isEmpty(), "无 PRIMARY 行的表主键为空集");
     }
 
     // ---------------------------------------------------------------- SQL 文本口径（参数化收口）

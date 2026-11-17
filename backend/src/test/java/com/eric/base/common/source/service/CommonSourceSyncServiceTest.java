@@ -80,7 +80,7 @@ class CommonSourceSyncServiceTest {
         return new TableDef("mock_table", "同步引擎测试表", null,
                 List.of(new ColumnDef("field_id", "主键ID", ColumnType.STRING, 32, 0,
                         false, null, DefaultFunction.NONE, true)),
-                List.of());
+                List.of(), List.of());
     }
 
     /** 构造变更条目（SchemaChange 入参序：level/type/table/column/index/detail/ddl） */

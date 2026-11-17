@@ -28,4 +28,13 @@ public @interface TableSource {
 
     /** 索引定义 */
     TableIndex[] indexes() default {};
+
+    /**
+     * 主键列集声明（F19-DOC-005 补充评审新增，2026-11-17）：默认空 = 现行为（BaseModel 内建
+     * field_id 主键）；非空 = 显式声明主键列集，引擎不再内建 field_id，主键列本身以
+     * {@link ColumnField} 业务列声明（nullable 必须为 false），支持组合主键与单列非
+     * field_id 主键；数组顺序即 PRIMARY KEY 列序。仅 BaseModel 开放（MainModel + 非空
+     * 一律 fail-fast，见设计方案 §3.3/§3.5 规则 12）
+     */
+    String[] primaryKeyColumns() default {};
 }
