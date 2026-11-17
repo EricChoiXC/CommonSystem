@@ -85,6 +85,17 @@
                 当前规则：共 {{ demo.numberRule.items.length }} 项；最新值：{{ numberRuleSummary }}
               </p>
             </div>
+
+            <!-- 数据源表格：code 指定默认数据源，组件内部完成 options → 列头 → query 取数编排 -->
+            <div v-else-if="active === 'DatasourceTable'" class="ui-demo-item">
+              <!-- 增量过滤示例（固定条件由服务端强制、同名 key 服务端覆盖）：
+              <DatasourceTable code="calendar.list" :filters="{ fieldName: '周报' }" /> -->
+              <DatasourceTable code="calendar.list" sort-field="fieldStartTime" />
+              <p class="ui-demo-result">
+                当前数据源：code = "calendar.list"，sortField = "fieldStartTime"（可排序列）；可试交互：表头
+                fieldStartTime / fieldCreateTime 点击改查后端排序、翻页与切页大小、修改 filters 触发重新编排
+              </p>
+            </div>
           </div>
 
           <pre class="ui-code"><code>{{ current.code }}</code></pre>
@@ -117,7 +128,7 @@
 
 <script setup>
 import { computed, reactive, ref } from 'vue'
-import { AddressBook, Attachment, DateTimePicker, NumberRuleComposer, Selector } from '@/components'
+import { AddressBook, Attachment, DateTimePicker, DatasourceTable, NumberRuleComposer, Selector } from '@/components'
 
 /** 演示区绑定的状态 */
 const demo = reactive({
@@ -342,6 +353,25 @@ const components = [
       { name: 'onChange', type: 'Function', required: '是', default: '-', desc: '值变更回调：组件基于当前 value 深拷贝生成新对象后回传 onChange(newValue)' },
       { name: 'fieldName', type: 'String', required: '否', default: "''", desc: '宿主表单字段名（编号编辑页传 "fieldRule"），仅用于组件内部 aria / 表单语义提示' },
       { name: 'disabled', type: 'Boolean', required: '否', default: 'false', desc: '是否禁用（置灰插入、排序、删除与属性编辑）' }
+    ],
+    emits: []
+  },
+  {
+    name: 'DatasourceTable',
+    label: '数据源表格',
+    desc: '数据源取数通用表格',
+    summary: '数据源取数消费的通用只读表格：宿主只传数据源编码，组件内部完成 options → 列头渲染 → query 取数编排；列头按有效返回字段集动态渲染（不假设固定列），可排序列表头点击改查后端排序，DATE/DATETIME 列格式化展示。',
+    demoTip: '演示依赖后端服务与默认数据源 calendar.list，需登录后查看',
+    code: `<template>
+  <DatasourceTable code="calendar.list" sort-field="fieldStartTime" />
+  <!-- 增量过滤示例（固定条件由服务端强制、同名 key 服务端覆盖）：
+  <DatasourceTable code="calendar.list" :filters="{ fieldName: '周报' }" /> -->
+</template>`,
+    props: [
+      { name: 'code', type: 'String', required: '是', default: '-', desc: '数据源编码（默认或自定义，如 calendar.list）；变更后回第 1 页重走完整编排（options 重查 + query）' },
+      { name: 'filters', type: 'Object', required: '否', default: 'null', desc: '调用方增量过滤条件 { 字段key: 值 }；固定条件由服务端强制、同名 key 服务端覆盖调用方条件，仅传增量；深度监听，变更后回第 1 页重走编排' },
+      { name: 'sortField', type: 'String', required: '否', default: "''", desc: '默认排序字段，须 ∈ 目标能力可排序白名单（calendar.list 为 fieldStartTime / fieldCreateTime），非法值由后端回退默认排序' },
+      { name: 'refresh (expose)', type: 'Function', required: '-', default: '-', desc: 'defineExpose 方法：宿主手动刷新，回第 1 页并重走完整编排（options 重查 + query）' }
     ],
     emits: []
   }

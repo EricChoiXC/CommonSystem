@@ -5,6 +5,7 @@
 import AddressBook from './AddressBook.vue'
 import Attachment from './Attachment.vue'
 import DateTimePicker from './DateTimePicker.vue'
+import DatasourceTable from './DatasourceTable.vue'
 import NumberRuleComposer from './NumberRuleComposer.vue'
 import Selector from './Selector.vue'
 import TreeSelector from './TreeSelector.vue'
@@ -12,4 +13,4 @@ import CateTableSelector from './CateTableSelector.vue'
 import ImportDialog from './ImportDialog.vue'
 import ProcessApprovalPanel from './process/ProcessApprovalPanel.vue'
 
-export { AddressBook, Attachment, DateTimePicker, NumberRuleComposer, Selector, TreeSelector, CateTableSelector, ImportDialog, ProcessApprovalPanel }
+export { AddressBook, Attachment, DateTimePicker, DatasourceTable, NumberRuleComposer, Selector, TreeSelector, CateTableSelector, ImportDialog, ProcessApprovalPanel }
