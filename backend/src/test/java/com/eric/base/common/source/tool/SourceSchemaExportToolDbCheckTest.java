@@ -192,9 +192,11 @@ class SourceSchemaExportToolDbCheckTest {
         assertTrue(processTemplate.getWarnings().stream().anyMatch(w -> w.contains("// 生成列：field_default_unique")
                         && w.contains("引擎暂不支持生成列标注")),
                 "生成列警示注释行，实际警示: " + processTemplate.getWarnings());
-        assertTrue(processTemplate.getWarnings().stream().anyMatch(w -> w.contains("field_update_time")
+        assertFalse(processTemplate.getWarnings().stream().anyMatch(w -> w.contains("field_update_time")
                         && w.contains("与公共列模板（设计方案 §3.3）不一致")),
-                "实测该表 field_update_time 无 DEFAULT/ON UPDATE，模板偏差须警示");
+                "F19-DB-002 对齐 SQL 已将 field_update_time 对齐 MainModel 模板"
+                        + "（TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP），模板偏差警示应消除: "
+                        + processTemplate.getWarnings());
         SourceSchemaExportTool.ColumnSnippet defaultColumn = column(processTemplate, "field_default");
         assertEquals(ColumnType.BOOLEAN, defaultColumn.getType());
         assertEquals("b'0'", defaultColumn.getDefaultValue(), "bit DEFAULT 0 经库归一为 b'0'");
