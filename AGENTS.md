@@ -20,7 +20,7 @@ CommonSystem/
 | Maven artifactId / 前端包名 | `common-system` / `common-system-frontend` |
 | 环境变量前缀 | `CS_*`（如 `CS_DB_HOST`、`CS_REDIS_HOST`、`CS_ATT_STORAGE_PATH`） |
 
-技术栈：JDK 21、Spring Boot 3.5.13、MyBatis 3.0.5、Flyway 10.22.0、MySQL Connector 8.4.0、Redis、Quartz、Security、EasyExcel 4.0.3 + POI 5.2.5；Vue 3.5.32、Vite 5.4.21、Router 4.6.4、Pinia 2.3.1、Element Plus 2.13.7、Axios 1.15.0。版本以 `backend/pom.xml`、`frontend/package.json` 为准，勿在本文另立新版本。
+技术栈：JDK 21、Spring Boot 3.5.13、MyBatis 3.0.5、MySQL Connector 8.4.0、Redis、Quartz、Security、EasyExcel 4.0.3 + POI 5.2.5、注解表结构同步引擎（自研，`common.source`）；Vue 3.5.32、Vite 5.4.21、Router 4.6.4、Pinia 2.3.1、Element Plus 2.13.7、Axios 1.15.0。版本以 `backend/pom.xml`、`frontend/package.json` 为准，勿在本文另立新版本。
 
 ```bash
 cd backend  && ./mvnw test            # 单元测试（Windows：mvnw.cmd test）
@@ -33,13 +33,13 @@ cd frontend && npm run build          # 产物直出 backend/src/main/resources/
 - 禁止在新代码中出现 `com.project.backend`、`BackendApplication`、`ERP_*`、`artificial/` 等 ERP 工程标识。
 - 任务期间自行启动的服务（后端、dev server、构建进程）必须在结束前停止。
 
-后端资源目录：`application.properties`（全局配置）、`db/migration/`（Flyway）、`mappers/{common,sys}/`（与 Java 包路径对应）、`properties/{common,sys}/{模块}/{application,dict,roles}.yml`、`static/`（前端产物）。
+后端资源目录：`application.properties`（全局配置）、`db/migration/`（Flyway 时代脚本只读存档，不再执行）、`mappers/{common,sys}/`（与 Java 包路径对应）、`properties/{common,sys}/{模块}/{application,dict,roles}.yml`、`static/`（前端产物）。
 
 ## 2. 模块与包结构
 
 只包含以下模块；新增模块须先补设计文档并确认包名、接口路径、表结构与权限模型：
 
-- `com.eric.base.common`：`base`（基类）、`cache`、`config`、`exception`、`properties`、`resolver`、`session`、`setting`、`utils`
+- `com.eric.base.common`：`base`（基类）、`cache`、`config`、`exception`、`properties`、`resolver`、`session`、`setting`、`source`（注解表结构同步引擎：annotation / enums / model / scanner / ddl / diff / service / spi / dao / tool，无 Controller / Resolver / 权限码，无 HTTP 接口）、`utils`
 - `com.eric.base.sys`：`org`、`att`、`calendar`、`dict`、`log`、`notify`、`number`、`process`、`task`
 
 ```text
@@ -59,7 +59,7 @@ com.eric.base.sys.{模块}
 
 ## 3. 后端约束
 
-**分层**：`Controller` 继承 `BaseController` / `BaseCrudController`，只接收与校验，不写业务；`Service` 承载业务，模块级直接实现类（仅基础层保留 `IBaseService` / `BaseService`），不得直连 `Mapper`；`Dao` 与 `Mapper` 一对一，仅基础层保留 `IBaseDao` / `BaseDao`；复杂 SQL 写 XML；可复用的小逻辑放 `common/utils`（`IDUtil`、`StringUtil`、`IntegerUtil`、`FieldProjector`、`PasswordUtil`、`RoleUtil`、`UserUtil`、`YmlResourceUtil`）。启动期初始化统一追加到 `sys/task/SysStartupTask#run`，不另建 `ApplicationRunner`。
+**分层**：`Controller` 继承 `BaseController` / `BaseCrudController`，只接收与校验，不写业务；`Service` 承载业务，模块级直接实现类（仅基础层保留 `IBaseService` / `BaseService`），不得直连 `Mapper`；`Dao` 与 `Mapper` 一对一，仅基础层保留 `IBaseDao` / `BaseDao`；复杂 SQL 写 XML；可复用的小逻辑放 `common/utils`（`IDUtil`、`StringUtil`、`IntegerUtil`、`FieldProjector`、`PasswordUtil`、`RoleUtil`、`UserUtil`、`YmlResourceUtil`）。启动期初始化统一在 `sys/task/SysStartupTask#run` 按序执行（共 13 项）：第一为表结构注解同步引擎（`CommonSourceSyncService`，受 `CS_SOURCE_SYNC_MODE` 门禁）、第二为数据迁移（`CommonSourceMigrationService`，先结构后数据），业务初始化任务自第三起追加，不另建 `ApplicationRunner`。
 
 **接口**：路径 `/backend/{根模块}/{模块}/{次级模块}/{方法}`，`{根模块}` 只有 `common` 与 `sys`。
 
@@ -95,14 +95,16 @@ com.eric.base.sys.{模块}
 - 注解只做增量：不得为补齐文档而改动接口路径、HTTP 方法、`ACTION_*` 常量、resolver 分支或业务逻辑。
 - 校验方式：`cd backend && ./mvnw -Dtest=ApiDocsTest test`（断言文档 JSON 可生成并含中文摘要），必要时启动服务人工核对 Swagger UI 分组与参数。
 
-## 4. 数据库与迁移
+## 4. 数据库与表结构维护
 
 **字段**：统一 `field_` 前缀。公共字段 `field_id`（`VARCHAR(32)`，毫秒时间戳 + UUID v4，`IDUtil.initID()`）、`field_code`、`field_name` / `field_subject`、`field_creator_id`、`field_create_time`、`field_updater_id`、`field_update_time`、`field_enable`（`BIT(1)` 默认 `b'1'`）。
 
-> `docs/开发规范.md`「三：系统统一规范」中的字段清单写作 `field_updator_id` 是笔误，迁移脚本与实体均为 **`field_updater_id`**。
+> `docs/开发规范.md`「三：系统统一规范」中的字段清单写作 `field_updator_id` 是笔误，存档建表脚本与实体均为 **`field_updater_id`**。
 > 流水/日志类表只增不改，不设 `field_enable` / `field_update_time` / `field_updater_id`（先例 `sys_log_operation`、`sys_task_history`）。
 
-**迁移**：目录 `db/migration/`，命名 `V{大版本}_{小版本}_{序号}__{英文下划线描述}.sql`。当前最新为 `V1_01_045`，新脚本从 `V1_01_046` 起递增，不得复用或跳回旧序号；改表结构必须同时补脚本。与 ERP 工程合并部署时，`V1_01_020` 等 ERP 专属脚本保留在 ERP 侧执行，本仓库不得重复引入，包名反向替换规则见 [docs/迁移说明.md](D:/Program/CommonSystem/docs/迁移说明.md)。
+**表结构维护**：表结构由实体注解（`@TableSource` / `@ColumnField` / `@TableIndex`）声明（`common.source`），启动期同步引擎比对 `information_schema` 并按 `CS_SOURCE_SYNC_MODE`（三段式，默认 VALIDATE）同步——VALIDATE 只报告、INSTALL 仅补缺失对象、APPLY 执行 L1、L2 只告警、L3 fail-fast 阻断启动。**改表 = 改实体注解**，「改表结构必须同时补迁移脚本」规则废止；引擎永不执行 `DROP TABLE` / `DROP COLUMN` / `RENAME`、不改主键，改名/删列/收窄等引擎不可表达变更走手工 SQL 或数据迁移显式处置（L2/L3 告警与指引）。数据回填 = 新增 `SourceDataMigration` SPI 实现（code 格式 `DM-yyyyMMdd-nnn`、`order` 升序执行、存在 SUCCESS 记录幂等跳过、FAILED 阻断启动），不再写 SQL 数据脚本。新增表流程 = 实体标注注解 + 必要时 DataMigration，不再写 SQL 脚本；公共字段由基类模板内建（`BaseModel` 内建 `field_id` 主键、`MainModel` 内建审计五列，`@TableSource.primaryKeyColumns` 可声明表级主键列集），同步口径见 `docs/v1_3-数据源/1_3_2-注解维护表结构替换flyway/注解维护表结构设计方案.md`。
+
+> 历史档案：`db/migration/` 下 21 个 Flyway 脚本（`V1_01_001` ~ `V1_01_046`，缺号为 ERP 侧序号）与 `flyway_schema_history` 为只读历史档案，保留不读写、不再新增（见 `db/migration/README.md`），建表出处回查存档脚本。与 ERP 工程合并部署时，ERP 专属脚本保留在 ERP 侧执行，本仓库不得重复引入，两侧表归属与执行时序边界见 [docs/迁移说明.md](D:/Program/CommonSystem/docs/迁移说明.md)。
 
 **树形表**：当前只有 `sys_org_element` 一张。字段为 `field_parent_id`（根级 `NULL`）、`field_hierarchy`（`/id1/id2/`）、`field_level`，前两者建索引（`idx_org_element_parent`、`idx_org_element_hierarchy`）。保存时由 `SysOrgElementService#rebuildHierarchy` 计算层级，父级变更后递归修正子树（`rebuildChildren`）；新父级不能是自身或后代（按 `hierarchy` 前缀判定）。`updateEnable` 只更新自身一行、**不级联后代**——若需级联停用，先补需求文档与前端提示再改 Service 与 SQL。
 
@@ -120,6 +122,7 @@ com.eric.base.sys.{模块}
 - `SETTING` 段层级 `SETTING.${field_type}.${field_key}`，写入 `common_setting`；`database` / `redis` 段同时作为 `application.properties` 连接默认值。
 - 覆盖顺序：环境变量 `CS_*` > `SETTING` 默认值 > 代码兜底。新增配置按 `${CS_X:${SETTING.a.b:default}}` 三段式书写，禁止在 Java 里硬编码默认值。
 - 不新增未纳入扫描路径的 yml；yml 注释中的 `artificial/docs/...` 是历史残留，改到时顺手修正为 `docs/设计文档/`。
+- `CS_SOURCE_SYNC_MODE`（VALIDATE / INSTALL / APPLY，默认 VALIDATE）为表结构同步引擎的部署运行参数，按 `${CS_SOURCE_SYNC_MODE:VALIDATE}` 三段式写在 `application.properties`；属部署门禁不入 `common_setting`、无 SETTING 段依赖（对齐 `CS_API_DOCS_ENABLED` 先例），dev=APPLY、test/prod=VALIDATE 由部署侧环境变量落实。
 
 ## 6. 前端约束
 
@@ -152,13 +155,13 @@ com.eric.base.sys.{模块}
 
 在线接口文档由 springdoc-openapi 从代码注解生成：`GET /swagger-ui.html`（交互页面）、`GET /v3/api-docs`（OpenAPI 3 JSON）；统一开关为环境变量 `CS_API_DOCS_ENABLED`（默认开启），属部署运行参数，**不入 `common_setting`**、不设前端入口。规范与偏离说明见 `docs/系统模块/系统模块API接口设计文档.md` 的「3.5 在线接口文档」；新增/修改接口时的注解同步要求见本文第 3 节「接口文档同步（强制）」。
 
-冲突裁决按冲突项归属：业务流程/权限/异常 → 需求；路由菜单/页面布局 → UI；接口规则 → API；表结构与索引 → 数据库。未覆盖时回退 `docs/开发规范.md`；仍不明确时先补文档，不得以现有代码反推业务规则。开发顺序：需求 → UI → API → 数据库 → 代码与迁移脚本，实现导致设计变更时同批更新文档。
+冲突裁决按冲突项归属：业务流程/权限/异常 → 需求；路由菜单/页面布局 → UI；接口规则 → API；表结构与索引 → 数据库。未覆盖时回退 `docs/开发规范.md`；仍不明确时先补文档，不得以现有代码反推业务规则。开发顺序：需求 → UI → API → 数据库 → 代码与表结构注解，实现导致设计变更时同批更新文档。
 
 ## 9. 执行准则
 
 1. 先读 `docs/开发规范.md` 与本次涉及的模块文档，再确认代码归属的模块与分层目录。
-2. 实现前核对接口路径、HTTP 方法、`ACTION_*` 与 resolver 分支、表结构与迁移序号。
-3. 实现后回查文档、代码、迁移脚本三者一致。
+2. 实现前核对接口路径、HTTP 方法、`ACTION_*` 与 resolver 分支、表结构注解（`@TableSource` 等）与同步模式。
+3. 实现后回查文档、代码、表结构注解三者一致（dev 库 VALIDATE 零 diff）。
 4. 部署验证：`cd frontend && npm run build` 后运行 `CommonSystemApplication`（8080），结束前停止服务。
 
 提交前自检：
@@ -166,6 +169,6 @@ com.eric.base.sys.{模块}
 - [ ] 新接口：路径与方法合规，有 `ACTION_*` 常量、resolver `case` 分支、Controller 调用 `authorize(...)`。
 - [ ] 接口文档：新增/修改的接口已同步 `@Tag` / `@Operation` / `@Parameter` / `@Schema`，`@Operation.description` 以「鉴权动作 …」开头；改动接口分组或路径规则时同步 `docs/系统模块/系统模块API接口设计文档.md`。
 - [ ] 新权限码：已同步 `roles.yml` 的 `ROLE_LIST` 与 `ROLE_MAP`。
-- [ ] 新表/字段：`field_` 前缀、公共字段齐全、已补迁移脚本且序号接续。
+- [ ] 新表/字段：`field_` 前缀、公共字段齐全（基类继承正确：主档 `MainModel` / 流水 `BaseModel`）、实体已标注 `@TableSource` / `@ColumnField` / `@TableIndex` 且 VALIDATE 比对零 diff；数据回填新增 `SourceDataMigration` 实现并核对幂等。
 - [ ] 新页面：路由（含 `meta.title`、动态路由 `meta.tab: 'name'`）、`HomeView.vue` 菜单与 `activeMenu`、UI 文档三者同步。
 - [ ] 无 ERP 工程标识残留；测试 `./mvnw test` 与 `npm run build` 通过。
