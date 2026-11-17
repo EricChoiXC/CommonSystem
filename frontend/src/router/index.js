@@ -295,6 +295,35 @@ const routes = [
         component: () => import('@/views/i18n/I18nDeployView.vue'),
         meta: { title: '翻译部署', parent: '系统管理', group: '多语言管理', auth: 'SYS_I18N_ADMIN' }
       },
+      {
+        // 数据源管理列表页（F18-FE-004）：菜单挂【后台管理】叶子项，moduleGroup 声明
+        // 模块组开关运行期感知（模块关闭时路由空态 + 菜单隐藏，对齐 calendar/org-group 先例）
+        path: 'datasource',
+        name: 'DatasourceManage',
+        component: () => import('@/views/datasource/DatasourceManageView.vue'),
+        meta: { title: '数据源管理', parent: '系统管理', group: '后台管理', auth: 'SYS_DATASOURCE_ADMIN', moduleGroup: 'datasource' }
+      },
+      {
+        // 数据源新建页（F18-FE-003）：与编辑共用 DatasourceFormView，按路由 path 区分模式
+        path: 'datasource/create',
+        name: 'DatasourceCreate',
+        component: () => import('@/views/datasource/DatasourceFormView.vue'),
+        meta: { title: '新增数据源', parent: '系统管理', group: '后台管理', auth: 'SYS_DATASOURCE_ADMIN', moduleGroup: 'datasource' }
+      },
+      {
+        // 数据源编辑页（F18-FE-003）：tab: 'name' 复用单标签（对齐 org/task edit 先例）
+        path: 'datasource/edit/:id',
+        name: 'DatasourceEdit',
+        component: () => import('@/views/datasource/DatasourceFormView.vue'),
+        meta: { title: '编辑数据源', parent: '系统管理', group: '后台管理', auth: 'SYS_DATASOURCE_ADMIN', tab: 'name', moduleGroup: 'datasource' }
+      },
+      {
+        // 数据源详情页（F18-FE-004）：只读查看，tab: 'name' 复用单标签
+        path: 'datasource/detail/:id',
+        name: 'DatasourceDetail',
+        component: () => import('@/views/datasource/DatasourceDetailView.vue'),
+        meta: { title: '数据源详情', parent: '系统管理', group: '后台管理', auth: 'SYS_DATASOURCE_ADMIN', tab: 'name', moduleGroup: 'datasource' }
+      },
     ]
   },
   {

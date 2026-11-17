@@ -345,7 +345,10 @@ const menus = [
             children: [
               { title: '编号管理', path: '/number', auth: ['SYS_NUMBER_ADMIN', 'SYS_NUMBER_RULE_EDITOR'] }
             ]
-          }
+          },
+          // 数据源管理叶子项（F18-FE-004）：与 公共配置/模块管理/编号机制 并列，
+          // moduleGroup 声明模块组开关运行期感知（模块关闭时菜单隐藏）
+          { title: '数据源管理', path: '/datasource', auth: 'SYS_DATASOURCE_ADMIN', moduleGroup: 'datasource' }
         ]
       },
       {
@@ -411,6 +414,9 @@ const activeMenu = computed(() => {
   // 编号新建/编辑为编号管理列表的子页面，归约到编号管理菜单项
   // （/number、/number/create、/number/edit/... 均归约到 /number，无其他 /number 前缀路由）
   if (path.startsWith('/number')) return '/number'
+  // 数据源新建/编辑/详情为数据源管理列表的子页面，归约到数据源管理菜单项
+  // （/datasource、/datasource/create、/datasource/edit|detail/... 均归约到 /datasource）
+  if (path.startsWith('/datasource')) return '/datasource'
   // 流程模板新建/编辑/详情为模板管理列表的子页面，归约到模板管理菜单项
   if (path.startsWith('/processTemplate/')) return '/processTemplate'
   // /module 为顶层扁平叶子路径，无需归约
