@@ -1,5 +1,6 @@
 package com.eric.base.sys.datasource.spi;
 
+import com.eric.base.common.source.annotation.DataSourceField;
 import com.eric.base.sys.datasource.enums.SysDatasourceOp;
 
 import java.lang.reflect.Field;
@@ -20,7 +21,7 @@ import java.util.regex.Pattern;
  *
  * @author Eric
  * @date 2026/11/16
- * @description 扫描标注 {@link DatasourceField} 的类并归一为 {@link SysDatasourceFieldDo}（A8）：
+ * @description 扫描标注 {@link DataSourceField} 的类并归一为 {@link SysDatasourceFieldDo}（A8）：
  *              Query 类经 {@link #conditionFields} 出条件字段定义、Vo 类经 {@link #resultFields}
  *              出返回字段定义。key 取 Java 字段名（FieldProjector 属性名正则校验，违例 fail-fast），
  *              按 order 升序输出，进程内缓存只扫一次；返回字段扫描时类层级存在 getFieldId()
@@ -67,7 +68,7 @@ public final class SysDatasourceFieldScanner {
     /* ==================== 内部 ==================== */
 
     /**
-     * 扫描归一：沿父类链取 {@code @DatasourceField} 字段（跳过 static/synthetic），
+     * 扫描归一：沿父类链取 {@code @DataSourceField} 字段（跳过 static/synthetic），
      * 按 order 排序后转换为 SysDatasourceFieldDo；key 重复 fail-fast
      */
     private static List<SysDatasourceFieldDo> scan(Class<?> clazz, boolean condition) {
@@ -75,7 +76,7 @@ public final class SysDatasourceFieldScanner {
         Set<String> keys = new HashSet<>();
         for (Class<?> type = clazz; null != type && !Object.class.equals(type); type = type.getSuperclass()) {
             for (Field candidate : type.getDeclaredFields()) {
-                DatasourceField annotation = candidate.getAnnotation(DatasourceField.class);
+                DataSourceField annotation = candidate.getAnnotation(DataSourceField.class);
                 if (null == annotation || candidate.isSynthetic() || Modifier.isStatic(candidate.getModifiers())) {
                     continue;
                 }
@@ -103,7 +104,7 @@ public final class SysDatasourceFieldScanner {
      * 字段类型推导；条件字段校验 ops 非空且 ∈ SysDatasourceOp（归一为大写名，与
      * Service 白名单 contains(op.name()) 口径一致）；返回字段忽略 ops（与 FieldDo 语义一致）
      */
-    private static SysDatasourceFieldDo toFieldDo(Field field, DatasourceField annotation, boolean condition) {
+    private static SysDatasourceFieldDo toFieldDo(Field field, DataSourceField annotation, boolean condition) {
         if (!FIELD_NAME_PATTERN.matcher(field.getName()).matches()) {
             throw new IllegalStateException("数据源字段名不符合属性名口径 [a-z][a-zA-Z0-9]*: "
                     + field.getDeclaringClass().getName() + "#" + field.getName());

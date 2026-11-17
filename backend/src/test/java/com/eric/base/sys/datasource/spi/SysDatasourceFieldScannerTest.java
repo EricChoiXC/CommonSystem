@@ -1,6 +1,7 @@
 package com.eric.base.sys.datasource.spi;
 
 import com.eric.base.common.base.model.BaseModel;
+import com.eric.base.common.source.annotation.DataSourceField;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -34,114 +35,114 @@ class SysDatasourceFieldScannerTest {
      * 显式声明优先、literalAllowed=false（A7）、未标注字段与 static 字段不进定义
      */
     static class SampleQuery {
-        @DatasourceField(label = "标题", ops = "LIKE", order = 1)
+        @DataSourceField(label = "标题", ops = "LIKE", order = 1)
         private String fieldName;
 
-        @DatasourceField(label = "类型", ops = {"EQ", "NE"}, order = 2)
+        @DataSourceField(label = "类型", ops = {"EQ", "NE"}, order = 2)
         private String fieldType;
 
-        @DatasourceField(label = "状态", ops = "eq", order = 3)
+        @DataSourceField(label = "状态", ops = "eq", order = 3)
         private String fieldStatus;
 
-        @DatasourceField(label = "金额", ops = "GE", order = 4)
+        @DataSourceField(label = "金额", ops = "GE", order = 4)
         private BigDecimal fieldAmount;
 
-        @DatasourceField(label = "数量", ops = "GE", order = 5)
+        @DataSourceField(label = "数量", ops = "GE", order = 5)
         private int fieldCount;
 
-        @DatasourceField(label = "开始时间-起", ops = "GE", order = 6)
+        @DataSourceField(label = "开始时间-起", ops = "GE", order = 6)
         private LocalDateTime fieldStartTimeStart;
 
-        @DatasourceField(label = "业务日期", ops = "EQ", type = "DATE", order = 7)
+        @DataSourceField(label = "业务日期", ops = "EQ", type = "DATE", order = 7)
         private String fieldBizDate;
 
-        @DatasourceField(label = "创建人", ops = "EQ", literalAllowed = false, order = 8)
+        @DataSourceField(label = "创建人", ops = "EQ", literalAllowed = false, order = 8)
         private String fieldCreatorId;
 
         /** 未标注字段：不进条件白名单 */
         private String year;
 
         /** static 标注字段：跳过（若被扫描，缺 ops 会在条件校验抛异常） */
-        @DatasourceField(label = "静态字段", order = 9)
+        @DataSourceField(label = "静态字段", order = 9)
         private static String staticField;
     }
 
     /** 返回 Vo 桩：继承 BaseModel，fieldId 内建补齐固定最前；java.util.Date 推导 DATETIME */
     static class SampleVo extends BaseModel {
-        @DatasourceField(label = "标题", order = 1)
+        @DataSourceField(label = "标题", order = 1)
         private String fieldName;
 
-        @DatasourceField(label = "开始时间", sortable = true, order = 2)
+        @DataSourceField(label = "开始时间", sortable = true, order = 2)
         private java.util.Date fieldStartTime;
 
-        @DatasourceField(label = "金额", order = 3)
+        @DataSourceField(label = "金额", order = 3)
         private BigDecimal fieldAmount;
     }
 
     /** 父类链桩：父类标注字段随子类扫描输出 */
     static class ParentQuery {
-        @DatasourceField(label = "父字段", ops = "EQ", order = 10)
+        @DataSourceField(label = "父字段", ops = "EQ", order = 10)
         private String parentField;
     }
 
     static class ChildQuery extends ParentQuery {
-        @DatasourceField(label = "子字段", ops = "LIKE", order = 1)
+        @DataSourceField(label = "子字段", ops = "LIKE", order = 1)
         private String childField;
     }
 
     /** 父子链同名标注字段：key 重复 fail-fast */
     static class DuplicateParent {
-        @DatasourceField(label = "重复", ops = "EQ")
+        @DataSourceField(label = "重复", ops = "EQ")
         private String fieldName;
     }
 
     static class DuplicateChild extends DuplicateParent {
-        @DatasourceField(label = "重复", ops = "EQ")
+        @DataSourceField(label = "重复", ops = "EQ")
         private String fieldName;
     }
 
     /** 条件字段缺 ops：fail-fast */
     static class MissingOpsQuery {
-        @DatasourceField(label = "无操作符")
+        @DataSourceField(label = "无操作符")
         private String fieldName;
     }
 
     /** 条件字段操作符非法：fail-fast */
     static class BadOpQuery {
-        @DatasourceField(label = "非法操作符", ops = "NOT_AN_OP")
+        @DataSourceField(label = "非法操作符", ops = "NOT_AN_OP")
         private String fieldName;
     }
 
     /** 字段名违反属性名口径（大写字母开头）：fail-fast */
     static class BadNameQuery {
-        @DatasourceField(label = "非法字段名", ops = "EQ")
+        @DataSourceField(label = "非法字段名", ops = "EQ")
         private String FieldName;
     }
 
     /** label 为空：fail-fast */
     static class BadLabelQuery {
-        @DatasourceField(label = "", ops = "EQ")
+        @DataSourceField(label = "", ops = "EQ")
         private String fieldName;
     }
 
     /** 显式 type 非法：fail-fast */
     static class BadTypeQuery {
-        @DatasourceField(label = "非法类型", ops = "EQ", type = "TEXT")
+        @DataSourceField(label = "非法类型", ops = "EQ", type = "TEXT")
         private String fieldName;
     }
 
     /** 自带 fieldId 标注的 Vo：不再内建补齐（不重复） */
     static class FieldIdAnnotatedVo extends BaseModel {
-        @DatasourceField(label = "编号", order = 1)
+        @DataSourceField(label = "编号", order = 1)
         private String fieldId;
 
-        @DatasourceField(label = "标题", order = 2)
+        @DataSourceField(label = "标题", order = 2)
         private String fieldName;
     }
 
     /** 未继承 BaseModel 的普通 Vo：无 getFieldId()，不补 fieldId */
     static class PlainVo {
-        @DatasourceField(label = "标题", order = 1)
+        @DataSourceField(label = "标题", order = 1)
         private String fieldName;
     }
 

@@ -31,7 +31,7 @@ import java.util.Map;
  *              <ul>
  *              <li>目标能力 {@code calendar.list}：对应日程查询接口
  *                  {@code POST /backend/sys/calendar/list}（ACTION sys.calendar.list），
- *                  条件/返回字段经 {@code @DatasourceField} 注解声明于
+ *                  条件/返回字段经 {@code @DataSourceField} 注解声明于
  *                  {@link SysCalendarQuery} / {@link SysCalendarVo}（A8，方案 §2.4），
  *                  条件字段 6 项、返回字段 9 项、可排序 startTime/createTime；</li>
  *              <li>默认数据源【日程列表】{@code calendar.list}：无条件、全字段；</li>
@@ -92,7 +92,7 @@ public class SysCalendarDatasourceProvider implements SysDatasourceProvider {
     }
 
     /**
-     * 条件字段定义：{@code @DatasourceField} 声明于 {@link SysCalendarQuery}（A8），
+     * 条件字段定义：{@code @DataSourceField} 声明于 {@link SysCalendarQuery}（A8），
      * 扫描归一为 SysDatasourceFieldDo，进程内缓存；fieldCreatorId 为 literalAllowed=false（A7）
      */
     @Override
@@ -101,7 +101,7 @@ public class SysCalendarDatasourceProvider implements SysDatasourceProvider {
     }
 
     /**
-     * 返回字段定义：{@code @DatasourceField} 声明于 {@link SysCalendarVo}（A8）；
+     * 返回字段定义：{@code @DataSourceField} 声明于 {@link SysCalendarVo}（A8）；
      * 公共字段 fieldId 继承自 BaseModel 无法标注，由扫描器内建补齐（固定最前）
      */
     @Override
