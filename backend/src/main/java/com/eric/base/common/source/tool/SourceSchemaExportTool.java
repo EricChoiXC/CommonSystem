@@ -59,6 +59,17 @@ import java.util.Set;
  *              MainModel 建议下再逐列核对审计列与公共列模板（设计方案 §3.3）的定义，
  *              不一致处（如存量表 field_update_time 缺 DEFAULT/ON UPDATE）输出警示，
  *              提示 adopt 将产生 diff、人工核对。</p>
+ *              <p><strong>无 field_id 主键表口径（F19-DOC-005 补充评审定稿，F19-BE-012 落地）</strong>：
+ *              实际主键列集 ≠ [field_id]（以 {@code ActualTable.primaryKeyColumns} 为准，
+ *              STATISTICS 中 PRIMARY 行按 SEQ_IN_INDEX 排序的列集）的表不再按「无审计列 →
+ *              BaseModel（隐含 field_id）」误推——照搬该建议必产 L1「缺失列 field_id」diff、
+ *              APPLY 会自动 ADD COLUMN 破坏既有主键语义。改输出：建议基类行注明 extends
+ *              BaseModel + 显式 {@code primaryKeyColumns = {...}}（按实际主键列序渲染进类级
+ *              注解，属性位置在 comment 之后 indexes 之前，数组顺序即 PRIMARY KEY 列序）；
+ *              全部实际列（含主键列）按业务列 {@code @ColumnField} 输出（主键列实际 NOT NULL
+ *              本就满足 nullable=false 口径，不额外改写）；不输出「field_id 内建」类尾注
+ *              （该表无内建列）；主键仍不输出为索引成员（PRIMARY 剔除逻辑保持）。实际无主键的
+ *              表（primaryKeyColumns 空集）维持现状口径不扩权。</p>
  *              <p><strong>类型反推</strong>：COLUMN_TYPE（如 varchar(100) / text / json /
  *              bigint / decimal(10,2) / timestamp / bit(1)）→ {@link ColumnType} +
  *              length / decimalLength；映射集合与 SourceSchemaDiffer#typeCompatible 的
@@ -355,10 +366,17 @@ public final class SourceSchemaExportTool {
                 presentAudit.add(column.getName());
             }
         }
+        // 主键形态（F19-DOC-005 无 field_id 表口径修正）：实际主键列集 = [field_id] → 公共列
+        // 模板内建 field_id 主键（现状口径零变化）；其他非空列集 → 无 field_id 主键表，需显式
+        // 声明 primaryKeyColumns（引擎不再内建任何列）；空集（无主键表）→ 维持现状口径不扩权
+        List<String> actualPrimaryKeys = table.getPrimaryKeyColumns();
+        boolean explicitPrimaryKey = !actualPrimaryKeys.isEmpty()
+                && !List.of(PRIMARY_KEY_COLUMN).equals(actualPrimaryKeys);
         // 基类推断：审计五列齐备 → MainModel（模板内建五列，全剔除）；完全无审计列 →
         // BaseModel；部分含审计列 → 与两模板均不匹配，建议 BaseModel 并警示，
-        // 未内建列按业务列标注（保证 adopt 零 diff 可达）
-        boolean mainModel = presentAudit.size() == AUDIT_COLUMNS.size();
+        // 未内建列按业务列标注（保证 adopt 零 diff 可达）。无 field_id 主键表一律建议
+        // BaseModel（primaryKeyColumns 仅 BaseModel 开放，MainModel + 非空声明扫描器 fail-fast）
+        boolean mainModel = !explicitPrimaryKey && presentAudit.size() == AUDIT_COLUMNS.size();
         List<String> warnings = new ArrayList<>();
         if (tableCommentBlank) {
             warnings.add("// 警示：表 COMMENT 为空——@TableSource.comment 必填非空，请人工补充");
@@ -366,7 +384,8 @@ public final class SourceSchemaExportTool {
         List<ColumnSnippet> columns = new ArrayList<>();
         for (ActualColumn column : table.getColumns()) {
             String name = column.getName();
-            if (PRIMARY_KEY_COLUMN.equals(name)) {
+            if (!explicitPrimaryKey && PRIMARY_KEY_COLUMN.equals(name)) {
+                // 内建 field_id 主键剔除；无 field_id 主键表不剔（field_id 若实际存在则为业务列）
                 continue;
             }
             if (generatedNames.contains(name)) {
@@ -417,8 +436,9 @@ public final class SourceSchemaExportTool {
             indexes.add(new IndexSnippet(index.getName(), index.getColumns(), index.isUnique(), referencesGenerated));
         }
         return new TableSnippet(table.getName(), nullToBlank(table.getTableComment()), suggestedBaseClass,
-                baseClassMismatch, partialAuditColumns, List.copyOf(warnings), List.copyOf(columns),
-                List.copyOf(indexes));
+                baseClassMismatch, partialAuditColumns,
+                explicitPrimaryKey ? List.copyOf(actualPrimaryKeys) : List.of(),
+                List.copyOf(warnings), List.copyOf(columns), List.copyOf(indexes));
     }
 
     /**
@@ -733,8 +753,8 @@ public final class SourceSchemaExportTool {
 
     /**
      * 结构化片段 → Java 片段文本：头注（底稿口径）+ 建议基类行 + 警示行 →
-     * 类级 @TableSource（含索引）→ 类声明行 → 逐列 @ColumnField + 字段声明行 →
-     * 公共列内建说明 → 类结束括号
+     * 类级 @TableSource（无 field_id 主键表含 primaryKeyColumns 属性、含索引）→
+     * 类声明行 → 逐列 @ColumnField + 字段声明行 → 公共列内建说明 → 类结束括号
      *
      * @param snippet 结构化片段
      * @return Java 片段文本
@@ -749,6 +769,11 @@ public final class SourceSchemaExportTool {
         }
         out.append('\n').append("@TableSource(name = \"").append(escapeJava(snippet.getTableName()))
                 .append("\", comment = \"").append(escapeJava(snippet.getTableComment())).append('"');
+        if (!snippet.getPrimaryKeyColumns().isEmpty()) {
+            // 无 field_id 主键表：primaryKeyColumns 作为类级注解属性渲染（按实际主键列序，
+            // 数组顺序即 PRIMARY KEY 列序），属性位置对齐既有输出风格（name/comment 之后、indexes 之前）
+            out.append(", primaryKeyColumns = ").append(stringArrayLiteral(snippet.getPrimaryKeyColumns()));
+        }
         if (!snippet.getIndexes().isEmpty()) {
             out.append(",\n        indexes = {");
             for (int i = 0; i < snippet.getIndexes().size(); i++) {
@@ -775,10 +800,23 @@ public final class SourceSchemaExportTool {
     }
 
     /**
-     * 建议基类注释行：MainModel / BaseModel（含部分审计列的模板不匹配说明，
-     * 列明实际部分审计列供人工核对）
+     * 建议基类注释行：无 field_id 主键表（显式 primaryKeyColumns 声明）/ MainModel /
+     * BaseModel（含部分审计列的模板不匹配说明，列明实际部分审计列供人工核对）
      */
     private static String baseClassLine(TableSnippet snippet) {
+        if (!snippet.getPrimaryKeyColumns().isEmpty()) {
+            // 无 field_id 主键表（F19-DOC-005 口径修正）：不再建议隐含 field_id 的 BaseModel
+            // （照搬必产 L1「缺失列 field_id」diff、APPLY 会自动 ADD COLUMN 破坏既有主键语义）
+            StringBuilder line = new StringBuilder("// 建议基类：extends BaseModel（表实际主键为非 field_id 列集，")
+                    .append("@TableSource 需显式声明 primaryKeyColumns = ")
+                    .append(stringArrayLiteral(snippet.getPrimaryKeyColumns()))
+                    .append("（数组顺序即 PRIMARY KEY 列序），主键列已按业务列标注，无公共列模板内建列");
+            if (snippet.isBaseClassMismatch()) {
+                line.append("；另含部分审计列 ").append(String.join("、", snippet.getPartialAuditColumns()))
+                        .append("，已按业务列标注，请人工核对基类取舍");
+            }
+            return line.append('）').toString();
+        }
         if ("MainModel".equals(snippet.getSuggestedBaseClass())) {
             return "// 建议基类：extends MainModel（表含审计五列，公共列模板内建 field_id 主键 + 审计五列，无需标注）";
         }
@@ -790,9 +828,14 @@ public final class SourceSchemaExportTool {
     }
 
     /**
-     * 类尾公共列内建说明（对齐 SysDatasource 手写示例尾注）
+     * 类尾公共列内建说明（对齐 SysDatasource 手写示例尾注）；无 field_id 主键表无任何
+     * 内建列，不输出「field_id 内建」尾注，改注明显式主键声明口径
      */
     private static String builtinNote(TableSnippet snippet) {
+        if (!snippet.getPrimaryKeyColumns().isEmpty()) {
+            return "// 该表无公共列模板内建列（primaryKeyColumns 显式声明主键，引擎不再内建 field_id，"
+                    + "设计方案 §3.3），全部列按业务列标注";
+        }
         return "MainModel".equals(snippet.getSuggestedBaseClass())
                 ? "// field_id（主键）与审计五列由公共列模板内建（设计方案 §3.3），无需标注"
                 : "// field_id（主键）由公共列模板内建（设计方案 §3.3），无需标注";
@@ -823,6 +866,21 @@ public final class SourceSchemaExportTool {
             line.append(", defaultFunction = DefaultFunction.").append(column.getDefaultFunction().name());
         }
         return line.append(')').toString();
+    }
+
+    /**
+     * String[] 属性字面量渲染（primaryKeyColumns 用）：始终数组形态 {@code {"a", "b"}}
+     * （单元素亦然，与注解 String[] 属性对应），元素做 Java 转义
+     */
+    private static String stringArrayLiteral(List<String> values) {
+        StringBuilder line = new StringBuilder("{");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                line.append(", ");
+            }
+            line.append('"').append(escapeJava(values.get(i))).append('"');
+        }
+        return line.append('}').toString();
     }
 
     /**
@@ -876,6 +934,9 @@ public final class SourceSchemaExportTool {
         /** 部分审计列名清单（baseClassMismatch 时的实际座行，建议行中列明供人工核对） */
         private final List<String> partialAuditColumns;
 
+        /** 显式主键列集（无 field_id 主键表的实际主键列序；空 = 内建 field_id 主键，不渲染 primaryKeyColumns 属性） */
+        private final List<String> primaryKeyColumns;
+
         /** 警示清单（已带 "// " 前缀，逐行渲染） */
         private final List<String> warnings;
 
@@ -886,13 +947,14 @@ public final class SourceSchemaExportTool {
         private final List<IndexSnippet> indexes;
 
         TableSnippet(String tableName, String tableComment, String suggestedBaseClass, boolean baseClassMismatch,
-                     List<String> partialAuditColumns, List<String> warnings, List<ColumnSnippet> columns,
-                     List<IndexSnippet> indexes) {
+                     List<String> partialAuditColumns, List<String> primaryKeyColumns, List<String> warnings,
+                     List<ColumnSnippet> columns, List<IndexSnippet> indexes) {
             this.tableName = tableName;
             this.tableComment = tableComment;
             this.suggestedBaseClass = suggestedBaseClass;
             this.baseClassMismatch = baseClassMismatch;
             this.partialAuditColumns = partialAuditColumns;
+            this.primaryKeyColumns = primaryKeyColumns;
             this.warnings = warnings;
             this.columns = columns;
             this.indexes = indexes;

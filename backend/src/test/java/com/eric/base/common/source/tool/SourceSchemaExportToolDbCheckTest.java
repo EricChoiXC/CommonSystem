@@ -1,5 +1,9 @@
 package com.eric.base.common.source.tool;
 
+import com.eric.base.common.base.model.BaseModel;
+import com.eric.base.common.source.annotation.ColumnField;
+import com.eric.base.common.source.annotation.TableIndex;
+import com.eric.base.common.source.annotation.TableSource;
 import com.eric.base.common.source.diff.ActualTable;
 import com.eric.base.common.source.enums.ColumnType;
 import com.eric.base.common.source.enums.DefaultFunction;
@@ -44,6 +48,11 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *              field_enable + 双普通索引）、sys_process_template（生成列 field_default_unique
  *              警示 + MainModel 审计剔除 + 审计列与模板偏差警示）、sys_number_record
  *              （BaseModel 流水表 + 复合唯一索引 + 业务列 CURRENT_TIMESTAMP 函数默认值）。
+ *              <p>无 field_id 主键表等价性（F19-BE-012）：抽验 sys_org_post_user（复合主键）
+ *              与 sys_i18n_user_language（单列非 field_id 主键）——以实际库为准的桩注解经
+ *              {@link SourceTableScanner} 扫描归一后与生成片段做「片段 ↔ TableDef」机器等价
+ *              断言（全部列含主键列逐属性吻合、索引吻合、显式主键列集一致），并断言类级注解
+ *              含 primaryKeyColumns 声明、无「field_id 内建」建议/尾注。</p>
  *              <p><strong>守卫</strong>：MySQL 连不上（未监听/凭据不符）时 assumeTrue 跳过，
  *              保证其他环境 {@code mvnw test} 不红；不启动整个 Spring 应用（无 Spring 上下文，
  *              对齐 SysProcessTemplateDefaultBackfillMigrationDbCheckTest 先例）。
@@ -51,6 +60,37 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *              不建临时 schema（information_schema 查询本身无副作用）。</p>
  */
 class SourceSchemaExportToolDbCheckTest {
+
+    /**
+     * 组合主键桩（F19-BE-012）：注解以 dev 库 sys_org_post_user 实际结构为准（V1_01_001，
+     * 对齐 SourceDdlGeneratorTest 同款桩先例）——BaseModel + primaryKeyColumns 复合主键声明，
+     * 主键列以业务列标注
+     */
+    @TableSource(name = "sys_org_post_user", comment = "岗位-人员关联表",
+            primaryKeyColumns = {"field_user_id", "field_post_id"},
+            indexes = @TableIndex(name = "idx_post_user_post", columns = "field_post_id"))
+    static class SysOrgPostUserStub extends BaseModel {
+
+        @ColumnField(name = "field_user_id", comment = "人员ID", type = ColumnType.STRING, length = 32)
+        private String fieldUserId;
+
+        @ColumnField(name = "field_post_id", comment = "岗位ID", type = ColumnType.STRING, length = 32)
+        private String fieldPostId;
+    }
+
+    /** 单列非 field_id 主键桩（F19-BE-012）：注解以 dev 库 sys_i18n_user_language 实际结构为准（V1_01_040） */
+    @TableSource(name = "sys_i18n_user_language", comment = "多语言-用户语言表",
+            primaryKeyColumns = {"field_user_id"})
+    static class SysI18nUserLanguageStub extends BaseModel {
+
+        @ColumnField(name = "field_user_id", comment = "用户id（sys_org_user.field_id）",
+                type = ColumnType.STRING, length = 32)
+        private String fieldUserId;
+
+        @ColumnField(name = "field_language_id", comment = "语言id（sys_i18n_language.field_id）",
+                type = ColumnType.STRING, length = 32)
+        private String fieldLanguageId;
+    }
 
     /** 本机 MySQL common 开发库连接（只读使用） */
     private static final String DB_URL = "jdbc:mysql://localhost:3306/common"
@@ -242,6 +282,55 @@ class SourceSchemaExportToolDbCheckTest {
                 + "非固定接入={modelName}:{宿主记录ID}）\", type = ColumnType.STRING, length = 200)"));
     }
 
+    /* ==================== 无 field_id 主键表等价性（F19-BE-012） ==================== */
+
+    @Test
+    void noFieldIdPrimaryKeyTablesDeclarePrimaryKeyColumnsAndMatchScanner() {
+        assumeTrue(available, () -> "本机 MySQL 不可用（" + unavailableReason + "），无 field_id 主键表校验跳过");
+
+        /* sys_org_post_user：复合主键 (field_user_id, field_post_id)，实际主键列集按 SEQ_IN_INDEX 序 */
+        TableDef expected = SourceTableScanner.parse(SysOrgPostUserStub.class);
+        ActualTable actual = actualTables.get("sys_org_post_user");
+        assertNotNull(actual, "common 开发库应存在表 sys_org_post_user");
+        assertEquals(List.of("field_user_id", "field_post_id"), actual.getPrimaryKeyColumns(),
+                "实际主键列集按 SEQ_IN_INDEX 序（复合主键）");
+        SourceSchemaExportTool.TableSnippet snippet = SourceSchemaExportTool.buildSnippet(actual);
+
+        // 建议基类新口径：BaseModel + 显式 primaryKeyColumns（无内建列建议/尾注、无警示）
+        assertEquals("BaseModel", snippet.getSuggestedBaseClass());
+        assertFalse(snippet.isBaseClassMismatch());
+        assertEquals(expected.getPrimaryKeyColumns(), snippet.getPrimaryKeyColumns(),
+                "片段显式主键列集与注解声明一致（数组顺序即 PRIMARY KEY 列序）");
+        assertTrue(snippet.getWarnings().isEmpty(), "sys_org_post_user 片段不应有警示: " + snippet.getWarnings());
+
+        // 机器等价：该表无任何内建列，片段全部列（含主键列）↔ TableDef 列逐属性吻合
+        assertSnippetColumnsEquivalent(expected, snippet);
+        // 机器等价：索引吻合（PRIMARY 不在片段索引内）
+        assertSnippetIndexesEquivalent(expected, snippet);
+
+        String rendered = SourceSchemaExportTool.renderTable(snippet);
+        assertTrue(rendered.contains("primaryKeyColumns = {\"field_user_id\", \"field_post_id\"}"),
+                "类级注解显式声明主键列集，实际: " + rendered);
+        assertFalse(rendered.contains("field_id（主键）"), "无 field_id 内建建议/尾注");
+
+        /* sys_i18n_user_language：单列非 field_id 主键 */
+        TableDef language = SourceTableScanner.parse(SysI18nUserLanguageStub.class);
+        ActualTable languageActual = actualTables.get("sys_i18n_user_language");
+        assertNotNull(languageActual, "common 开发库应存在表 sys_i18n_user_language");
+        assertEquals(List.of("field_user_id"), languageActual.getPrimaryKeyColumns(), "单列主键");
+        SourceSchemaExportTool.TableSnippet languageSnippet = SourceSchemaExportTool.buildSnippet(languageActual);
+        assertEquals("BaseModel", languageSnippet.getSuggestedBaseClass());
+        assertEquals(List.of("field_user_id"), languageSnippet.getPrimaryKeyColumns());
+        assertTrue(languageSnippet.getWarnings().isEmpty(),
+                "sys_i18n_user_language 片段不应有警示: " + languageSnippet.getWarnings());
+        assertSnippetColumnsEquivalent(language, languageSnippet);
+        assertTrue(languageSnippet.getIndexes().isEmpty(), "该表无二级索引");
+        String languageRendered = SourceSchemaExportTool.renderTable(languageSnippet);
+        assertTrue(languageRendered.contains("@TableSource(name = \"sys_i18n_user_language\", "
+                        + "comment = \"多语言-用户语言表\", primaryKeyColumns = {\"field_user_id\"})"),
+                "单元素主键列集同样以数组形态渲染，实际: " + languageRendered);
+    }
+
     /* ==================== 缺省表清单排除口径 ==================== */
 
     @Test
@@ -264,6 +353,41 @@ class SourceSchemaExportToolDbCheckTest {
         ActualTable actual = actualTables.get(tableName);
         assertNotNull(actual, "common 开发库应存在表 " + tableName);
         return SourceSchemaExportTool.buildSnippet(actual);
+    }
+
+    /**
+     * 片段列 ↔ TableDef 列逐属性机器等价（无 field_id 主键表无任何内建列，全部列均为业务列）
+     */
+    private static void assertSnippetColumnsEquivalent(TableDef expected, SourceSchemaExportTool.TableSnippet snippet) {
+        Map<String, ColumnDef> business = expected.getColumns().stream()
+                .collect(Collectors.toMap(ColumnDef::getName, Function.identity()));
+        assertEquals(business.keySet(),
+                snippet.getColumns().stream().map(SourceSchemaExportTool.ColumnSnippet::getName).collect(Collectors.toSet()),
+                "片段列与注解侧列集合一致（无 field_id 主键表全部列均为业务列）");
+        for (SourceSchemaExportTool.ColumnSnippet column : snippet.getColumns()) {
+            ColumnDef running = business.get(column.getName());
+            assertEquals(running.getComment(), column.getComment(), column.getName() + " COMMENT");
+            assertEquals(running.getType(), column.getType(), column.getName() + " type");
+            assertEquals(running.getLength(), column.getLength(), column.getName() + " length");
+            assertEquals(running.getDecimalLength(), column.getDecimalLength(), column.getName() + " decimalLength");
+            assertEquals(running.isNullable(), column.isNullable(), column.getName() + " nullable");
+            assertEquals(running.getDefaultValue(), column.getDefaultValue(), column.getName() + " defaultValue");
+            assertEquals(running.getDefaultFunction(), column.getDefaultFunction(), column.getName() + " defaultFunction");
+        }
+    }
+
+    /** 片段索引 ↔ TableDef 索引机器等价（名称/列序/unique） */
+    private static void assertSnippetIndexesEquivalent(TableDef expected, SourceSchemaExportTool.TableSnippet snippet) {
+        Map<String, IndexDef> indexDefs = expected.getIndexes().stream()
+                .collect(Collectors.toMap(IndexDef::getName, Function.identity()));
+        assertEquals(indexDefs.keySet(),
+                snippet.getIndexes().stream().map(SourceSchemaExportTool.IndexSnippet::getName).collect(Collectors.toSet()),
+                "片段索引与注解侧索引集合一致");
+        for (SourceSchemaExportTool.IndexSnippet index : snippet.getIndexes()) {
+            IndexDef running = indexDefs.get(index.getName());
+            assertEquals(running.getColumns(), index.getColumns(), index.getName() + " columns");
+            assertEquals(running.isUnique(), index.isUnique(), index.getName() + " unique");
+        }
     }
 
     /** 按列名取列片段 */

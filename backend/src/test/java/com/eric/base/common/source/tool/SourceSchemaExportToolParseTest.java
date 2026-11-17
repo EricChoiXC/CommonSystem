@@ -29,8 +29,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *              bit b'0' 字面量）、索引渲染（单列/多列/unique/PRIMARY 防御剔除）、公共列
  *              剔除（MainModel 模板五列 / BaseModel 仅主键 / 部分审计列按业务列标注）、
  *              生成列警示（DEFAULT_GENERATED 不误判——MySQL 8.0+ 函数式默认值也带该标记）、
- *              camelCase/PascalCase 转换、参数解析优先级（命令行 &gt; 环境变量 &gt; 兜底）。
- *              全部以内存构造 ActualTable/ActualColumn/ActualIndex 驱动
+ *              camelCase/PascalCase 转换、参数解析优先级（命令行 &gt; 环境变量 &gt; 兜底）、
+ *              无 field_id 主键表口径（F19-BE-012：复合/单列非 field_id 主键 → primaryKeyColumns
+ *              显式声明 + 全部列按业务列标注 + 无「field_id 内建」尾注；field_id 主键表输出
+ *              逐字节回归；无主键表维持现状口径）。全部以内存构造
+ *              ActualTable/ActualColumn/ActualIndex 驱动
  *              {@link SourceSchemaExportTool#buildSnippet}（纯函数）。
  */
 class SourceSchemaExportToolParseTest {
@@ -78,6 +81,12 @@ class SourceSchemaExportToolParseTest {
                                      List<ActualIndex> indexes) {
         return new ActualTable(name, "InnoDB", comment, "utf8mb4_0900_ai_ci", columns, indexes,
                 List.of("field_id"));
+    }
+
+    /** 实际表构造（显式主键列集变体，F19-BE-012 无 field_id 主键表口径） */
+    private static ActualTable tableWithPrimaryKeys(String name, String comment, List<ActualColumn> columns,
+                                                    List<ActualIndex> indexes, List<String> primaryKeys) {
+        return new ActualTable(name, "InnoDB", comment, "utf8mb4_0900_ai_ci", columns, indexes, primaryKeys);
     }
 
     /** 实际索引构造 */
@@ -347,6 +356,94 @@ class SourceSchemaExportToolParseTest {
                         && w.contains("与公共列模板（设计方案 §3.3）不一致")
                         && w.contains("默认值：模板 CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP ↔ 实际 无默认值")),
                 "审计列偏差警示，实际警示: " + snippet.getWarnings());
+    }
+
+    /* ==================== 无 field_id 主键表口径（F19-BE-012） ==================== */
+
+    @Test
+    void noFieldIdCompositePrimaryKeyDeclaresPrimaryKeyColumns() {
+        // 镜像实测 sys_org_post_user（V1_01_001）：复合主键 (field_user_id, field_post_id)，
+        // 无 field_id/审计列——不再建议隐含 field_id 的 BaseModel（照搬必产 L1 缺失列 diff）
+        List<ActualColumn> columns = List.of(
+                varchar("field_user_id", 32, false, null, "人员ID"),
+                varchar("field_post_id", 32, false, null, "岗位ID"));
+        SourceSchemaExportTool.TableSnippet snippet = SourceSchemaExportTool.buildSnippet(
+                tableWithPrimaryKeys("post_user_check", "岗位-人员关联表", columns,
+                        List.of(index("idx_post_user_post", false, "field_post_id")),
+                        List.of("field_user_id", "field_post_id")));
+        assertEquals("BaseModel", snippet.getSuggestedBaseClass());
+        assertFalse(snippet.isBaseClassMismatch());
+        // 全部实际列（含主键列）按业务列输出，沿 ORDINAL_POSITION 序；主键列 NOT NULL
+        assertEquals(List.of("field_user_id", "field_post_id"),
+                snippet.getColumns().stream().map(SourceSchemaExportTool.ColumnSnippet::getName).toList());
+        assertFalse(snippet.getColumns().get(0).isNullable());
+        assertFalse(snippet.getColumns().get(1).isNullable());
+        // 主键不输出为索引成员（PRIMARY 剔除逻辑保持）
+        assertEquals(List.of("idx_post_user_post"),
+                snippet.getIndexes().stream().map(SourceSchemaExportTool.IndexSnippet::getName).toList());
+        String rendered = SourceSchemaExportTool.renderTable(snippet);
+        // primaryKeyColumns 按实际主键列序（SEQ 序）渲染进类级注解，位置在 comment 之后 indexes 之前
+        assertTrue(rendered.contains("@TableSource(name = \"post_user_check\", comment = \"岗位-人员关联表\", "
+                        + "primaryKeyColumns = {\"field_user_id\", \"field_post_id\"},\n        indexes = {"),
+                "实际: " + rendered);
+        assertTrue(rendered.contains("@ColumnField(name = \"field_user_id\", comment = \"人员ID\", "
+                + "type = ColumnType.STRING, length = 32)"), "主键列按业务列标注（无 nullable 属性即 false）");
+        // 建议基类行显式注明 primaryKeyColumns；无「field_id 内建」类尾注（该表无内建列）
+        assertTrue(rendered.contains("primaryKeyColumns = {\"field_user_id\", \"field_post_id\"}"
+                + "（数组顺序即 PRIMARY KEY 列序）"), "实际: " + rendered);
+        assertFalse(rendered.contains("field_id（主键）"));
+        assertTrue(rendered.contains("// 该表无公共列模板内建列"));
+        assertTrue(rendered.contains("public class PostUserCheck extends BaseModel {"));
+    }
+
+    @Test
+    void singleNonFieldIdPrimaryKeyDeclaresSingleColumnPrimaryKey() {
+        // 镜像实测 sys_i18n_user_language（V1_01_040）：单列主键 field_user_id（非 field_id）
+        List<ActualColumn> columns = List.of(
+                varchar("field_user_id", 32, false, null, "用户id（sys_org_user.field_id）"),
+                varchar("field_language_id", 32, false, null, "语言id（sys_i18n_language.field_id）"));
+        SourceSchemaExportTool.TableSnippet snippet = SourceSchemaExportTool.buildSnippet(
+                tableWithPrimaryKeys("user_language_check", "多语言-用户语言表", columns, List.of(),
+                        List.of("field_user_id")));
+        assertEquals("BaseModel", snippet.getSuggestedBaseClass());
+        String rendered = SourceSchemaExportTool.renderTable(snippet);
+        // 单元素主键列集同样以数组形态渲染；无索引时不输出 indexes 段
+        assertTrue(rendered.contains("@TableSource(name = \"user_language_check\", comment = \"多语言-用户语言表\", "
+                + "primaryKeyColumns = {\"field_user_id\"})"), "实际: " + rendered);
+        assertFalse(rendered.contains("indexes"), "无二级索引不渲染 indexes 段");
+        assertFalse(rendered.contains("field_id（主键）"));
+    }
+
+    @Test
+    void fieldIdPrimaryKeyTableOutputByteIdenticalRegression() {
+        // 有 field_id 主键表输出与修复前逐字节一致（零变化回归）：全文本逐一断言
+        String rendered = SourceSchemaExportTool.renderTable(
+                snippetOf(varchar("field_value", 50, false, null, "码值")));
+        assertEquals(String.join("\n",
+                "// ==== 表 snippet_check 反向生成底稿（SourceSchemaExportTool 产出，人工审阅后落码；类名/包名仅供参考） ====",
+                "// 建议基类：extends BaseModel（表无审计列，公共列模板仅内建 field_id 主键）",
+                "@TableSource(name = \"snippet_check\", comment = \"片段测试表\")",
+                "public class SnippetCheck extends BaseModel {",
+                "",
+                "    @ColumnField(name = \"field_value\", comment = \"码值\", type = ColumnType.STRING, length = 50)",
+                "    private String fieldValue;",
+                "",
+                "    // field_id（主键）由公共列模板内建（设计方案 §3.3），无需标注",
+                "}"), rendered, "field_id 主键表输出零变化（BaseModel 无审计列形态）");
+    }
+
+    @Test
+    void noPrimaryKeyTableKeepsCurrentBehavior() {
+        // 边界：实际无主键表（primaryKeyColumns 空集）维持现状口径（BaseModel + 内建 field_id
+        // 建议），不新增 primaryKeyColumns 声明与主键警示（避免越权设计）
+        List<ActualColumn> columns = List.of(varchar("field_code", 50, false, null, "编码"));
+        SourceSchemaExportTool.TableSnippet snippet = SourceSchemaExportTool.buildSnippet(
+                tableWithPrimaryKeys("no_pk_check", "无主键测试表", columns, List.of(), List.of()));
+        assertEquals("BaseModel", snippet.getSuggestedBaseClass());
+        assertTrue(snippet.getWarnings().isEmpty(), "现状无主键警示，不新增");
+        String rendered = SourceSchemaExportTool.renderTable(snippet);
+        assertFalse(rendered.contains("primaryKeyColumns"));
+        assertTrue(rendered.contains("// 建议基类：extends BaseModel（表无审计列，公共列模板仅内建 field_id 主键）"));
     }
 
     /* ==================== 名称转换与渲染风格 ==================== */
