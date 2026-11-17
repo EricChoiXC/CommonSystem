@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eric.base.common.source.mapper.CommonSourceMigrationLogMapper">
+
+<!--
+    数据迁移执行审计表(common_source_migration_log)映射（F19-BE-006，设计方案 §5.3/§6）
+    流水类口径只增不改：仅 insert 与幂等判定查询，无 update / delete 语句。
+    field_start_time / field_end_time 由 Service 显式写入（开始/结束时刻），
+    field_create_time 由库默认 CURRENT_TIMESTAMP 维护，insert 不写该列。
+-->
+
+    <!--
+        迁移审计行落库（SUCCESS / FAILED 各一条，FAILED 记录保留供追溯、重跑产生新行）；
+        field_id 由应用侧 IDUtil.initID 生成（32 位主键，库无默认值），
+        field_create_time 走库默认 CURRENT_TIMESTAMP
+    -->
+    <insert id="insert">
+        INSERT INTO common_source_migration_log (
+        field_id, field_migration_code, field_migration_name, field_status,
+        field_start_time, field_end_time, field_error, field_cost_ms, field_creator_id
+        ) VALUES (
+        #{fieldId}, #{fieldMigrationCode}, #{fieldMigrationName}, #{fieldStatus},
+        #{fieldStartTime}, #{fieldEndTime}, #{fieldError}, #{fieldCostMs}, #{fieldCreatorId}
+        )
+    </insert>
+
+    <!--
+        幂等判定（设计方案 §5.3）：该迁移编码存在 field_status='SUCCESS' 行即视为已执行，
+        Service 层执行前查询跳过；不设库级唯一键（F19-DOC-001 评审修正——组合唯一键会
+        阻断同一 code 的第二次 FAILED 审计行），并发互斥由独立命名锁
+        GET_LOCK('common_source_data_migration', 30) 保证
+    -->
+    <select id="existsSuccess" resultType="long">
+        SELECT COUNT(1)
+        FROM common_source_migration_log
+        WHERE field_migration_code = #{fieldMigrationCode}
+          AND field_status = 'SUCCESS'
+    </select>
+
+</mapper>

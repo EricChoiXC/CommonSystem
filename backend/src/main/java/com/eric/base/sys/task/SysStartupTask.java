@@ -3,6 +3,7 @@ package com.eric.base.sys.task;
 import com.eric.base.common.cache.ModelCacheService;
 import com.eric.base.common.module.service.CommonModuleService;
 import com.eric.base.common.setting.service.CommonSettingService;
+import com.eric.base.common.source.service.CommonSourceMigrationService;
 import com.eric.base.common.source.service.CommonSourceSyncService;
 import com.eric.base.sys.dict.service.SysDictService;
 import com.eric.base.sys.i18n.service.SysI18nSyncService;
@@ -53,6 +54,7 @@ public class SysStartupTask implements ApplicationRunner {
     private final CommonModuleService commonModuleService;
     private final SysNumberModelCacheService sysNumberModelCacheService;
     private final CommonSourceSyncService commonSourceSyncService;
+    private final CommonSourceMigrationService commonSourceMigrationService;
 
     public SysStartupTask(SysOrgUserService sysOrgUserService,
                           SysOrgElementService sysOrgElementService,
@@ -65,7 +67,8 @@ public class SysStartupTask implements ApplicationRunner {
                           SysI18nSyncService sysI18nSyncService,
                           CommonModuleService commonModuleService,
                           SysNumberModelCacheService sysNumberModelCacheService,
-                          CommonSourceSyncService commonSourceSyncService) {
+                          CommonSourceSyncService commonSourceSyncService,
+                          CommonSourceMigrationService commonSourceMigrationService) {
         this.sysOrgUserService = sysOrgUserService;
         this.sysOrgElementService = sysOrgElementService;
         this.sysOrgAuthService = sysOrgAuthService;
@@ -78,6 +81,7 @@ public class SysStartupTask implements ApplicationRunner {
         this.commonModuleService = commonModuleService;
         this.sysNumberModelCacheService = sysNumberModelCacheService;
         this.commonSourceSyncService = commonSourceSyncService;
+        this.commonSourceMigrationService = commonSourceMigrationService;
     }
 
     @Override
@@ -109,6 +113,8 @@ public class SysStartupTask implements ApplicationRunner {
         syncNumberModelsFromYml();
         // 第十二个启动任务：表结构注解同步引擎比对/执行（CS_SOURCE_SYNC_MODE 门禁）
         syncSourceSchema();
+        // 第十三个启动任务：数据迁移（表结构同步之后执行，先结构后数据）
+        migrateSourceData();
     }
 
     /**
@@ -122,6 +128,18 @@ public class SysStartupTask implements ApplicationRunner {
      */
     private void syncSourceSchema() {
         commonSourceSyncService.sync();
+    }
+
+    /**
+     * 第十三个启动任务：数据迁移（表结构同步之后执行，先结构后数据）。
+     * <p>调 {@link CommonSourceMigrationService#migrate()}：构造期收集全部
+     * {@code SourceDataMigration} 实现 Bean（code 格式/全局唯一 fail-fast），
+     * 按 order 升序逐个执行注解表达不了的数据回填（纯替换 Flyway 后的唯一数据通道），
+     * 查 common_source_migration_log 存在 SUCCESS 行幂等跳过，失败落 FAILED 审计行后
+     * 抛异常阻断启动（对齐 Flyway 失败语义）。</p>
+     */
+    private void migrateSourceData() {
+        commonSourceMigrationService.migrate();
     }
 
     /**

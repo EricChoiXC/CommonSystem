@@ -3,6 +3,7 @@ package com.eric.base.sys.task;
 import com.eric.base.common.cache.ModelCacheService;
 import com.eric.base.common.module.service.CommonModuleService;
 import com.eric.base.common.setting.service.CommonSettingService;
+import com.eric.base.common.source.service.CommonSourceMigrationService;
 import com.eric.base.common.source.service.CommonSourceSyncService;
 import com.eric.base.sys.dict.service.SysDictService;
 import com.eric.base.sys.i18n.service.SysI18nSyncService;
@@ -48,6 +49,7 @@ class SysStartupTaskTest {
     private CommonModuleService commonModuleService;
     private SysNumberModelCacheService sysNumberModelCacheService;
     private CommonSourceSyncService commonSourceSyncService;
+    private CommonSourceMigrationService commonSourceMigrationService;
     private SysStartupTask task;
 
     @BeforeEach
@@ -64,10 +66,11 @@ class SysStartupTaskTest {
         commonModuleService = mock(CommonModuleService.class);
         sysNumberModelCacheService = mock(SysNumberModelCacheService.class);
         commonSourceSyncService = mock(CommonSourceSyncService.class);
+        commonSourceMigrationService = mock(CommonSourceMigrationService.class);
         task = new SysStartupTask(sysOrgUserService, sysOrgElementService, sysOrgAuthService,
                 sysOrgRoleService, modelCacheService, sysTaskSchedulerService, commonSettingService,
                 sysDictService, sysI18nSyncService, commonModuleService, sysNumberModelCacheService,
-                commonSourceSyncService);
+                commonSourceSyncService, commonSourceMigrationService);
     }
 
     @Test
@@ -115,5 +118,7 @@ class SysStartupTaskTest {
         verify(sysNumberModelCacheService).syncFromYml();
         // 第十二个启动任务：表结构注解同步引擎比对/执行（CS_SOURCE_SYNC_MODE 门禁）被调用
         verify(commonSourceSyncService).sync();
+        // 第十三个启动任务：数据迁移（表结构同步之后执行，先结构后数据）被调用
+        verify(commonSourceMigrationService).migrate();
     }
 }
