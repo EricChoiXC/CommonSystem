@@ -19,6 +19,8 @@ com.eric.base.sys.bpm
 
 ## 基本表结构
 
+> 落地方式：表结构由实体注解（`@TableSource` / `@ColumnField` / `@TableIndex`）声明，启动期经注解同步引擎建表与比对（口径见 `docs/v1_3-数据源/1_3_2-注解维护表结构替换flyway/注解维护表结构设计方案.md`），不新增 SQL 迁移脚本；流水/历史类表继承 `BaseModel`、主档表继承 `MainModel`（内建 `field_id` 主键与审计列）。
+
 ### 流程分类和流程模板
 
 ```mermaid
