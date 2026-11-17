@@ -652,7 +652,7 @@
 
 - 消费面权限口径：菜单入口仅对 `SYS_DATASOURCE_ADMIN` 展示，但 `options` / `targets` / `query` 接口登录即可——无权限用户虽看不到管理菜单，其业务页面仍可经数据源取数；取数越权由执行期委托目标 action 鉴权收敛（需求文档第 11 章、API 文档 4.10.5）。
 - 方式一（页面直调）：页面按 `code` 调 `queryDatasource({ code, body, pages, sortField, sortOrder })`，`body` 只传增量过滤条件（固定条件由服务端强制、同名 key 覆盖调用方条件）；列头以 `metadata.fields` / `options.fields` 为准渲染，**不假设固定列**（R04）；分页 `layout="total, prev, pager, next, sizes"`、`page-sizes [10,20,50,100]`；`sortField` 须命中目标能力可排序白名单，非法值由后端回退默认排序。示例见样例代码 §4.2「我的日程」直调 `calendar.my-created`。
-- 方式二（通用组件）：`components/DatasourceTable.vue`，props `code`（可选 `filters` / `sortField`），内部完成 `options` → 列头渲染 → `queryDatasource` 取数编排，适合快速搭建数据源驱动列表页。**可选组件，是否纳入 v1.8 见任务清单 F18-FE-005**；如后续纳入，须先同步 `docs/系统模块/前端公共组件.md` 组件契约再消费。
+- 方式二（通用组件）：`components/DatasourceTable.vue`，props `code`（可选 `filters` / `sortField`），内部完成 `options` → 列头渲染 → `queryDatasource` 取数编排，适合快速搭建数据源驱动列表页。已随 F18-FE-005 纳入 v1.8（2026-11-17 落地），组件契约已同步 `docs/系统模块/前端公共组件.md`「九. 数据源表格组件」，消费以该契约为准。
 - 数据源选择交互：消费页面如需让用户挑选数据源，用 `getDatasourceOptions()` 填充 `el-select`（label 为数据源名称，可按 `sourceType` 加 CODE/CUSTOM 辅助标记）；选项含 `fields` 有效字段集，与执行结果 `metadata.fields` 一致，可用于列头预渲染；`options` 不暴露固定条件原文，前端不可也不需感知固定条件内容。
 - 码值翻译：执行结果为原始值（如 `fieldType=PERSONAL`），码值显示名由消费方页面按码值模块自行翻译（TBD 裁决结论 1）；消费页面在渲染列时对枚举/码值字段按码值模块转换后再展示。
 

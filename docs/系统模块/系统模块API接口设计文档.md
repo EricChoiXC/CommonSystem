@@ -505,7 +505,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
   "code": "calendar.my-created",                 // 数据源编码（默认或自定义）
   "body": { "fieldName": "周报" },                // 调用方过滤条件 Map（固定条件同名覆盖之）
   "pages": { "pageNo": 1, "pageSize": 20, "needPage": true },
-  "sortField": "startTime", "sortOrder": "desc"  // 须 ∈ Provider 可排序字段白名单
+  "sortField": "fieldStartTime", "sortOrder": "desc"  // 须 ∈ Provider 可排序字段白名单（返回字段 Java 名，如 fieldStartTime/fieldCreateTime）
 }
 ```
 
