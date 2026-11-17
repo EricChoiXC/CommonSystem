@@ -14,9 +14,17 @@ import java.util.List;
  */
 public interface IBaseMapper<T extends BaseModel> {
 
-    int insert(@Param("model") T model);
+    /**
+     * 写入参数放宽为 BaseModel：MyBatis 按 #{} 属性名对运行期对象反射取值，
+     * 静态类型不参与 SQL 组装；放宽后双表写 Dao（先例 SysOrgUserDao 经
+     * SysOrgElementMapper 写主表）可传扩展表实体，运行期行为不变。
+     */
+    int insert(@Param("model") BaseModel model);
 
-    int update(@Param("model") T model);
+    /**
+     * 写入参数放宽为 BaseModel（口径同 {@link #insert}）
+     */
+    int update(@Param("model") BaseModel model);
 
     int deleteById(@Param("fieldId") String fieldId);
 
