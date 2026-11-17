@@ -64,7 +64,7 @@ public class SysOrgAuthService extends BaseService<SysOrgAuth, SysOrgAuthDao> {
     }
 
     /**
-     * 第二个启动任务：读取 properties/ 下各模块 roles.yml，将权限增量同步到 sys_org_auth。
+     * 第四个启动任务：读取 properties/ 下各模块 roles.yml，将权限增量同步到 sys_org_auth。
      * <p>field_model 取同目录 application.yml 的 MODEL_KEY（缺失时回退按目录层级推导，如 common → COMMON）；
      * 已存在的权限不重复插入，仅当库中名称/描述为空时用 roles.yml 的有效中文补全。</p>
      */

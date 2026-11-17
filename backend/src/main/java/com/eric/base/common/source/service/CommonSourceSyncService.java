@@ -159,7 +159,7 @@ public class CommonSourceSyncService {
     }
 
     /**
-     * 同步主入口（设计方案 §5.1 执行流程，SysStartupTask 第十二个启动任务调用）
+     * 同步主入口（设计方案 §5.1 执行流程，SysStartupTask 第一个启动任务调用）
      *
      * @return 本次同步汇总；未获锁（另一实例同步中）或 JdbcTemplate 不可用时返回 null，
      *         失败（模式非法 / L3 数据丢失风险 / DDL 执行失败）抛异常并以 FAILED 落审计行

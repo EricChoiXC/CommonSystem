@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
  *              模式）并 fail-fast 校验——code 须匹配 DM-yyyyMMdd-nnn 全匹配、全局唯一（重复
  *              抛 IllegalStateException），违例阻断启动；执行清单按 order() 升序、并列按
  *              code 字典序排序（同日多迁移顺序确定，不依赖 Bean 注册顺序）。
- *              <p>主入口 {@link #migrate()}（SysStartupTask 第十三个启动任务调用，位于
+ *              <p>主入口 {@link #migrate()}（SysStartupTask 第二个启动任务调用，位于
  *              表结构同步之后——先结构后数据）：1 JdbcTemplate 不可用（排除数据源的测试
  *              上下文）WARN 跳过、不比对不落审计；2 无已注册迁移 INFO 跳过（不必取锁）；
  *              3 SELECT GET_LOCK('common_source_data_migration', 30) 多实例互斥（独立于
@@ -102,7 +102,7 @@ public class CommonSourceMigrationService {
     }
 
     /**
-     * 数据迁移主入口（设计方案 §6，SysStartupTask 第十三个启动任务调用，表结构同步之后执行）
+     * 数据迁移主入口（设计方案 §6，SysStartupTask 第二个启动任务调用，表结构同步之后执行）
      *
      * <p>语义：JdbcTemplate 不可用 / 无已注册迁移 / 未获锁 → 跳过返回（不比对不落审计）；
      * 获锁后逐个幂等执行，任一迁移失败落 FAILED 审计行后原异常重新抛出（阻断启动，

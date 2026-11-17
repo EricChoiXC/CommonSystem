@@ -32,7 +32,6 @@
 	<properties>
 		<java.version>21</java.version>
 		<mysql.connector.version>8.4.0</mysql.connector.version>
-		<flyway.version>10.22.0</flyway.version>
 		<easyexcel.version>4.0.3</easyexcel.version>
 		<poi.version>5.2.5</poi.version>
 		<!-- 拼音转换：pinyin4j（组织架构名称拼音检索） -->
@@ -76,14 +75,6 @@
 			<artifactId>mysql-connector-j</artifactId>
 			<version>${mysql.connector.version}</version>
 			<scope>runtime</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-core</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-mysql</artifactId>
 		</dependency>
 		<!-- 缓存：Redis -->
 		<dependency>

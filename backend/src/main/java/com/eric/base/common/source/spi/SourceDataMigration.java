@@ -8,7 +8,7 @@ package com.eric.base.common.source.spi;
  * @description 实现类声明为 Spring Bean 即被 {@code CommonSourceMigrationService} 收集注册
  *              （对齐 {@code SysDatasourceRegistry} 收集模式），构造期 fail-fast 校验
  *              {@link #code()} 格式（DM-yyyyMMdd-nnn 全匹配）与全局唯一性，违例阻断启动；
- *              执行时机为第十三个启动任务（表结构同步之后，先结构后数据），按 {@link #order()}
+ *              执行时机为第二个启动任务（表结构同步之后，先结构后数据），按 {@link #order()}
  *              升序（并列按 code 字典序保证确定性）逐个执行，执行前查迁移审计表
  *              common_source_migration_log 存在 SUCCESS 行则幂等跳过；{@link #migrate()}
  *              失败落 FAILED 审计行后原异常重新抛出阻断启动（对齐 Flyway 失败语义）。

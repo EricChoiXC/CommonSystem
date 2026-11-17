@@ -86,52 +86,54 @@ public class SysStartupTask implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        // 第一个启动任务：初始化内置管理员用户
+        // 第一个启动任务：表结构注解同步引擎比对/执行（CS_SOURCE_SYNC_MODE 门禁）
+        syncSourceSchema();
+        // 第二个启动任务：数据迁移（表结构同步之后执行，先结构后数据）
+        migrateSourceData();
+        // 第三个启动任务：初始化内置管理员用户
         initAdminUser();
-        // 第二个启动任务：同步 roles.yml 权限到 sys_org_auth
+        // 第四个启动任务：同步 roles.yml 权限到 sys_org_auth
         syncAuthsFromRolesYml();
-        // 第三个启动任务：初始化系统管理员角色并默认挂载 SYS_ADMIN 权限与 admin 用户
+        // 第五个启动任务：初始化系统管理员角色并默认挂载 SYS_ADMIN 权限与 admin 用户
         ensureSystemAdminRole();
-        // 第四个启动任务：缓存各模块 application.yml 的 MODEL_KEY / MODEL_NAME 到 Redis
+        // 第六个启动任务：缓存各模块 application.yml 的 MODEL_KEY / MODEL_NAME 到 Redis
         cacheModelNames();
-        // 第五个启动任务：扫描 @SysTask 任务类写入 sys_task_main 并注册 cron 调度
+        // 第七个启动任务：扫描 @SysTask 任务类写入 sys_task_main 并注册 cron 调度
         registerSysTasks();
-        // 第六个启动任务：增量同步各模块 application.yml 的 SETTING 配置到 common_setting
+        // 第八个启动任务：增量同步各模块 application.yml 的 SETTING 配置到 common_setting
         syncSettingsFromYml();
-        // 第七个启动任务：增量导入各模块 dict.yml 系统码值到 sys_dict_type / sys_dict_item
+        // 第九个启动任务：增量导入各模块 dict.yml 系统码值到 sys_dict_type / sys_dict_item
         syncDictFromYml();
-        // 第八个启动任务：i18n 初始语言保证 + 扫描 resources/i18n/** 资源按覆盖规则同步 DB + 刷新翻译缓存
+        // 第十个启动任务：i18n 初始语言保证 + 扫描 resources/i18n/** 资源按覆盖规则同步 DB + 刷新翻译缓存
         syncI18nFromResources();
-        // 第九个启动任务：组织架构存量数据拼音列回填
+        // 第十一个启动任务：组织架构存量数据拼音列回填
         backfillElementPinyin();
-        // 第十个启动任务：扫描 properties/ 下各模块 moduleGroup.yml 的 module-group 段，
+        // 第十二个启动任务：扫描 properties/ 下各模块 moduleGroup.yml 的 module-group 段，
         // 增量同步模块组到 common_module_group（新导入默认开启，已存在不动开关状态），
         // 同步后校验 @ModuleGroup 注解 key 并全量预热状态缓存
         syncModulesFromYml();
-        // 第十一个启动任务：扫描 properties/ 下各模块 numberRule.yml 构建编号接入项缓存，
+        // 第十三个启动任务：扫描 properties/ 下各模块 numberRule.yml 构建编号接入项缓存，
         // 并校验 sys_number_rule.field_model_id 对失效接入项输出告警（不阻断启动）
         syncNumberModelsFromYml();
-        // 第十二个启动任务：表结构注解同步引擎比对/执行（CS_SOURCE_SYNC_MODE 门禁）
-        syncSourceSchema();
-        // 第十三个启动任务：数据迁移（表结构同步之后执行，先结构后数据）
-        migrateSourceData();
     }
 
     /**
-     * 第十二个启动任务：表结构注解同步引擎比对/执行（CS_SOURCE_SYNC_MODE 门禁）。
+     * 第一个启动任务：表结构注解同步引擎比对/执行（CS_SOURCE_SYNC_MODE 门禁）。
      * <p>调 {@link CommonSourceSyncService#sync()}：解析同步模式（VALIDATE 只报告 /
      * INSTALL 仅缺失对象新增 / APPLY L1 执行 L2 告警 L3 fail-fast）、
      * GET_LOCK('common_source_schema_sync', 30) 多实例互斥、自举两张审计表
      * （common_source_sync_log / common_source_migration_log）、扫描 @TableSource
      * 标注实体与 information_schema 比对按语义矩阵分流执行/报告，汇总落同步审计表；
-     * 数据迁移（第十三个启动任务，F19-BE-006）在表结构同步之后执行（先结构后数据）。</p>
+     * 数据迁移（第二个启动任务，F19-BE-006）在表结构同步之后执行（先结构后数据）。
+     * 前移原因：Flyway 已移除，引擎建表必须先于所有消费数据库的启动任务，
+     * 否则空库部署首启即在第三个任务缺表失败。</p>
      */
     private void syncSourceSchema() {
         commonSourceSyncService.sync();
     }
 
     /**
-     * 第十三个启动任务：数据迁移（表结构同步之后执行，先结构后数据）。
+     * 第二个启动任务：数据迁移（表结构同步之后执行，先结构后数据）。
      * <p>调 {@link CommonSourceMigrationService#migrate()}：构造期收集全部
      * {@code SourceDataMigration} 实现 Bean（code 格式/全局唯一 fail-fast），
      * 按 order 升序逐个执行注解表达不了的数据回填（纯替换 Flyway 后的唯一数据通道），
@@ -143,7 +145,7 @@ public class SysStartupTask implements ApplicationRunner {
     }
 
     /**
-     * 第十一个启动任务：编号接入项缓存构建与失效告警。
+     * 第十三个启动任务：编号接入项缓存构建与失效告警。
      * <p>调 {@link SysNumberModelCacheService#syncFromYml()}：扫描 properties/ 下各模块
      * numberRule.yml（文件名全局统一）合并为进程内接入项缓存（A1：yml 静态无运行期变更，
      * 不入 Redis），并校验 sys_number_rule.field_model_id 是否仍存在于缓存，
@@ -154,7 +156,7 @@ public class SysStartupTask implements ApplicationRunner {
     }
 
     /**
-     * 第十个启动任务：模块组增量同步、@ModuleGroup 注解启动期校验与状态缓存预热。
+     * 第十二个启动任务：模块组增量同步、@ModuleGroup 注解启动期校验与状态缓存预热。
      * <p>调 {@link CommonModuleService#syncFromYml()} 一次完成「同步 → 校验 → 预热」全链路：
      * 扫描 properties/ 下各模块 moduleGroup.yml 的 module-group 段增量同步 common_module_group
      * （新导入默认开启，已存在条目只回写元信息、不动开关状态），校验注解 key（未知 key 仅告警），
@@ -165,7 +167,7 @@ public class SysStartupTask implements ApplicationRunner {
     }
 
     /**
-     * 第八个启动任务：多语言资源同步（初始语言保证、key 登记、四分支翻译覆盖、缓存刷新）。
+     * 第十个启动任务：多语言资源同步（初始语言保证、key 登记、四分支翻译覆盖、缓存刷新）。
      * <p>与部署动作（/backend/sys/i18n/deploy/run）复用 {@link SysI18nSyncService#syncFromResources}
      * 同一规则；人工编辑过的翻译（field_update_time 非空）不会被覆盖。</p>
      */
@@ -174,7 +176,7 @@ public class SysStartupTask implements ApplicationRunner {
     }
 
     /**
-     * 第九个启动任务：组织架构存量数据拼音回填。
+     * 第十一个启动任务：组织架构存量数据拼音回填。
      * <p>调 {@link SysOrgElementService#backfillPinyin()}，对 field_pinyin / field_pinyin_short
      * 存空的行按 field_name 重算，按 field_id 游标分批（每批 500），幂等可重跑。</p>
      */
@@ -186,7 +188,7 @@ public class SysStartupTask implements ApplicationRunner {
     }
 
     /**
-     * 第七个启动任务：扫描 properties/ 下各模块 dict.yml，
+     * 第九个启动任务：扫描 properties/ 下各模块 dict.yml，
      * 将系统码值增量导入 sys_dict_type / sys_dict_item（field_system = true）。
      */
     private void syncDictFromYml() {
@@ -194,7 +196,7 @@ public class SysStartupTask implements ApplicationRunner {
     }
 
     /**
-     * 第六个启动任务：扫描 properties/ 下各模块 application.yml 的 SETTING 段，
+     * 第八个启动任务：扫描 properties/ 下各模块 application.yml 的 SETTING 段，
      * 将配置增量同步到 common_setting（不存在则插入、默认值变更按同步规则更新）。
      */
     private void syncSettingsFromYml() {
@@ -202,7 +204,7 @@ public class SysStartupTask implements ApplicationRunner {
     }
 
     /**
-     * 第五个启动任务：扫描带 {@code @SysTask} 注解的任务类写入 sys_task_main（默认开启），
+     * 第七个启动任务：扫描带 {@code @SysTask} 注解的任务类写入 sys_task_main（默认开启），
      * 并对所有启用任务按库中维护的 cron 动态注册调度。
      */
     private void registerSysTasks() {
@@ -210,7 +212,7 @@ public class SysStartupTask implements ApplicationRunner {
     }
 
     /**
-     * 第四个启动任务：扫描 properties/ 下各模块 application.yml，
+     * 第六个启动任务：扫描 properties/ 下各模块 application.yml，
      * 将 MODEL_KEY → MODEL_NAME 映射以一份 Map（Redis Hash）缓存到 Redis。
      */
     private void cacheModelNames() {
@@ -219,7 +221,7 @@ public class SysStartupTask implements ApplicationRunner {
     }
 
     /**
-     * 第一个启动任务：确保内置管理员用户存在。
+     * 第三个启动任务：确保内置管理员用户存在。
      * <p>查询 sys_org_user 中 field_id = '0000...0'（'0' 补足 32 位）的用户，
      * 不存在则创建：field_name=管理员、field_code=admin、field_login_name=admin、
      * field_password=123456（由 {@link SysOrgUserService#insert} 以 BCrypt 加密后入库）。</p>
@@ -247,7 +249,7 @@ public class SysStartupTask implements ApplicationRunner {
     }
 
     /**
-     * 第二个启动任务：读取 properties/ 下各模块 roles.yml，
+     * 第四个启动任务：读取 properties/ 下各模块 roles.yml，
      * 将权限增量同步到 sys_org_auth（field_model 取同目录 application.yml 的 MODEL_KEY）。
      */
     private void syncAuthsFromRolesYml() {
@@ -255,7 +257,7 @@ public class SysStartupTask implements ApplicationRunner {
     }
 
     /**
-     * 第三个启动任务：确保系统管理员角色存在（field_id = '0' 补足 32 位，field_name = 系统管理员），
+     * 第五个启动任务：确保系统管理员角色存在（field_id = '0' 补足 32 位，field_name = 系统管理员），
      * 并默认挂载 SYS_ADMIN 权限与 admin 用户。
      */
     private void ensureSystemAdminRole() {
