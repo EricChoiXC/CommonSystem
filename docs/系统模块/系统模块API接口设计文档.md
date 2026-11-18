@@ -554,7 +554,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 
 #### 4.11.1 模块目标与接口边界
 
-- 提供公共表达式服务：公式解析校验（`validate`）、受限沙箱试算（`simulate`）、函数注册中心清单（`functions`）、公式组件左树聚合（`options`）与命名公式（`sys_formula` 表）管理六动作。公式引擎（AviatorScript）封装于 `service/engine`（`FormulaEngine` / `FormulaContext` / `FormulaFunctionRegistry`），业务模块与前端不直接触碰表达式引擎；数据面不直连任何 Mapper——业务数据只经注册函数 `DS_QUERY` 走数据源统一执行入口（`SysDatasourceService#execute`，内部已委托目标 action 鉴权），`ORG_*` 取值函数归二期由 org 模块注册。
+- 提供公共表达式服务：公式解析校验（`validate`）、受限沙箱试算（`simulate`）、函数注册中心清单（`functions`）、可用公式下拉（`options`，启用中的命名公式条目）与命名公式（`sys_formula` 表）管理六动作。公式引擎（AviatorScript）封装于 `service/engine`（`FormulaEngine` / `FormulaContext` / `FormulaFunctionRegistry`），业务模块与前端不直接触碰表达式引擎；数据面不直连任何 Mapper——业务数据只经注册函数 `DS_QUERY` 走数据源统一执行入口（`SysDatasourceService#execute`，内部已委托目标 action 鉴权），`ORG_*` 取值函数归二期由 org 模块注册。
 - 变量引用统一 `${code}` 占位符（扩展两级路径投影 `${list.field}`，变量码约束 `[a-zA-Z_][a-zA-Z0-9_]*`），存储态即 `${}` 形态；返回类型枚举 `NUMBER / STRING / BOOLEAN / DATE / ARRAY`，公式类型枚举 `FIELD / CONDITION / VALIDATION / VISIBILITY / WORKFLOW / CUSTOM`（仅分类标记，不改变执行语义）。
 - 公式形态两类：内联公式（消费方自身配置 JSON 直接存 `expression` 文本）与命名公式（`sys_formula` 表，管理员维护，消费方按 `field_code` 引用、执行时加载启用中的公式）；两类公式共用同一套 `/validate` / `/simulate`，管理六动作仅覆盖命名公式。
 - 模块 key `formula`；权限码 `SYS_FORMULA_ADMIN`（公式管理员）定义于 `properties/sys/formula/roles.yml`；接口标识常量（10 个 `ACTION_*`）定义于 `SysFormulaConstants`，风格对齐 `SysDatasourceConstants`；`FormulaResolver` 继承 `BaseResolver` 按动作判定（`SYS_ADMIN` 自动放行，分支不重复列举），Controller 经 `authorize(...)` 最终鉴权——未登录抛 `UNAUTHORIZED`、无权限抛 `FORBIDDEN`（HTTP 200 + code 体系，全工程惯例）。
@@ -566,7 +566,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 | 接口组 | 说明 |
 | --- | --- |
 | 命名公式管理 | `list` / `load` / `save` / `update` / `enable` / `delete` 六动作，仅 `SYS_FORMULA_ADMIN`（`save` / `update` 保存期强制 validate 同源校验通过） |
-| 公式组件 | `options`（左树聚合）、`functions`（函数清单）、`validate`（语法/类型/依赖检查）、`simulate`（受限沙箱试算），登录即可（鉴权分层见 4.11.5） |
+| 公式组件 | `options`（启用命名公式下拉）、`functions`（函数清单）、`validate`（语法/类型/依赖检查）、`simulate`（受限沙箱试算），登录即可（鉴权分层见 4.11.5） |
 
 #### 4.11.3 接口清单（v1.4，两组 10 接口）
 
@@ -580,7 +580,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 | `/backend/sys/formula/update` | PATCH | `sys.formula.update` | 仅 `SYS_FORMULA_ADMIN` | 编辑命名公式；同 save 强制校验，`fieldId` 必填 |
 | `/backend/sys/formula/enable` | PATCH | `sys.formula.enable` | 仅 `SYS_FORMULA_ADMIN` | 启停用；请求体 `{ fieldId, fieldEnable }`（与全工程 `/enable` 通道一致） |
 | `/backend/sys/formula/delete?fieldId=` | DELETE | `sys.formula.delete` | 仅 `SYS_FORMULA_ADMIN` | 删除命名公式 |
-| `/backend/sys/formula/options` | GET | `sys.formula.options` | 登录即可 | 公式组件左树聚合三组节点：变量、业务模型、函数（见 4.11.4） |
+| `/backend/sys/formula/options` | GET | `sys.formula.options` | 登录即可 | 启用中的命名公式下拉条目（不暴露表达式原文）；左树「变量」「业务模型」「函数」三组节点由前端组装（见 4.11.4） |
 | `/backend/sys/formula/functions` | GET | `sys.formula.functions` | 登录即可 | 函数注册中心清单，含分类 / 参数 / 返回值 / 说明；同一份元数据驱动前端函数面板与后端参数类型校验 |
 | `/backend/sys/formula/validate` | POST | `sys.formula.validate` | 登录即可 | 语法 / 类型 / 依赖检查，纯静态分析无副作用（契约见 4.11.4） |
 | `/backend/sys/formula/simulate` | POST | `sys.formula.simulate` | 登录即可 | 受限沙箱试算，资源限制内执行、入参由调用方自负（契约见 4.11.4） |
@@ -623,17 +623,11 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 
 - 按 `fieldId` 删除命名公式行；消费方按 `field_code` 引用执行，删除后引用方执行报 `CS_FORMULA_NOT_FOUND`，前端删除须二次确认（列表页通用口径）。
 
-**`/options`（公式组件左树聚合，登录即可）**
+**`/options`（可用公式下拉，登录即可）**
 
-- 响应 `data` 为左树三组节点：
-
-| 节点组 | 内容 |
-| --- | --- |
-| 变量 | 系统变量（当前用户 / 部门 / 角色等会话上下文，服务端注入）+ 组织架构上下文 |
-| 业务模型 | 复用数据源 `GET /backend/sys/datasource/targets` 聚合的「能力 → 字段」两级节点——各模块声明 Provider 即自动进入公式组件，公式模块不维护第二份字段台账（方案 A6） |
-| 函数 | 按注册中心九类分类分组（明细见 `/functions`） |
-
-- 前端节点插入语义：变量节点写入 `${code}`，函数节点写入带占位参数模板（组件行为，数据来源为本接口与 `/functions`）。
+- 响应 `data = List<SysFormulaOptionVo>`：启用中的命名公式条目 `{ fieldCode, fieldName, fieldType, fieldReturnType }`（创建时间降序）——仅暴露消费所需元数据（供插入命名公式与结果适配预判），不暴露表达式原文与变量依赖；停用行不在下拉暴露（管理列表仍可查询与重新启用），消费方按 `field_code` 引用、执行时加载启用中的公式。
+- 左树「变量」「业务模型」「函数」三组节点由前端组装（实现期 F14-BE-007 裁定，`/options` 不做左树聚合）：变量组 = 系统变量（当前用户 / 部门 / 角色等会话上下文，服务端注入）+ `availableVars` 外部追加变量声明；业务模型组 = 复用数据源 `GET /backend/sys/datasource/targets` 聚合的「能力 → 字段」两级节点——各模块声明 Provider 即自动进入公式组件，公式模块不维护第二份字段台账（方案 A6）；函数组 = `/functions` 函数元数据按九类分类分组。
+- 前端节点插入语义：变量节点写入 `${code}`，函数节点写入带占位参数模板（组件行为，数据来源为 `/functions` 与数据源 targets）。
 
 **`/functions`（函数注册中心清单，登录即可）**
 
@@ -662,7 +656,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 | 字段 | 语义 |
 | --- | --- |
 | `syntax` | 语法与函数校验是否通过 |
-| `returnType` | 引擎推断的返回类型 |
+| `returnType` | 请求 `expectedReturnType` 的规整回显（NUMBER/STRING/BOOLEAN/DATE/ARRAY；请求未声明时为 null——引擎未提供静态返回类型推断，类型适配由执行期承担） |
 | `dependencies` | 表达式中提取的变量码数组 |
 | `errors` | 错误数组，元素 `{ code, message }`，`code` ∈ 4.11.6 的 `CS_FORMULA_*` |
 
