@@ -38,6 +38,8 @@
 		<pinyin4j.version>2.5.1</pinyin4j.version>
 		<!-- 接口文档：springdoc-openapi 2.x 对应 Spring Boot 3.x（3.x 面向 Boot 4，不采用） -->
 		<springdoc.version>2.8.17</springdoc.version>
+		<!-- 表达式引擎：AviatorScript 5.x 最新稳定版（公式定义器，JDK 21 兼容） -->
+		<aviator.version>5.4.3</aviator.version>
 	</properties>
 
 	<dependencies>
@@ -114,6 +116,12 @@
 			<groupId>org.springdoc</groupId>
 			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
 			<version>${springdoc.version}</version>
+		</dependency>
+		<!-- 表达式引擎：AviatorScript（公式定义器编译求值，沙箱裁剪见 F14-BE-005） -->
+		<dependency>
+			<groupId>com.googlecode.aviator</groupId>
+			<artifactId>aviator</artifactId>
+			<version>${aviator.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.poi</groupId>
