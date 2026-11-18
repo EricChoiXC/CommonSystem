@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eric.base.sys.formula.mapper.SysFormulaMapper">
+
+<!--
+    公式表(sys_formula)映射（F14-BE-006）
+    field_dependencies 为 JSON 列：存储态原文字符串（列表响应不解析），
+    load 解析为变量码数组由 Service 完成（F14-BE-007）；落库前由 Service 解析
+    field_expression 提取变量码后序列化为 JSON 字符串（禁止手工拼串，
+    先例 sys_number_rule.field_rule）。NULL=表达式未引用任何变量。
+    依据 docs/v1_4-公式定义器/公式定义器功能设计方案.md「§4.2 表结构」，
+    列清单与 SysFormula 实体注解声明一致（经注解表结构同步引擎建表，无迁移脚本）；
+    uk_formula_code 唯一键（编码全局唯一，Service 层查重）+ idx_formula_type 普通索引。
+    /enable 通道走 updateEnable（仅更新 field_enable 与审计字段，只更新自身一行）。
+-->
+
+    <resultMap id="SysFormulaResultMap" type="com.eric.base.sys.formula.model.SysFormula">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+        <result column="field_code" property="fieldCode"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_enable" property="fieldEnable"/>
+        <result column="field_type" property="fieldType"/>
+        <result column="field_expression" property="fieldExpression"/>
+        <result column="field_dependencies" property="fieldDependencies"/>
+        <result column="field_return_type" property="fieldReturnType"/>
+        <result column="field_remark" property="fieldRemark"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_name, field_code, field_creator_id, field_create_time,
+        field_updater_id, field_update_time, field_enable,
+        field_type, field_expression, field_dependencies, field_return_type, field_remark
+    </sql>
+
+    <!--
+        管理列表查询条件：fieldName / fieldCode 模糊，fieldType / fieldEnable 精确；
+        selectList 与 selectCount 共用本片段保证条件一致（供 metadata.total）
+    -->
+    <sql id="QueryConditions">
+        <where>
+            <if test="model.fieldName != null and model.fieldName != ''">AND field_name LIKE CONCAT('%', #{model.fieldName}, '%')</if>
+            <if test="model.fieldCode != null and model.fieldCode != ''">AND field_code LIKE CONCAT('%', #{model.fieldCode}, '%')</if>
+            <if test="model.fieldType != null and model.fieldType != ''">AND field_type = #{model.fieldType}</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+        </where>
+    </sql>
+
+    <!-- field_dependencies 落库前由 Service 解析表达式提取变量码并序列化为 JSON 字符串（F14-BE-007），此处按字符串写入 JSON 列 -->
+    <insert id="insert" parameterType="com.eric.base.sys.formula.model.SysFormula">
+        INSERT INTO sys_formula (
+        field_id, field_name, field_code, field_creator_id, field_create_time,
+        field_updater_id, field_update_time, field_enable,
+        field_type, field_expression, field_dependencies, field_return_type, field_remark
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldName}, #{model.fieldCode}, #{model.fieldCreatorId}, #{model.fieldCreateTime},
+        #{model.fieldUpdaterId}, #{model.fieldUpdateTime}, #{model.fieldEnable},
+        #{model.fieldType}, #{model.fieldExpression}, #{model.fieldDependencies}, #{model.fieldReturnType}, #{model.fieldRemark}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.eric.base.sys.formula.model.SysFormula">
+        UPDATE sys_formula
+        <set>
+            <if test="model.fieldName != null">field_name = #{model.fieldName},</if>
+            <if test="model.fieldCode != null">field_code = #{model.fieldCode},</if>
+            <if test="model.fieldCreatorId != null">field_creator_id = #{model.fieldCreatorId},</if>
+            <if test="model.fieldCreateTime != null">field_create_time = #{model.fieldCreateTime},</if>
+            <if test="model.fieldUpdaterId != null">field_updater_id = #{model.fieldUpdaterId},</if>
+            <if test="model.fieldUpdateTime != null">field_update_time = #{model.fieldUpdateTime},</if>
+            <if test="model.fieldEnable != null">field_enable = #{model.fieldEnable},</if>
+            <if test="model.fieldType != null">field_type = #{model.fieldType},</if>
+            <if test="model.fieldExpression != null">field_expression = #{model.fieldExpression},</if>
+            <!-- field_dependencies 随表达式更新：保存/更新时由 Service 解析提取后序列化落库（F14-BE-007） -->
+            <if test="model.fieldDependencies != null">field_dependencies = #{model.fieldDependencies},</if>
+            <if test="model.fieldReturnType != null">field_return_type = #{model.fieldReturnType},</if>
+            <if test="model.fieldRemark != null">field_remark = #{model.fieldRemark},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <!-- /enable 通道更新：仅更新 field_enable 与修改人/修改时间（只更新自身一行，不级联） -->
+    <update id="updateEnable">
+        UPDATE sys_formula
+        <set>
+            field_enable = #{fieldEnable},
+            field_updater_id = #{updaterId},
+            field_update_time = #{updateTime},
+        </set>
+        WHERE field_id = #{fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_formula
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysFormulaResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_formula
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!--
+        管理列表（F14-BE-006）：fieldName / fieldCode 模糊，fieldType / fieldEnable 精确；
+        field_dependencies 原文返回不解析（列表页不解析 JSON，load 由 Service 解析）；
+        排序固定创建时间降序；needPage=false 返回全部匹配结果
+    -->
+    <select id="selectList" resultMap="SysFormulaResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_formula
+        <include refid="QueryConditions"/>
+        ORDER BY field_create_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 管理列表总数：条件与 selectList 完全一致，供响应 metadata.total -->
+    <select id="selectCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_formula
+        <include refid="QueryConditions"/>
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name -->
+    <select id="loadModel" parameterType="string" resultMap="SysFormulaResultMap">
+        SELECT field_id, field_name
+        FROM sys_formula
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!--
+        编码查重 / 执行期解析：按编码取公式（uk_formula_code 全局唯一），
+        供 Service 全局查重（save 时同编码抛 CS_FORMULA_CODE_DUPLICATED）
+        与消费方按 field_code 引用执行时加载（F14-BE-007）
+    -->
+    <select id="selectByCode" parameterType="string" resultMap="SysFormulaResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_formula
+        WHERE field_code = #{fieldCode}
+        LIMIT 1
+    </select>
+
+</mapper>
