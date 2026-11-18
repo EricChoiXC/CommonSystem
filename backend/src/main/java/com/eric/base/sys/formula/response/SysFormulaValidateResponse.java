@@ -27,8 +27,9 @@ public class SysFormulaValidateResponse {
     @Schema(description = "语法与函数校验是否通过")
     private boolean syntax;
 
-    /** 引擎推断的返回类型（NUMBER/STRING/BOOLEAN/DATE/ARRAY；无法推断时为 null） */
-    @Schema(description = "引擎推断的返回类型：NUMBER/STRING/BOOLEAN/DATE/ARRAY",
+    /** 请求 expectedReturnType 的规整回显（NUMBER/STRING/BOOLEAN/DATE/ARRAY；请求未声明时为 null） */
+    @Schema(description = "请求 expectedReturnType 的规整回显：NUMBER/STRING/BOOLEAN/DATE/ARRAY；"
+            + "请求未声明时为 null——引擎不做静态返回类型推断，类型适配由执行期承担",
             allowableValues = {"NUMBER", "STRING", "BOOLEAN", "DATE", "ARRAY"})
     private String returnType;
 
