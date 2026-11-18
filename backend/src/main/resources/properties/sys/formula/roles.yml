@@ -1,0 +1,5 @@
+ROLE_LIST: ["SYS_FORMULA_ADMIN"]
+ROLE_MAP:
+  SYS_FORMULA_ADMIN:
+    NAME: "公式定义器管理员"
+    DESC: "拥有命名公式管理（列表/详情/新建/编辑/启停用/删除）的权限"
