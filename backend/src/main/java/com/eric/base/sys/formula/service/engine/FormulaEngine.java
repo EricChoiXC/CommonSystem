@@ -3,6 +3,7 @@ package com.eric.base.sys.formula.service.engine;
 import com.eric.base.sys.formula.enums.SysFormulaReturnType;
 import com.eric.base.sys.formula.properties.SysFormulaConstants;
 import com.eric.base.sys.formula.spi.FormulaFunctionDefinition;
+import com.eric.base.sys.org.utils.CurrentUserHolder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -641,9 +642,24 @@ public class FormulaEngine implements DisposableBean {
      * 「表达式摘要 + 错误类型/码」，不落变量值明文（方案 §6.5/§6.6）
      */
     private Object executeRestricted(Expression compiled, Map<String, Object> env, String expression) {
+        // 调用方身份跨线程传递（F14-INT-001 修复）：CurrentUserHolder 为请求线程 ThreadLocal，
+        // 受限执行发生在 formula-engine-executor 线程——DS_QUERY 委托目标 action 鉴权与
+        // CURRENT_* 会话函数在该线程上读不到调用方身份（实测未登录语义，取数/会话函数全数失效）。
+        // 提交前在调用方（HTTP 请求）线程捕获 userId，执行任务内绑定、finally 清理，
+        // 池线程串行执行无串号；调用方本就未登录（null）时不注入，与既有语义一致。
+        String callerUserId = CurrentUserHolder.get();
         Future<Object> future;
         try {
-            future = executor.submit(() -> compiled.execute(env));
+            future = executor.submit(() -> {
+                if (null != callerUserId) {
+                    CurrentUserHolder.set(callerUserId);
+                }
+                try {
+                    return compiled.execute(env);
+                } finally {
+                    CurrentUserHolder.clear();
+                }
+            });
         } catch (RuntimeException rejection) {
             log.warn("formula execute submit rejected [{}], expression digest: {}",
                     rejection.getClass().getSimpleName(), digest(expression));

@@ -697,7 +697,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 
 | 错误码 | 场景 |
 | --- | --- |
-| `CS_FORMULA_NOT_FOUND` | 公式编码/ID 不存在，或命名公式已停用 |
+| `CS_FORMULA_NOT_FOUND` | 公式编码/ID 不存在，或命名公式已停用——本码收口在执行 / 试算侧（`requireEnabledFormula`，方案 §8 服务内 `simulateByCode` 通道，不经 HTTP）；管理面行不存在沿用普通参数错误（`BAD_REQUEST` +「公式不存在: …」，不带本码前缀，F14-INT-001 实测澄清） |
 | `CS_FORMULA_CODE_DUPLICATED` | 保存时公式编码重复 |
 | `CS_FORMULA_EXPRESSION_TOO_LONG` | 表达式长度超上限 |
 | `CS_FORMULA_SYNTAX_INVALID` | 词法/语法错误（附引擎错误信息与位置） |
