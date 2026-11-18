@@ -214,11 +214,25 @@ async function loadList() {
 /* ============ 行内计数解析 ============ */
 
 /**
- * 变量依赖数：列表响应为保存期解析提取的变量码数组 fieldDependencies，
- * 前端取数组长度；空 / 缺失 / 非数组均显示 0。
+ * 变量依赖数：列表响应为保存期解析提取的变量码数组 fieldDependencies
+ * （列表不解析、以原文 JSON 字符串承载，如 "[\"applyAmount\", \"taxRate\"]"；
+ * load 详情接口才解析为数组——双形态承载），前端兼容数组与 JSON 字符串
+ * 两种形态取长度；空 / 缺失 / 解析失败均显示 0。
  */
 function dependencyCount(row) {
-  return Array.isArray(row.fieldDependencies) ? row.fieldDependencies.length : 0
+  const value = row.fieldDependencies
+  if (Array.isArray(value)) {
+    return value.length
+  }
+  if (typeof value === 'string' && value) {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed.length : 0
+    } catch {
+      return 0
+    }
+  }
+  return 0
 }
 
 /* ============ 路由跳转 ============ */

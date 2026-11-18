@@ -727,7 +727,7 @@
 | 公式名称 | `fieldName` | 文本，溢出省略 |
 | 公式类型 | `fieldType` | 展示枚举原文（仅作用途分类标记，不改变执行语义，需求文档 12.1） |
 | 返回类型 | `fieldReturnType` | 展示枚举原文 `NUMBER/STRING/BOOLEAN/DATE/ARRAY` |
-| 变量依赖数 | `fieldDependencies` | 计数——列表响应为保存期解析提取的变量码数组，前端解析取长度；空显示 `0` |
+| 变量依赖数 | `fieldDependencies` | 计数——列表响应为保存期解析提取的变量码数组的原文 JSON 字符串（列表不解析，`load` 详情通道才解析为数组，双形态承载），前端兼容数组与 JSON 字符串两种形态取长度；空显示 `0` |
 | 启用 | `fieldEnable` | `el-tag`：启用 success / 停用 info |
 | 创建时间 | `fieldCreateTime` | 格式化时间 |
 | 操作 | — | 详情、编辑、启停用、删除（link 按钮，`fixed="right"`） |

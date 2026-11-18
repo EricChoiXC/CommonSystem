@@ -592,7 +592,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 **`/list`（命名公式管理列表）**
 
 - 请求体 `{ body: { fieldCode?, fieldName?, fieldType?, fieldEnable? }, pages: { pageNo, pageSize, needPage } }`；默认创建时间降序。
-- 响应 `data = List<SysFormulaVo>`：字段与 `sys_formula` 表对应——`fieldId` / `fieldCode` / `fieldName` / `fieldType` / `fieldExpression`（表达式原文）/ `fieldReturnType` / `fieldDependencies`（保存时解析提取的变量码数组）/ `fieldRemark` / 公共字段，`metadata.total` 为总数。
+- 响应 `data = List<SysFormulaVo>`：字段与 `sys_formula` 表对应——`fieldId` / `fieldCode` / `fieldName` / `fieldType` / `fieldExpression`（表达式原文）/ `fieldReturnType` / `fieldDependencies`（保存时解析提取的变量码数组；列表通道以原文 JSON 字符串承载、序列化层不解析，`load` 详情通道才解析为字符串数组——双形态承载，前端消费时需兼容两种形态）/ `fieldRemark` / 公共字段，`metadata.total` 为总数。
 
 **`/load?fieldId=`（命名公式详情）**
 
