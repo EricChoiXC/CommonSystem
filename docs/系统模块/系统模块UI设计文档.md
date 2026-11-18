@@ -679,7 +679,7 @@
 
 - 编辑器只做输入辅助、权威校验在后端（方案 A1）：CodeMirror 6 进一期（TBD① 裁决，2026-11-16，随 F14-DOC-001 落定；回退预案 `el-input type="textarea"` 保留不删）；前端不做最终语法裁决，validate 接口即权威。
 - 保存期强制校验：save / update 时 `fieldExpression` 先经 validate 同源校验（语法 / 函数注册 / 参数与返回类型 / 变量码约束），校验不过即拒绝保存（API 文档 4.11.4）；公式引用失效变量不阻断保存，由 validate 报告、消费方决定处置。
-- 系统变量（`CURRENT_USER` / `CURRENT_DEPT` / `CURRENT_ROLE` 等会话上下文）为服务端注入语义，不可被前端赋值覆盖（后端不信任前端传入的 `CURRENT_*` 覆盖），模拟区不为其生成赋值行（见 4.11.7）。
+- 系统变量（`SYS_CURRENT_USER_ID` / `SYS_CURRENT_DEPT_ID` / `SYS_CURRENT_ROLE` 等 `SYS_CURRENT_` 前缀会话上下文变量）为服务端注入语义，不可被前端赋值覆盖（后端不信任前端传入的 `SYS_CURRENT_*` 覆盖），模拟区不为其生成赋值行（见 4.11.7）。
 - 左树业务模型节点来自数据源 targets 聚合（`GET /backend/sys/datasource/targets`，各模块 Provider 声明的 resultFields），公式模块**不另建字段台账**（方案 A6）；Provider 下线后左树业务模型组随之变化，公式引用失效变量由 validate 报告、不阻断保存。
 - 启停用与删除均须二次确认；停用或删除后消费方按 `field_code` 执行报 `CS_FORMULA_NOT_FOUND`（API 文档 4.11.4）。
 - 模拟区赋值仅用于沙箱试算，入参由调用方自负（API 文档 4.11.5），不代表任何真实业务数据授权；`/simulate` 仅在资源限制内执行（表达式长度 / 变量个数 / 序列化体积 / 循环次数 / 超时上限，常量收口 `SysFormulaConstants`）。
@@ -737,7 +737,7 @@
 - 新建：`hasAuth` 预判显隐，跳 `/formula/create`。
 - 详情：跳 `/formula/detail/:id`（复用单标签），支撑新建/编辑/详情三态路由互相跳转。
 - 编辑：跳 `/formula/edit/:id`（复用单标签）。
-- 启停用：二次确认；停用时提示「停用后消费方按 field_code 执行将报 CS_FORMULA_NOT_FOUND」；启用恢复对执行期引用可见；调 `updateFormulaEnable({ fieldId, fieldEnable })`。
+- 启停用：二次确认；停用时提示「停用后消费方按 field_code 执行将报 CS_FORMULA_NOT_FOUND」；启用恢复对执行期引用可见；调 `enableFormula(fieldId, fieldEnable)`。
 - 删除：二次确认，文案提示影响面（删除后消费方执行报 `CS_FORMULA_NOT_FOUND`）；调 `deleteFormula(fieldId)`。
 
 #### 4.11.5 公式定义器新增/编辑页
@@ -898,7 +898,7 @@
 
 ##### 模拟区（右下）
 
-- 赋值行：按声明 vars（弹窗声明 + `availableVars` 追加）生成「变量码（只读）+ 赋值控件」行，控件随变量 `type` 选型——NUMBER 数字输入、STRING 文本、BOOLEAN 开关、DATE 日期选择、ARRAY 以 JSON 文本输入；**系统变量（`CURRENT_USER` / `CURRENT_DEPT` / `CURRENT_ROLE`）为服务端注入语义，不生成赋值行**（后端不信任前端传入的 `CURRENT_*` 覆盖）。
+- 赋值行：按声明 vars（弹窗声明 + `availableVars` 追加）生成「变量码（只读）+ 赋值控件」行，控件随变量 `type` 选型——NUMBER 数字输入、STRING 文本、BOOLEAN 开关、DATE 日期选择、ARRAY 以 JSON 文本输入；**系统变量（`SYS_CURRENT_USER_ID` / `SYS_CURRENT_DEPT_ID` / `SYS_CURRENT_ROLE` 等 `SYS_CURRENT_` 前缀变量）为服务端注入语义，不生成赋值行**（后端不信任前端传入的 `SYS_CURRENT_*` 覆盖）。
 - 试算：【试算】按钮调 `simulateFormula({ expression, vars, expectedReturnType })`；成功展示 `result`（NUMBER 经 BigDecimal 规整）+ `resultType`；失败 `success=false`，`errors` 数组（元素 `{ code, message }`，`code` ∈ `CS_FORMULA_*`，HTTP 仍 200）可读展示，**失败不阻断弹窗操作**（可继续编辑、校验、再试算）。
 - 边界：模拟赋值仅用于沙箱试算，入参由调用方自负（API 文档 4.11.5）；管理员预判命名公式复用 `/simulate`，不单设预览接口（对齐数据源范围裁决先例）。
 

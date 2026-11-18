@@ -592,7 +592,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 **`/list`（命名公式管理列表）**
 
 - 请求体 `{ body: { fieldCode?, fieldName?, fieldType?, fieldEnable? }, pages: { pageNo, pageSize, needPage } }`；默认创建时间降序。
-- 响应 `data = List<SysFormulaVo>`：字段与 `sys_formula` 表对应——`fieldId` / `fieldCode` / `fieldName` / `fieldType` / `fieldExpression`（表达式原文）/ `fieldReturnType` / `fieldDependencies`（保存时解析提取的变量码数组；列表通道以原文 JSON 字符串承载、序列化层不解析，`load` 详情通道才解析为字符串数组——双形态承载，前端消费时需兼容两种形态）/ `fieldRemark` / 公共字段，`metadata.total` 为总数。
+- 响应 `data = List<SysFormulaVo>`：字段与 `sys_formula` 表对应——`fieldId` / `fieldCode` / `fieldName` / `fieldType` / `fieldExpression`（表达式原文）/ `fieldReturnType` / `fieldDependencies`（保存时解析提取的变量码数组；列表通道以原文 JSON 字符串承载、序列化层不解析，`load` 详情通道才解析为字符串数组——双形态承载，前端消费时需兼容两种形态）/ `fieldRemark` / 公共字段，`metadata.total` 为总数。**双形态口径（F14-INT-002 实测回写）**：`fieldDependencies` 在列表响应为原文 JSON 字符串（如 `"[\"applyAmount\", \"taxRate\"]"`）、在 `load` / `save` / `update` 响应为解析后的变量码字符串数组——前端「变量依赖数」列按数组长度或 JSON 字符串解析长度两种形态兼容取值（空 / 缺失 / 解析失败显示 0）。
 
 **`/load?fieldId=`（命名公式详情）**
 
@@ -681,7 +681,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 { "success": true, "result": 130.00, "resultType": "NUMBER" }
 ```
 
-- 成功：`success=true` + `result`（结果值，NUMBER 经 BigDecimal 规整）+ `resultType`（实际返回类型）。
+- 成功：`success=true` + `result`（结果值，NUMBER 经 BigDecimal 规整；整值结果 JSON 序列化为整型形态——如 ROUND(1000*0.13, 2) 返回 `130` 而非文本 `130.00`，展示格式化由消费方负责，F14-INT-001 NOTE-1 口径）+ `resultType`（实际返回类型）。
 - 失败：`success=false` + `errors: [{ code, message }]`（`code` ∈ `CS_FORMULA_*`），**HTTP 仍 200**——资源限制检查、解析、编译、受限执行、类型适配任一步失败均以 `errors` 数组返回，错误码语义见 4.11.6。
 - 执行边界：仅在资源限制内执行——表达式长度上限、变量个数上限、变量值序列化体积上限、循环次数封顶（`Options.MAX_LOOP_COUNT`）、独立执行线程 + 超时上限，常量收口 `SysFormulaConstants`；变量表只读包装（公式无赋值 / 副作用）；系统变量仅服务端注入，不信任前端传入的 `CURRENT_*` 覆盖。管理员预判命名公式复用本接口，不单设预览接口（对齐数据源范围裁决先例）。
 
@@ -704,7 +704,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 | `CS_FORMULA_FUNCTION_NOT_FOUND` | 调用了未注册函数 |
 | `CS_FORMULA_TYPE_MISMATCH` | 参数/返回类型与注册元数据或 expectedReturnType 不符 |
 | `CS_FORMULA_VARIABLE_INVALID` | 变量码不合法（不符合标识符约束）或路径投影格式错误 |
-| `CS_FORMULA_EXECUTE_FAILED` | 执行期失败（除零、空值拒绝、集合规模超限等） |
+| `CS_FORMULA_EXECUTE_FAILED` | 执行期失败（除零、空值拒绝、集合规模超限等；F14-BE-005 实测澄清：变量个数超上限（>50）亦以本码承载、消息说明变量个数超限——validate 阶段同规模检查仍按 `CS_FORMULA_VARIABLE_INVALID` 口径，两处独立） |
 | `CS_FORMULA_EXECUTE_TIMEOUT` | 执行超时 |
 
 承载方式（对齐数据源 `CS_DATASOURCE_*` 口径）：**管理接口**中上述业务错误码以**异常 message 前缀**承载，`BaseResponse.code` 统一为 `BAD_REQUEST`，前端按 message 前缀识别具体错误码；**组件接口**（validate / simulate）中以 `data.errors` 数组元素 `{ code, message }` 承载、HTTP 仍 200（见 4.11.4）；鉴权失败 `BaseResponse.code` 为 `UNAUTHORIZED`（未登录）/ `FORBIDDEN`（无权限），HTTP 状态仍为 200 + code 体系（全工程惯例）。
