@@ -348,7 +348,10 @@ const menus = [
           },
           // 数据源管理叶子项（F18-FE-004）：与 公共配置/模块管理/编号机制 并列，
           // moduleGroup 声明模块组开关运行期感知（模块关闭时菜单隐藏）
-          { title: '数据源管理', path: '/datasource', auth: 'SYS_DATASOURCE_ADMIN', moduleGroup: 'datasource' }
+          { title: '数据源管理', path: '/datasource', auth: 'SYS_DATASOURCE_ADMIN', moduleGroup: 'datasource' },
+          // 公式定义器管理叶子项（F14-FE-005）：与数据源管理并列，moduleGroup 声明
+          // 模块组开关运行期感知（模块关闭时菜单隐藏，对齐数据源管理先例）
+          { title: '公式定义器管理', path: '/formula', auth: 'SYS_FORMULA_ADMIN', moduleGroup: 'formula' }
         ]
       },
       {
@@ -417,6 +420,9 @@ const activeMenu = computed(() => {
   // 数据源新建/编辑/详情为数据源管理列表的子页面，归约到数据源管理菜单项
   // （/datasource、/datasource/create、/datasource/edit|detail/... 均归约到 /datasource）
   if (path.startsWith('/datasource')) return '/datasource'
+  // 公式定义器新建/编辑/详情为公式定义器管理列表的子页面，归约到公式定义器管理菜单项
+  // （/formula、/formula/create、/formula/edit|detail/... 均归约到 /formula）
+  if (path.startsWith('/formula')) return '/formula'
   // 流程模板新建/编辑/详情为模板管理列表的子页面，归约到模板管理菜单项
   if (path.startsWith('/processTemplate/')) return '/processTemplate'
   // /module 为顶层扁平叶子路径，无需归约

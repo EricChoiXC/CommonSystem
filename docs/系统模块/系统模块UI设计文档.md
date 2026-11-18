@@ -664,8 +664,8 @@
 - 公式定义器是本工程的公共表达式服务：后端 AviatorScript 引擎封装 + 沙箱与资源限制 + 函数注册中心 + 统一校验/试算入口 + 前端可视化公式组件；业务定义、两类公式与函数体系以[需求文档](系统模块需求文档.md)第 12 章为准；引擎与安全设计见 [公式定义器功能设计方案](../v1_4-公式定义器/公式定义器功能设计方案.md)；接口契约见 API 文档 4.11；表结构见数据库设计 4.11。
 - 两类公式口径：本模块管理页只维护**命名公式**（`sys_formula`，公式管理员维护，消费方按 `field_code` 引用执行）；**内联公式**存于消费方自身配置 JSON（v1.5 表单字段配置、v1.7 流程分支配置），不经管理页维护，但与命名公式共用同一套 validate / simulate（需求文档 12.3）。
 - 函数不落表：九类内置函数由代码注册中心承载、模块扩展函数经 SPI `FormulaFunctionProvider` 注册，经 `/functions` 接口透出；前端函数面板与后端参数校验共用同一份注册元数据（需求文档 12.3）。
-- 路由：`/formula`（列表）、`/formula/create`（新建）、`/formula/edit/:id`（编辑）、`/formula/detail/:id`（详情）；列表路由 `meta: { title: '公式定义器管理', parent: '系统管理', group: '后台管理', auth: 'SYS_FORMULA_ADMIN' }`，新建/编辑/详情路由同 parent/group/auth，编辑与详情为动态路由、设 `meta.tab: 'name'` 复用单标签。
-- 菜单入口：【系统管理】→【后台管理】→【公式定义器管理】（叶子菜单，与公共配置/模块管理/数据源管理并列；后台管理子组 auth 下放由子项各自声明，沿用既有惯例）；`HomeView.vue` 的 `activeMenu` 补前缀归约——`/formula` 前缀路由（create/edit/detail）归约到 `/formula` 保持菜单高亮。
+- 路由：`/formula`（列表）、`/formula/create`（新建）、`/formula/edit/:id`（编辑）、`/formula/detail/:id`（详情）；列表路由 `meta: { title: '公式定义器管理', parent: '系统管理', group: '后台管理', auth: 'SYS_FORMULA_ADMIN', moduleGroup: 'formula' }`，新建/编辑/详情路由同 parent/group/auth/moduleGroup（`moduleGroup: 'formula'` 对齐数据源先例的模块组开关运行期感知：所属模块组关闭时路由渲染「模块未开启」空态），编辑与详情为动态路由、设 `meta.tab: 'name'` 复用单标签。
+- 菜单入口：【系统管理】→【后台管理】→【公式定义器管理】（叶子菜单，与公共配置/模块管理/数据源管理并列；后台管理子组 auth 下放由子项各自声明，沿用既有惯例）；叶子菜单声明 `moduleGroup: 'formula'`（模块组关闭时菜单隐藏，对齐数据源管理先例）；`HomeView.vue` 的 `activeMenu` 补前缀归约——`/formula` 前缀路由（create/edit/detail）归约到 `/formula` 保持菜单高亮。
 - 显示权限（鉴权分层 A7，与需求文档 12.2.2 一致）：叶子菜单与路由 `meta.auth` 均绑定 `SYS_FORMULA_ADMIN`（`SYS_ADMIN` 经超管短路天然可见）；无权限用户不可见菜单入口、直访路由被既有路由守卫按 `meta.auth` 拦截。**消费面不受菜单权限影响**：`options` / `functions` / `validate` / `simulate` 组件四接口登录即可——公式组件被各业务页面内嵌使用，v1.5 表单设计者、v1.7 流程配置者未必持有公式管理角色；`DS_QUERY` 开放给非管理员配置场景（方案 TBD② 裁决，2026-11-16，随 F14-DOC-001 落定），取数数据边界由取数函数委托数据源执行期鉴权承担（见 4.11.7）。
 
 #### 4.11.2 模块页面承接清单

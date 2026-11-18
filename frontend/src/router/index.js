@@ -324,6 +324,35 @@ const routes = [
         component: () => import('@/views/datasource/DatasourceDetailView.vue'),
         meta: { title: '数据源详情', parent: '系统管理', group: '后台管理', auth: 'SYS_DATASOURCE_ADMIN', tab: 'name', moduleGroup: 'datasource' }
       },
+      {
+        // 公式定义器管理列表页（F14-FE-005）：菜单挂【后台管理】叶子项，moduleGroup 声明
+        // 模块组开关运行期感知（模块关闭时路由空态 + 菜单隐藏，对齐 datasource 先例）
+        path: 'formula',
+        name: 'FormulaManage',
+        component: () => import('@/views/formula/FormulaManageView.vue'),
+        meta: { title: '公式定义器管理', parent: '系统管理', group: '后台管理', auth: 'SYS_FORMULA_ADMIN', moduleGroup: 'formula' }
+      },
+      {
+        // 公式新建页（F14-FE-005）：与编辑共用 FormulaFormView，按路由 path 区分模式
+        path: 'formula/create',
+        name: 'FormulaCreate',
+        component: () => import('@/views/formula/FormulaFormView.vue'),
+        meta: { title: '新增公式', parent: '系统管理', group: '后台管理', auth: 'SYS_FORMULA_ADMIN', moduleGroup: 'formula' }
+      },
+      {
+        // 公式编辑页（F14-FE-005）：tab: 'name' 复用单标签（对齐 datasource edit 先例）
+        path: 'formula/edit/:id',
+        name: 'FormulaEdit',
+        component: () => import('@/views/formula/FormulaFormView.vue'),
+        meta: { title: '编辑公式', parent: '系统管理', group: '后台管理', auth: 'SYS_FORMULA_ADMIN', tab: 'name', moduleGroup: 'formula' }
+      },
+      {
+        // 公式详情页（F14-FE-005）：只读查看，tab: 'name' 复用单标签
+        path: 'formula/detail/:id',
+        name: 'FormulaDetail',
+        component: () => import('@/views/formula/FormulaDetailView.vue'),
+        meta: { title: '公式详情', parent: '系统管理', group: '后台管理', auth: 'SYS_FORMULA_ADMIN', tab: 'name', moduleGroup: 'formula' }
+      },
     ]
   },
   {
