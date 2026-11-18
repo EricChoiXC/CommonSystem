@@ -1,6 +1,6 @@
 # =====================================================================
 # 码值模块系统码值配置：启动时增量导入 sys_dict_type / sys_dict_item（field_system = true）
-# 统一填写格式（依据 artificial/docs/设计文档/sys/dict/码值功能核心业务.md）：
+# 统一填写格式（依据 docs/设计文档/sys/dict/码值功能核心业务.md）：
 #   dict:
 #     ${type.field_code}:
 #       name: ${type.field_name}
