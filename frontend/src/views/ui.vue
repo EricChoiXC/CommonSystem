@@ -96,6 +96,21 @@
                 fieldStartTime / fieldCreateTime 点击改查后端排序、翻页与切页大小、修改 filters 触发重新编排
               </p>
             </div>
+
+            <!-- 公式设计器：打开弹窗 → 左树变量/业务模型/函数/命名公式插入 → 编辑触发后端校验 → 模拟区赋值试算 → 确认回写表达式 -->
+            <div v-else-if="active === 'FormulaDesigner'" class="ui-demo-item">
+              <el-button type="primary" @click="demo.formulaVisible = true">打开公式设计</el-button>
+              <FormulaDesigner
+                v-model:visible="demo.formulaVisible"
+                :expression="demo.formulaExpression"
+                expected-return-type="NUMBER"
+                :available-vars="demo.formulaVars"
+                @confirm="(expr) => (demo.formulaExpression = expr)"
+              />
+              <p class="ui-demo-result ui-demo-expression">
+                当前回写表达式：{{ demo.formulaExpression || '（未确认回写）' }}
+              </p>
+            </div>
           </div>
 
           <pre class="ui-code"><code>{{ current.code }}</code></pre>
@@ -128,7 +143,7 @@
 
 <script setup>
 import { computed, reactive, ref } from 'vue'
-import { AddressBook, Attachment, DateTimePicker, DatasourceTable, NumberRuleComposer, Selector } from '@/components'
+import { AddressBook, Attachment, DateTimePicker, DatasourceTable, FormulaDesigner, NumberRuleComposer, Selector } from '@/components'
 
 /** 演示区绑定的状态 */
 const demo = reactive({
@@ -143,7 +158,13 @@ const demo = reactive({
       { id: 'ci-b2c3d4e5f6a1', type: 'datetime', name: '日期', format: 'yyyyMMdd' },
       { id: 'ci-c3d4e5f6a1b2', type: 'seq', name: '流水号', start: 1, length: 3, padZero: true, resetPeriod: 'DAY' }
     ]
-  }
+  },
+  formulaVisible: false,
+  formulaExpression: 'ROUND(${applyAmount} * ${taxRate}, 2)',
+  formulaVars: [
+    { code: 'applyAmount', type: 'NUMBER', label: '申请金额' },
+    { code: 'taxRate', type: 'NUMBER', label: '税率' }
+  ]
 })
 
 /** 编号规则演示：当前 value 的 JSON 摘要（截断展示） */
@@ -374,6 +395,61 @@ const components = [
       { name: 'refresh (expose)', type: 'Function', required: '-', default: '-', desc: 'defineExpose 方法：宿主手动刷新，回第 1 页并重走完整编排（options 重查 + query）' }
     ],
     emits: []
+  },
+  {
+    name: 'FormulaDesigner',
+    label: '公式设计器',
+    desc: '公式设计弹窗',
+    summary: '公共表达式服务的前端编排弹窗：左树四组节点（变量 / 业务模型 / 函数分类 / 命名公式）+ CodeMirror 6 编辑区 + 函数面板 + 模拟区；编辑器只做输入辅助，表达式合法性权威校验在后端 /validate，模拟试算走 /simulate、失败不阻断弹窗操作。',
+    demoTip: '走查路径：打开弹窗 → 左树变量/业务模型/函数/命名公式双击或【插入】写入编辑区 → 编辑停顿自动触发后端校验（错误行号/错误码展示）→ 模拟区赋值试算（结果/错误展示，失败不阻断）→【确认回写】回写表达式；演示依赖后端服务与登录态支持。',
+    code: `<template>
+  <FormulaDesigner
+    v-model:visible="designerVisible"
+    :expression="form.fieldExpression"
+    expected-return-type="NUMBER"
+    :available-vars="[
+      { code: 'applyAmount', type: 'NUMBER', label: '申请金额' },
+      { code: 'taxRate', type: 'NUMBER', label: '税率' }
+    ]"
+    @confirm="(expr) => (form.fieldExpression = expr)"
+  />
+</template>`,
+    props: [
+      { name: 'visible', type: 'Boolean', required: '否', default: 'false', desc: '弹窗显隐控制（v-model:visible 双向绑定）；遮罩 / × / ESC / 取消仅回传显隐，不回写表达式' },
+      {
+        name: 'availableVars',
+        type: 'Array',
+        required: '否',
+        default: '[]',
+        desc: '外部追加变量声明，元素 { code, type?, label? }（type ∈ NUMBER/STRING/BOOLEAN/DATE/ARRAY，缺省按 STRING 处理）；并入左树变量组、validate 的 vars 入参与模拟区赋值行，与系统变量同码时不重复出节点'
+      },
+      {
+        name: 'functionCategories',
+        type: 'Array',
+        required: '否',
+        default: '[]',
+        desc: "函数分类过滤（如 ['MATH', 'LOGIC']），仅作用于左树函数分类组与函数面板，空/缺省 = 全部九类"
+      },
+      {
+        name: 'expectedReturnType',
+        type: 'String',
+        required: '否',
+        default: "''",
+        desc: '期望返回类型（NUMBER/STRING/BOOLEAN/DATE/ARRAY），作为 validate / simulate 的 expectedReturnType 入参；空 = 不传跳过比对'
+      },
+      {
+        name: 'expression',
+        type: 'String',
+        required: '否',
+        default: "''",
+        desc: '公式文本（v-model 语义，${} 形态原样存取）；弹窗每次打开以该值同步编辑区，【确认回写】经 update:expression / confirm 回传最终表达式'
+      }
+    ],
+    emits: [
+      { name: 'update:visible', desc: '弹窗显隐变更时回传（遮罩 / 右上角 × / ESC / 取消 / 确认回写均触发）' },
+      { name: 'update:expression', desc: '【确认回写】时回传编辑区表达式文本（与 confirm 同步发生，先于 confirm）' },
+      { name: 'confirm', desc: '【确认回写】时触发，载荷为最终表达式文本；随后关闭弹窗（表达式为空也允许确认，由消费方 / 保存期校验兜底）' }
+    ]
   }
 ]
 
@@ -469,6 +545,12 @@ function handleSelect(index) {
   margin: 12px 0 0;
   font-size: 13px;
   color: var(--el-text-color-secondary);
+}
+
+/* 公式设计器演示：表达式原文等宽展示 */
+.ui-demo-expression {
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  word-break: break-all;
 }
 
 .ui-code {
