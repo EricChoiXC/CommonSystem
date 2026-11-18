@@ -3,13 +3,18 @@ package com.eric.base.sys.formula.service.engine;
 import com.eric.base.sys.formula.enums.SysFormulaReturnType;
 import com.eric.base.sys.formula.properties.SysFormulaConstants;
 import com.eric.base.sys.formula.spi.FormulaFunctionDefinition;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.googlecode.aviator.AviatorEvaluator;
 import com.googlecode.aviator.AviatorEvaluatorInstance;
 import com.googlecode.aviator.Expression;
+import com.googlecode.aviator.Feature;
+import com.googlecode.aviator.Options;
 import com.googlecode.aviator.exception.ExpressionSyntaxErrorException;
 import com.googlecode.aviator.exception.ExpressionRuntimeException;
 import com.googlecode.aviator.exception.FunctionNotFoundException;
-import com.googlecode.aviator.Options;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -21,6 +26,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -69,7 +75,24 @@ import java.util.regex.Pattern;
  *              <li>Aviator 5.4.3 无 NIL_WHEN_MISSING_VARIABLE（Options 实测枚举面不含），
  *                  缺失变量语义实测为：读引用得 null（nil），参与算术/比较运算时
  *                  ExpressionRuntimeException 确定性失败——由引擎捕获转
- *                  CS_FORMULA_EXECUTE_FAILED；宽松校验对未知变量放行（见 validate Javadoc）。</li>
+ *                  CS_FORMULA_EXECUTE_FAILED；宽松校验对未知变量放行（见 validate Javadoc）；</li>
+ *              <li>沙箱裁剪（F14-BE-005，方案 §6.1，Aviator 5.4.3 实测裁决）：
+ *                  FEATURE_SET 关闭 StaticMethods / StaticFields / NewInstance / Use /
+ *                  Module 五个 Java 调用面 Feature（编译期即抛
+ *                  UnsupportedFeatureException → CS_FORMULA_SYNTAX_INVALID）；
+ *                  ALLOWED_CLASS_SET 收口 {@link SysFormulaConstants#SANDBOX_ALLOWED_CLASSES}
+ *                  最小白名单（System/Runtime/IO/网络/反射类一律不在集内）；
+ *                  ENABLE_PROPERTY_SYNTAX_SUGAR 关闭——属性语法糖（a.b）可对任意
+ *                  env 对象做反射式 getter 链访问（实测 rt.class 可取得 Class 对象），
+ *                  关闭后 a.b 走 Map 键访问语义（对 Map 变量取键、非 Map/缺失键得 nil），
+ *                  与公式引擎「变量值进表达式统一由 ${} 替换为扁平标识符」的形态一致，
+ *                  深层取值由内置函数（路径投影/集合函数）承担；无 ALLOW_JAVA_CALL
+ *                  选项（5.4.3 枚举面不含），Java 调用面裁剪以 Feature + 类白名单组合收口；</li>
+ *              <li>资源限制前置检查链（F14-BE-005，方案 §3.2 时序 3 / §6.2）：
+ *                  执行入口先于编译求值按序检查——表达式长度（CS_FORMULA_EXPRESSION_TOO_LONG）
+ *                  → 引用变量个数（CS_FORMULA_EXECUTE_FAILED，消息说明变量个数超限）
+ *                  → 变量值序列化体积（Jackson 序列化测长，超限 CS_FORMULA_EXECUTE_FAILED），
+ *                  不合格表达式在编译/求值前即被拒绝。</li>
  *              </ul>
  */
 @Component
@@ -90,6 +113,48 @@ public class FormulaEngine implements DisposableBean {
 
     /** 表达式内行分隔（编译错误行号透出按行定位） */
     private static final String LINE_SEPARATOR = "\n";
+
+    /**
+     * 变量值序列化测长用 ObjectMapper（进程内复用，不随执行构造）：注册
+     * JavaTimeModule 兼容 LocalDate/LocalDateTime 变量值，FAIL_ON_EMPTY_BEANS
+     * 关闭——无法序列化的对象（如内部句柄类）按空串计长，测长失败由异常分支按 0
+     * 字节放行（体积门禁只在可序列化值上生效，不可序列化值交由执行期兜底）
+     */
+    private static final ObjectMapper VARS_SIZE_MAPPER = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
+
+    /**
+     * 沙箱裁剪（F14-BE-005，方案 §6.1；Aviator 5.4.3 实测裁决，探测结论固化）：
+     * <ul>
+     * <li>FEATURE_SET 关闭五个 Java 调用面 Feature——StaticMethods（静态方法调用
+     *     编译期抛 UnsupportedFeatureException）、StaticFields（#类.字段 静态引用
+     *     执行期拒绝）、NewInstance（new 构造编译期拒绝）、Use（use 语句动态引类）、
+     *     Module（模块系统）；保留 If/ForLoop/WhileLoop/Let/Lambda/Fn/Assignment/
+     *     Return/LexicalScope/InternalVars/ExceptionHandle/StringInterpolation
+     *     （表达式语义必需：if 分支、for/while 循环、赋值与 lambda 均在方案语法面内）；</li>
+     * <li>ALLOWED_CLASS_SET 收口常量白名单（SysFormulaConstants.SANDBOX_ALLOWED_CLASSES），
+     *     System/Runtime/IO/网络/反射类不在集内；</li>
+     * <li>ENABLE_PROPERTY_SYNTAX_SUGAR 关闭——属性语法糖可对任意 env 对象做
+     *     getter 链反射访问（实测 Runtime 实例 .class 可取 Class 对象），
+     *     关闭后点访问仅剩 Map 键语义，公式内深层取值由路径投影与函数承担。</li>
+     * </ul>
+     * 实测拒绝行为（5.4.3）：System.currentTimeMillis() → FunctionNotFoundException、
+     * new java.io.File(...) → UnsupportedFeatureException（编译期）、#Long.MAX_VALUE →
+     * Could not find variable（ExpressionRuntimeException，执行期）、
+     * use java.lang.Runtime → UnsupportedFeatureException（编译期）、Class.forName →
+     * FunctionNotFoundException——全部确定性失败，无一处可达执行体。
+     */
+    private static void applySandboxOptions(AviatorEvaluatorInstance instance) {
+        instance.setOption(Options.FEATURE_SET, EnumSet.complementOf(EnumSet.of(
+                Feature.StaticMethods,
+                Feature.StaticFields,
+                Feature.NewInstance,
+                Feature.Use,
+                Feature.Module)));
+        instance.setOption(Options.ALLOWED_CLASS_SET, SysFormulaConstants.SANDBOX_ALLOWED_CLASSES);
+        instance.setOption(Options.ENABLE_PROPERTY_SYNTAX_SUGAR, false);
+    }
 
     /** 独立 Aviator 执行实例（不污染 AviatorEvaluator 全局默认实例；构造期一次性装配） */
     private final AviatorEvaluatorInstance aviator;
@@ -121,6 +186,7 @@ public class FormulaEngine implements DisposableBean {
     FormulaEngine(FormulaFunctionRegistry functionRegistry, long executeTimeoutMillis) {
         this.functionRegistry = functionRegistry;
         this.aviator = AviatorEvaluator.newInstance();
+        applySandboxOptions(this.aviator);
         this.aviator.setOption(Options.MAX_LOOP_COUNT, SysFormulaConstants.MAX_LOOP_COUNT);
         for (FormulaFunctionDefinition definition : functionRegistry.getAllFunctions()) {
             if (null != definition.getFunction()) {
@@ -186,9 +252,11 @@ public class FormulaEngine implements DisposableBean {
      * 公式静态校验（校验不执行，方案 §5.2 validate 契约的引擎层落点）：
      * <ol>
      * <li>表达式非空与长度上限（CS_FORMULA_EXPRESSION_TOO_LONG）；</li>
-     * <li>${} 变量码合法性与个数上限（CS_FORMULA_VARIABLE_INVALID）；</li>
+     * <li>${} 变量码合法性（CS_FORMULA_VARIABLE_INVALID）与引用变量个数上限
+     *     （CS_FORMULA_EXECUTE_FAILED，F14-BE-005 资源限制口径——个数超限归
+     *     方案 §6.2 资源限制，不再占用 VARIABLE_INVALID 语义）；</li>
      * <li>函数存在性——代码段（字符串字面量外）中以「函数名 + (」形态出现的函数名
-     *     须在注册中心或 Aviator 内置面存在（CS_FORMULA_FUNCTION_NOT_FOUND），
+     *     须在注册中心或 Aviator 实例内置面存在（CS_FORMULA_FUNCTION_NOT_FOUND），
      *     同时覆盖嵌套与连续调用形态；</li>
      * <li>Aviator 编译（词法/语法错误抛 CS_FORMULA_SYNTAX_INVALID，
      *     引擎错误信息含行号与原因，原样透出）；</li>
@@ -212,10 +280,7 @@ public class FormulaEngine implements DisposableBean {
                                  SysFormulaReturnType expectedReturnType, boolean strict) {
         requireExpressionText(expression);
         List<VarRef> references = findReferences(expression);
-        if (references.size() > SysFormulaConstants.MAX_VARIABLE_COUNT) {
-            throw formulaError(SysFormulaConstants.CS_FORMULA_VARIABLE_INVALID,
-                    "引用变量个数超上限 " + SysFormulaConstants.MAX_VARIABLE_COUNT + ": " + references.size());
-        }
+        requireReferenceCount(references);
         validateFunctionCalls(expression);
         compile(parseAndReplace(expression, references).aviatorText(), expression);
         boolean strictCheck = strict && null != declaredVars && !declaredVars.isEmpty();
@@ -247,10 +312,14 @@ public class FormulaEngine implements DisposableBean {
     /* ==================== 执行（必受限） ==================== */
 
     /**
-     * 受限执行（方案 §3.2 时序 4~7 步）：${} 解析替换 → 路径投影 → 编译（缓存命中复用）
+     * 受限执行（方案 §3.2 时序 4~7 步 + F14-BE-005 资源限制前置检查链）：
+     * 资源限制检查（表达式长度 → 引用变量个数 → 变量值序列化体积，方案 §3.2 时序 3，
+     * 先于编译求值拒绝不合格输入）→ ${} 解析替换 → 路径投影 → 编译（缓存命中复用）
      * → 注入上下文变量 → formula-engine-executor 独立线程执行 + Future 超时 →
      * 结果类型适配。任何失败以 IllegalArgumentException(CS_FORMULA_*: message) 抛出：
      * <ul>
+     * <li>资源超限：长度超限 CS_FORMULA_EXPRESSION_TOO_LONG；变量个数超限 /
+     *     变量值序列化体积超限 CS_FORMULA_EXECUTE_FAILED（消息说明具体上限）；</li>
      * <li>缺失变量：读引用得 nil，参与运算时 ExpressionRuntimeException →
      *     CS_FORMULA_EXECUTE_FAILED（携带 Aviator 确定性失败信息）；</li>
      * <li>未知函数：FunctionNotFoundException → CS_FORMULA_FUNCTION_NOT_FOUND；</li>
@@ -267,11 +336,53 @@ public class FormulaEngine implements DisposableBean {
      */
     public Object execute(String expression, FormulaContext context, SysFormulaReturnType expectedReturnType) {
         requireExpressionText(expression);
-        Parsed parsed = parseAndReplace(expression, findReferences(expression));
+        List<VarRef> references = findReferences(expression);
+        requireReferenceCount(references);
+        checkVarsSize(context);
+        Parsed parsed = parseAndReplace(expression, references);
         Expression compiled = compile(parsed.aviatorText(), expression);
         Map<String, Object> env = buildEnv(parsed, context);
         Object raw = executeRestricted(compiled, env, expression);
         return adaptResult(raw, expectedReturnType);
+    }
+
+    /* ==================== 资源限制前置检查链（F14-BE-005，方案 §3.2 时序 3 / §6.2） ==================== */
+
+    /**
+     * 引用变量个数检查（检查链第二道）：引用变量个数超 MAX_VARIABLE_COUNT 抛
+     * CS_FORMULA_EXECUTE_FAILED（消息说明变量个数超限）——个数超限属资源限制
+     * 语义（方案 §6.2），不占用 CS_FORMULA_VARIABLE_INVALID（该码留给变量码
+     * 合法性错误）；validate 与 execute 共用同一道门禁，口径一致
+     */
+    private static void requireReferenceCount(List<VarRef> references) {
+        if (references.size() > SysFormulaConstants.MAX_VARIABLE_COUNT) {
+            throw formulaError(SysFormulaConstants.CS_FORMULA_EXECUTE_FAILED,
+                    "引用变量个数超上限 " + SysFormulaConstants.MAX_VARIABLE_COUNT
+                            + ": " + references.size());
+        }
+    }
+
+    /**
+     * 变量值序列化体积检查（检查链第三道）：上下文变量表经 Jackson 序列化
+     * （ObjectMapper 进程内复用，注册 JavaTimeModule 兼容日期类型）测长，字节
+     * 体积超 MAX_VARS_SERIALIZE_BYTES 抛 CS_FORMULA_EXECUTE_FAILED；序列化
+     * 自身失败按 0 字节放行——体积门禁只对可序列化值生效，不可序列化值
+     * （如内部句柄对象）交由执行期函数空值/类型拒绝兜底，不在此处误伤
+     */
+    private static void checkVarsSize(FormulaContext context) {
+        if (null == context || context.getVars().isEmpty()) {
+            return;
+        }
+        try {
+            byte[] payload = VARS_SIZE_MAPPER.writeValueAsBytes(context.getVars());
+            if (payload.length > SysFormulaConstants.MAX_VARS_SERIALIZE_BYTES) {
+                throw formulaError(SysFormulaConstants.CS_FORMULA_EXECUTE_FAILED,
+                        "变量值序列化体积超上限 " + SysFormulaConstants.MAX_VARS_SERIALIZE_BYTES
+                                + " 字节: " + payload.length);
+            }
+        } catch (JsonProcessingException ignored) {
+            // 不可序列化变量表不阻断执行：体积门禁只对可序列化值生效（方法 Javadoc）
+        }
     }
 
     /* ==================== ${} 解析与路径投影 ==================== */
@@ -522,10 +633,23 @@ public class FormulaEngine implements DisposableBean {
     /**
      * 受限执行：formula-engine-executor 线程池提交求值任务，Future.get(超时上限)
      * 等待——超时 cancel(true) 中断执行线程并抛 CS_FORMULA_EXECUTE_TIMEOUT；
-     * 执行失败统一转 CS_FORMULA_* 语义（不再裸抛 Aviator 原生异常）
+     * 执行失败统一转 CS_FORMULA_* 语义（不再裸抛 Aviator 原生异常）：求值任务抛出的
+     * 任何 Throwable（除零 ArithmeticException、Aviator 运行时异常、StackOverflowError
+     * 等 Error）经 ExecutionException.cause 进入统一翻译（translateExecutionFailure）
+     * 转确定性错误码，不允许裸异常穿透到方法外；任务提交失败（线程池已关闭等）
+     * 同样兜底为 CS_FORMULA_EXECUTE_FAILED。异常日志统一为
+     * 「表达式摘要 + 错误类型/码」，不落变量值明文（方案 §6.5/§6.6）
      */
     private Object executeRestricted(Expression compiled, Map<String, Object> env, String expression) {
-        Future<Object> future = executor.submit(() -> compiled.execute(env));
+        Future<Object> future;
+        try {
+            future = executor.submit(() -> compiled.execute(env));
+        } catch (RuntimeException rejection) {
+            log.warn("formula execute submit rejected [{}], expression digest: {}",
+                    rejection.getClass().getSimpleName(), digest(expression));
+            throw formulaError(SysFormulaConstants.CS_FORMULA_EXECUTE_FAILED,
+                    "公式执行任务提交失败: " + rejection.getMessage());
+        }
         try {
             return future.get(executeTimeoutMillis, TimeUnit.MILLISECONDS);
         } catch (java.util.concurrent.TimeoutException e) {
@@ -546,9 +670,13 @@ public class FormulaEngine implements DisposableBean {
 
     /**
      * 执行失败翻译：CS_FORMULA_* 前缀的业务错误（函数确定性错误）原样透出；
-     * FunctionNotFoundException → CS_FORMULA_FUNCTION_NOT_FOUND；其余
-     * ExpressionRuntimeException（缺失变量参与运算、除零、循环超限等）→
-     * CS_FORMULA_EXECUTE_FAILED；日志只记表达式摘要与错误码，不落变量值
+     * FunctionNotFoundException → CS_FORMULA_FUNCTION_NOT_FOUND（含沙箱裁剪后
+     * 静态方法调用形态——StaticMethods 关闭使 System.currentTimeMillis 等
+     * Java 方法调用面在函数表无注册）；ArithmeticException（除零/数值溢出）→
+     * CS_FORMULA_EXECUTE_FAILED；其余 ExpressionRuntimeException（缺失变量参与
+     * 运算、循环超限等）与其余任何 Throwable（含 UnsupportedFeatureException
+     * 漏网形态、Error）→ CS_FORMULA_EXECUTE_FAILED；日志只记表达式摘要与错误码，
+     * 不落变量值
      */
     private RuntimeException translateExecutionFailure(Throwable cause, String expression) {
         if (cause instanceof IllegalArgumentException illegal
@@ -560,6 +688,13 @@ public class FormulaEngine implements DisposableBean {
                     digest(expression));
             return formulaError(SysFormulaConstants.CS_FORMULA_FUNCTION_NOT_FOUND,
                     "调用未注册函数: " + functionNotFound.getMessage());
+        }
+        if (cause instanceof ArithmeticException arithmetic) {
+            log.warn("formula execute failed [CS_FORMULA_EXECUTE_FAILED], expression digest: {}",
+                    digest(expression));
+            return formulaError(SysFormulaConstants.CS_FORMULA_EXECUTE_FAILED,
+                    "公式算术错误（除零或数值溢出）"
+                            + (null == arithmetic.getMessage() ? "" : ": " + arithmetic.getMessage()));
         }
         if (cause instanceof ExpressionRuntimeException runtimeException) {
             log.warn("formula execute failed [CS_FORMULA_EXECUTE_FAILED], expression digest: {}",
