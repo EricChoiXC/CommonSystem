@@ -11,6 +11,7 @@ import com.eric.base.sys.att.mapper.SysAttFileMapper;
 import com.eric.base.sys.att.mapper.SysAttMainMapper;
 import com.eric.base.sys.att.mapper.SysAttOperationMapper;
 import com.eric.base.sys.datasource.mapper.SysDatasourceMapper;
+import com.eric.base.sys.formula.mapper.SysFormulaMapper;
 import com.eric.base.sys.dict.mapper.SysDictItemMapper;
 import com.eric.base.sys.dict.mapper.SysDictTypeMapper;
 import com.eric.base.sys.i18n.mapper.SysI18nKeyMapper;
@@ -331,6 +332,13 @@ class CommonSystemApplicationTests {
 		@Bean
 		SysDatasourceMapper sysDatasourceMapper() {
 			return Mockito.mock(SysDatasourceMapper.class);
+		}
+
+		/* ==================== 公式定义器模块 Mapper（formula，1 个） ==================== */
+
+		@Bean
+		SysFormulaMapper sysFormulaMapper() {
+			return Mockito.mock(SysFormulaMapper.class);
 		}
 
 		/* ==================== 编号机制模块 Mapper（number，3 个） ==================== */
