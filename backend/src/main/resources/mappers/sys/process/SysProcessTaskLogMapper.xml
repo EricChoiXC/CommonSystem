@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eric.base.sys.process.mapper.SysProcessTaskLogMapper">
+
+    <!--
+        流程任务执行日志表(sys_process_task_log)映射
+        field_task_type 枚举全集(ProcessTaskType): CreateProcess/StartProcess/StartNode/StartWorkitem/
+        SendTodo/EndWorkitem/EndNode/EndProcess；
+        field_params / field_result 为 JSON 对象字符串（固定结构 POJO 经 Jackson 序列化，禁止手工拼串）；
+        field_node_id / field_workitem_id 可空（流程级/节点级任务分别无节点/工作项）；
+        field_success 由应用侧写 b'0'/b'1'：1=成功 0=失败。
+
+        只增不改(对齐 sys_task_history / sys_process_audit_note 先例)：本表为 @ProcessTask 每次执行的
+        流水留痕，业务代码只调用 insert；下面的 update / deleteById 仅为满足基础接口契约
+        (IBaseMapper)保留，业务代码不得调用。
+    -->
+
+    <resultMap id="SysProcessTaskLogResultMap" type="com.eric.base.sys.process.model.SysProcessTaskLog">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_example_id" property="fieldExampleId"/>
+        <result column="field_node_id" property="fieldNodeId"/>
+        <result column="field_workitem_id" property="fieldWorkitemId"/>
+        <result column="field_task_name" property="fieldTaskName"/>
+        <result column="field_task_bean" property="fieldTaskBean"/>
+        <result column="field_task_type" property="fieldTaskType"/>
+        <result column="field_params" property="fieldParams"/>
+        <result column="field_result" property="fieldResult"/>
+        <result column="field_success" property="fieldSuccess"/>
+        <result column="field_error_msg" property="fieldErrorMsg"/>
+        <result column="field_cost_ms" property="fieldCostMs"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_example_id, field_node_id, field_workitem_id, field_task_name, field_task_bean,
+        field_task_type, field_params, field_result, field_success, field_error_msg, field_cost_ms, field_create_time
+    </sql>
+
+    <!-- 单条插入：任务执行留痕，与流程流转同事务（field_params / field_result 直接绑定 JSON 字符串） -->
+    <insert id="insert" parameterType="com.eric.base.sys.process.model.SysProcessTaskLog">
+        INSERT INTO sys_process_task_log (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldExampleId}, #{model.fieldNodeId}, #{model.fieldWorkitemId}, #{model.fieldTaskName}, #{model.fieldTaskBean},
+        #{model.fieldTaskType}, #{model.fieldParams}, #{model.fieldResult}, #{model.fieldSuccess}, #{model.fieldErrorMsg}, #{model.fieldCostMs}, #{model.fieldCreateTime}
+        )
+    </insert>
+
+    <!-- 流水只增不改：仅为满足 IBaseMapper 接口完整性保留，业务代码不得调用 -->
+    <update id="update" parameterType="com.eric.base.sys.process.model.SysProcessTaskLog">
+        UPDATE sys_process_task_log
+        <set>
+            <if test="model.fieldExampleId != null">field_example_id = #{model.fieldExampleId},</if>
+            <if test="model.fieldNodeId != null">field_node_id = #{model.fieldNodeId},</if>
+            <if test="model.fieldWorkitemId != null">field_workitem_id = #{model.fieldWorkitemId},</if>
+            <if test="model.fieldTaskName != null">field_task_name = #{model.fieldTaskName},</if>
+            <if test="model.fieldTaskBean != null">field_task_bean = #{model.fieldTaskBean},</if>
+            <if test="model.fieldTaskType != null">field_task_type = #{model.fieldTaskType},</if>
+            <if test="model.fieldParams != null">field_params = #{model.fieldParams},</if>
+            <if test="model.fieldResult != null">field_result = #{model.fieldResult},</if>
+            <if test="model.fieldSuccess != null">field_success = #{model.fieldSuccess},</if>
+            <if test="model.fieldErrorMsg != null">field_error_msg = #{model.fieldErrorMsg},</if>
+            <if test="model.fieldCostMs != null">field_cost_ms = #{model.fieldCostMs},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <!-- 流水只增不改：仅为满足 IBaseMapper 接口完整性保留，业务代码不得调用 -->
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_process_task_log
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysProcessTaskLogResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_task_log
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysProcessTaskLogResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_task_log
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldExampleId != null and model.fieldExampleId != ''">AND field_example_id = #{model.fieldExampleId}</if>
+            <if test="model.fieldNodeId != null and model.fieldNodeId != ''">AND field_node_id = #{model.fieldNodeId}</if>
+            <if test="model.fieldWorkitemId != null and model.fieldWorkitemId != ''">AND field_workitem_id = #{model.fieldWorkitemId}</if>
+            <if test="model.fieldTaskType != null and model.fieldTaskType != ''">AND field_task_type = #{model.fieldTaskType}</if>
+            <if test="model.fieldSuccess != null">AND field_success = #{model.fieldSuccess}</if>
+        </where>
+        ORDER BY field_create_time ASC, field_id ASC
+    </select>
+
+    <!--
+        轻量加载：本表无 field_name 列，按基础接口口径以 field_task_name 充当 field_name 来源
+        （只返回 field_id 与任务名称，供关联对象赋值使用）
+    -->
+    <resultMap id="SysProcessTaskLogLoadResultMap" type="com.eric.base.sys.process.model.SysProcessTaskLog">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldTaskName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysProcessTaskLogLoadResultMap">
+        SELECT field_id, field_task_name AS field_name
+        FROM sys_process_task_log
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 按实例查询全部任务执行留痕（走 idx_task_log_example，按创建时间、主键升序） -->
+    <select id="selectListByExampleId" parameterType="string" resultMap="SysProcessTaskLogResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_task_log
+        WHERE field_example_id = #{exampleId}
+        ORDER BY field_create_time ASC, field_id ASC
+    </select>
+
+    <!-- 按「实例 + 执行步骤」查询任务执行留痕（分册 §3.3.6 第③条，按创建时间、主键升序） -->
+    <select id="selectListByExampleIdAndTaskType" resultMap="SysProcessTaskLogResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_task_log
+        WHERE field_example_id = #{exampleId}
+          AND field_task_type = #{taskType}
+        ORDER BY field_create_time ASC, field_id ASC
+    </select>
+
+</mapper>

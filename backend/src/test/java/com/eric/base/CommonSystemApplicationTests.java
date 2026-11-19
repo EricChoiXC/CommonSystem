@@ -50,6 +50,7 @@ import com.eric.base.sys.process.mapper.SysProcessExampleWorkitemMapper;
 import com.eric.base.sys.process.mapper.SysProcessTemplateHistoryMapper;
 import com.eric.base.sys.process.mapper.SysProcessTemplateLineMapper;
 import com.eric.base.sys.process.mapper.SysProcessTemplateMapper;
+import com.eric.base.sys.process.mapper.SysProcessTaskLogMapper;
 import com.eric.base.sys.process.mapper.SysProcessTemplateNodeMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -320,6 +321,11 @@ class CommonSystemApplicationTests {
 		@Bean
 		SysProcessAuditNoteMapper sysProcessAuditNoteMapper() {
 			return Mockito.mock(SysProcessAuditNoteMapper.class);
+		}
+
+		@Bean
+		SysProcessTaskLogMapper sysProcessTaskLogMapper() {
+			return Mockito.mock(SysProcessTaskLogMapper.class);
 		}
 
 		/* ==================== 系统模块补充 Mapper（日历/用户密码历史） ==================== */
