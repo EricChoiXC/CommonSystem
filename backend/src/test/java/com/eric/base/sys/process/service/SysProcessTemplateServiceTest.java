@@ -401,8 +401,18 @@ class SysProcessTemplateServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.setDefault(templateId));
     }
 
-    /* ==================== 工具方法 ==================== */
+    @Test
+    void saveNormalizesMissingBranchOrderToZero() {
+        // 连线 field_branch_order 列 NOT NULL：请求未携带分支序号时须按 0 归一（P17-INT-001 冒烟发现的缺陷回归）
+        SysProcessTemplateVo vo = templateVo(defaultFixedNodes());
 
+        service.save(vo);
+
+        verify(lineDao).insertBatch(anyString(), argThat(lines -> null != lines && lines.size() == 2
+                && lines.stream().allMatch(line -> Integer.valueOf(0).equals(line.getFieldBranchOrder()))));
+    }
+
+    /* ==================== 工具方法 ==================== */
     private static SysProcessTemplateVo templateVo(List<SysProcessTemplateNodeVo> nodes) {
         SysProcessTemplateVo vo = new SysProcessTemplateVo();
         vo.setFieldName("采购订单审批模板");

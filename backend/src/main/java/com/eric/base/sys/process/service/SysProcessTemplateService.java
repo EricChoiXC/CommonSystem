@@ -828,7 +828,8 @@ public class SysProcessTemplateService {
             line.setFieldFromKey(fromKey);
             line.setFieldToKey(toKey);
             line.setFieldLineType(lineType);
-            line.setFieldBranchOrder(vo.getFieldBranchOrder());
+            // 分支序号列 NOT NULL（线性连线约定 0），请求未携带时按 0 归一，避免插入 NULL 主键约束失败
+            line.setFieldBranchOrder(null == vo.getFieldBranchOrder() ? 0 : vo.getFieldBranchOrder());
             line.setFieldBranchName(trimToNull(vo.getFieldBranchName()));
             line.setFieldCondition(trimToNull(vo.getFieldCondition()));
             line.setFieldIsDefault(Boolean.TRUE.equals(vo.getFieldIsDefault()));
