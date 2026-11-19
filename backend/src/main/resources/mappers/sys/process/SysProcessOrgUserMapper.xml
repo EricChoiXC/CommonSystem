@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eric.base.sys.process.mapper.SysProcessOrgUserMapper">
+
+    <!--
+        流程侧组织人员只读查询（P17-BE-002 审批人/抄送对象解析专用）
+        仅查询 sys_org_element 主表，不写 org 数据、不改 org 表结构。
+        field_hierarchy 形态为 /id1/id2/（由 SysOrgElementService#rebuildHierarchy 维护），
+        故「子树内」判定为 field_hierarchy LIKE '%/<orgId>/%'（索引 idx_org_element_hierarchy）；
+        命中集合含所查询部门/机构自身下挂的人员，以及其所有后代部门/机构下的人员。
+        空 orgIds 由 Service 层短路，不进入本语句（避免 IN () 语法错误）。
+    -->
+    <select id="selectUserIdsByOrgHierarchy" resultType="string">
+        SELECT field_id
+        FROM sys_org_element
+        WHERE field_org_type = 3
+          AND field_enable = 1
+          AND (
+            <foreach collection="orgIds" item="orgId" separator=" OR ">
+                field_hierarchy LIKE CONCAT('%/', #{orgId}, '/%')
+            </foreach>
+          )
+        ORDER BY field_create_time ASC
+    </select>
+
+    <!--
+        岗位关联人员只读查询（§5.5「岗位 → 岗位关联用户」）
+        sys_org_post_user 仅存 field_user_id / field_post_id（无公共字段），
+        故关联 sys_org_element 取人员创建时间排序并限定启用人员（field_enable = 1）；
+        field_post_id 命中索引 idx_post_user_post。
+        空 postIds 由调用方短路，不进入本语句（避免 IN () 语法错误）。
+    -->
+    <select id="selectUserIdsByPostIds" resultType="string">
+        SELECT e.field_id
+        FROM sys_org_post_user pu
+        INNER JOIN sys_org_element e ON e.field_id = pu.field_user_id
+        WHERE e.field_org_type = 3
+          AND e.field_enable = 1
+          AND pu.field_post_id IN
+          <foreach collection="postIds" item="postId" open="(" separator="," close=")">
+              #{postId}
+          </foreach>
+        ORDER BY e.field_create_time ASC
+    </select>
+
+</mapper>

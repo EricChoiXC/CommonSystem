@@ -51,6 +51,7 @@ import com.eric.base.sys.process.mapper.SysProcessTemplateHistoryMapper;
 import com.eric.base.sys.process.mapper.SysProcessTemplateLineMapper;
 import com.eric.base.sys.process.mapper.SysProcessTemplateMapper;
 import com.eric.base.sys.process.mapper.SysProcessTaskLogMapper;
+import com.eric.base.sys.process.mapper.SysProcessOrgUserMapper;
 import com.eric.base.sys.process.mapper.SysProcessTemplateNodeMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -326,6 +327,12 @@ class CommonSystemApplicationTests {
 		@Bean
 		SysProcessTaskLogMapper sysProcessTaskLogMapper() {
 			return Mockito.mock(SysProcessTaskLogMapper.class);
+		}
+
+		@Bean
+		SysProcessOrgUserMapper sysProcessOrgUserMapper() {
+			// P17-BE-002 审批人解析只读 Mapper：SysProcessOrgUserDao 依赖本 Mapper
+			return Mockito.mock(SysProcessOrgUserMapper.class);
 		}
 
 		/* ==================== 系统模块补充 Mapper（日历/用户密码历史） ==================== */

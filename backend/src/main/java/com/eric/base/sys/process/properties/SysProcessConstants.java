@@ -159,6 +159,25 @@ public class SysProcessConstants {
     public static final String HANDLER_SOURCE_ORG = "org";
     /** 审批来源：表单字段（审批时读取文档实体字段值解析出组织架构作为审批人） */
     public static final String HANDLER_SOURCE_FIELD = "field";
+    /** 审批来源：公式定义器（v1_7 新增，执行节点配置的审批人公式后解析组织架构作为审批人） */
+    public static final String HANDLER_SOURCE_FORMULA = "formula";
+
+    /** 审批人解析方式：负责人（部门/岗位/机构取 field_leader_id，缺省值） */
+    public static final String HANDLER_RESOLVE_MODE_LEADER = "leader";
+    /** 审批人解析方式：成员（部门/机构取子树内员工，岗位取岗位关联用户） */
+    public static final String HANDLER_RESOLVE_MODE_MEMBER = "member";
+
+    /** 无审批人处理方式：同系统配置（默认，由下游按系统配置决定是否跳过） */
+    public static final String EMPTY_HANDLER_MODE_SYSTEM = "system";
+    /** 无审批人处理方式：跳过该节点 */
+    public static final String EMPTY_HANDLER_MODE_SKIP = "skip";
+    /** 无审批人处理方式：不跳过（转流程异常） */
+    public static final String EMPTY_HANDLER_MODE_ERROR = "error";
+
+    /** 抄送源：地址本（默认，取节点配置的抄送对象） */
+    public static final String CC_SOURCE_ORG = "org";
+    /** 抄送源：公式定义器（v1_7 新增，执行节点配置的抄送对象公式后解析） */
+    public static final String CC_SOURCE_FORMULA = "formula";
 
     /** 是否允许连续跳过：跟随系统（与是否允许自动跳过共用值域 system / yes / no） */
     public static final String AUTO_CONTINUE_SKIP_SYSTEM = "system";
