@@ -3,25 +3,33 @@ package com.eric.base.sys.process.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.eric.base.sys.process.dao.SysProcessTemplateDao;
 import com.eric.base.sys.process.dao.SysProcessTemplateHistoryDao;
+import com.eric.base.sys.process.dao.SysProcessTemplateLineDao;
 import com.eric.base.sys.process.dao.SysProcessTemplateNodeDao;
 import com.eric.base.sys.process.model.SysProcessTemplate;
 import com.eric.base.sys.process.model.SysProcessTemplateHistory;
 import com.eric.base.sys.process.model.SysProcessTemplateNode;
+import com.eric.base.sys.process.model.SysProcessTemplateNodeConfigDo;
+import com.eric.base.sys.process.response.SysProcessTemplateLineVo;
 import com.eric.base.sys.process.response.SysProcessTemplateNodeVo;
 import com.eric.base.sys.process.response.SysProcessTemplateVo;
+import com.eric.base.sys.process.task.ProcessTaskRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -32,10 +40,12 @@ import static org.mockito.Mockito.when;
  *
  * @author Eric
  * @date 2026/8/22
- * @description 覆盖模板维护核心业务规则（依据 artificial/docs/设计文档/sys/process/流程核心业务.md「流程模板」）：
- *              固定节点规则与编号归一（结束节点编号随节点创建往后顺延）、审批节点配置校验
- *              （审批人必填、审批模式/节点触发/自动跳过取值、触发条件判断公式）、
- *              编辑时历史版本归档与版本号递增。
+ * @description 覆盖模板维护核心业务规则（依据 docs/设计文档/sys/process/流程核心业务.md「流程模板」
+ *              与 docs/设计文档/sys/process/流程v1_7接口清单.md §4.2~§4.4）：
+ *              固定节点规则与编号归一（结束节点编号随节点创建往后顺延）、节点键归一（N1~N3 固定、其余 N4…）、
+ *              审批节点配置校验（审批人必填、审批模式/节点触发/自动跳过取值、触发条件判断公式）、
+ *              连线全量替换与节点键一致性、服务端图校验 G1~G10（非法图拒绝 + 中文提示，关键规则有合法对照）、
+ *              编辑时历史版本归档（模板 + 全部节点 + 全部连线）与版本号递增、详情回显 nodes + lines 与 v2 字段。
  */
 class SysProcessTemplateServiceTest {
 
@@ -43,15 +53,21 @@ class SysProcessTemplateServiceTest {
 
     private SysProcessTemplateDao templateDao;
     private SysProcessTemplateNodeDao nodeDao;
+    private SysProcessTemplateLineDao lineDao;
     private SysProcessTemplateHistoryDao historyDao;
+    private ProcessTaskRegistry processTaskRegistry;
     private SysProcessTemplateService service;
 
     @BeforeEach
     void setUp() {
         templateDao = mock(SysProcessTemplateDao.class);
         nodeDao = mock(SysProcessTemplateNodeDao.class);
+        lineDao = mock(SysProcessTemplateLineDao.class);
         historyDao = mock(SysProcessTemplateHistoryDao.class);
-        service = new SysProcessTemplateService(templateDao, nodeDao, historyDao, new ObjectMapper());
+        processTaskRegistry = mock(ProcessTaskRegistry.class);
+        service = new SysProcessTemplateService(templateDao, nodeDao, lineDao, historyDao,
+                processTaskRegistry, new ObjectMapper());
+        when(lineDao.selectListByTemplateId(anyString())).thenReturn(List.of());
     }
 
     /* ==================== 新建：固定节点与编号归一 ==================== */
@@ -393,6 +409,72 @@ class SysProcessTemplateServiceTest {
         vo.setFieldModelName(MODEL_NAME);
         vo.setFieldCode("PO-APPROVE-001");
         vo.setNodes(nodes);
+        vo.setLines(linearLines(nodes));
+        return vo;
+    }
+
+    /**
+     * 按节点顺序生成线性连线（对齐服务端节点键归一：先 START=N1、DRAFT=N2，其余中间节点 N4… 顺延，END=N3），
+     * 覆盖 v1_7 起「保存必须携带连线且图校验 G1~G10 通过」的前置条件；
+     * 图校验专项用例自行构造非法/合法连线，不复用本方法。
+     */
+    private static List<SysProcessTemplateLineVo> linearLines(List<SysProcessTemplateNodeVo> nodes) {
+        List<String> keys = normalizedKeys(nodes);
+        List<SysProcessTemplateLineVo> lines = new ArrayList<>();
+        for (int i = 0; i + 1 < keys.size(); i++) {
+            lines.add(line(keys.get(i), keys.get(i + 1)));
+        }
+        return lines;
+    }
+
+    /** 节点键归一（与服务端一致：按类型重排为 START、DRAFT、中间节点…、END 后依次 N1、N2、N4…、N3）。 */
+    private static List<String> normalizedKeys(List<SysProcessTemplateNodeVo> nodes) {
+        List<SysProcessTemplateNodeVo> ordered = new ArrayList<>();
+        SysProcessTemplateNodeVo start = null;
+        SysProcessTemplateNodeVo draft = null;
+        SysProcessTemplateNodeVo end = null;
+        List<SysProcessTemplateNodeVo> middles = new ArrayList<>();
+        for (SysProcessTemplateNodeVo node : nodes) {
+            String type = node.getFieldNodeType();
+            if ("START".equals(type)) {
+                start = node;
+            } else if ("DRAFT".equals(type)) {
+                draft = node;
+            } else if ("END".equals(type)) {
+                end = node;
+            } else {
+                middles.add(node);
+            }
+        }
+        if (null != start) {
+            ordered.add(start);
+        }
+        if (null != draft) {
+            ordered.add(draft);
+        }
+        ordered.addAll(middles);
+        if (null != end) {
+            ordered.add(end);
+        }
+        List<String> keys = new ArrayList<>();
+        for (int i = 0; i < ordered.size(); i++) {
+            if (0 == i) {
+                keys.add("N1");
+            } else if (1 == i) {
+                keys.add("N2");
+            } else if (ordered.size() - 1 == i) {
+                keys.add("N3");
+            } else {
+                keys.add("N" + (i + 2));
+            }
+        }
+        return keys;
+    }
+
+    private static SysProcessTemplateLineVo line(String fromKey, String toKey) {
+        SysProcessTemplateLineVo vo = new SysProcessTemplateLineVo();
+        vo.setFieldFromKey(fromKey);
+        vo.setFieldToKey(toKey);
         return vo;
     }
 

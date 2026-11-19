@@ -260,6 +260,11 @@ public class SysProcessConstants {
     /** 节点配置键：是否允许连续跳过（system / yes / no，默认 system） */
     public static final String NODE_CONFIG_AUTO_CONTINUE_SKIP = "autoContinueSkip";
 
+    /* ==================== 模板保存侧取值（P17-BE-006） ==================== */
+
+    /** 审批操作标识：通过（审批节点 operations 必须包含且仅包含一个该操作） */
+    public static final String OPERATE_TYPE_HANDLER_PASS = "handler_pass";
+
     /* ==================== 流程实例状态（sys_process_example.field_status） ==================== */
 
     /** 流程状态：废弃 */

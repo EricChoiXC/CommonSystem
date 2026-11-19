@@ -106,14 +106,14 @@ public class SysProcessTemplateController {
 
     /**
      * 模板详情：GET /backend/sys/process/module/load?fieldId=${id}
-     * 返回模板基本字段（含版本号）+ 节点列表（含审批节点配置），供详情/编辑页回填。
+     * 返回模板基本字段（含版本号）+ 节点列表（含 nodeKey 与节点配置）+ 连线列表，供详情/编辑页回填。
      *
      * @param fieldId 流程模板 ID
-     * @return 统一响应，data 为模板详情（含节点与审批配置）；不存在返回 E_NOT_FOUND
+     * @return 统一响应，data 为模板详情（含节点、节点配置与连线）；不存在返回 E_NOT_FOUND
      */
     @GetMapping("/load")
     @Operation(summary = "模板详情", description = "鉴权动作 sys.process.module.load（SYS_PROCESS_TEMPLATE_VIEWER "
-            + "及以上）；返回模板基本字段（含版本号）与节点列表（含审批节点配置）")
+            + "及以上）；返回模板基本字段 + 节点（含 nodeKey）+ 连线")
     public BaseResponse<SysProcessTemplateVo> load(
             @Parameter(description = "流程模板 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorize(ACTION_PROCESS_MODULE_LOAD, fieldId);
@@ -126,14 +126,15 @@ public class SysProcessTemplateController {
 
     /**
      * 新建模板：POST /backend/sys/process/module/save
-     * 请求体为模板对象（含 nodes 节点列表），初始版本号 1。
+     * 请求体为模板对象（含 nodes 节点列表 + lines 连线列表），初始版本号 1；
+     * 连线全量落库，服务端执行图校验 G1~G10，非法图返回中文原因。
      *
-     * @param body 模板对象（含 nodes 节点列表）
+     * @param body 模板对象（含 nodes + lines）
      * @return 统一响应，data 为保存后的模板（版本号 1）
      */
     @PostMapping("/save")
     @Operation(summary = "新建模板", description = "鉴权动作 sys.process.module.save（仅 "
-            + "SYS_PROCESS_TEMPLATE_ADMIN）；请求体为模板对象（含 nodes 节点列表），初始版本号 1")
+            + "SYS_PROCESS_TEMPLATE_ADMIN）；请求体含 nodes + lines，连线全量替换，服务端执行图校验（G1~G10）")
     public BaseResponse<SysProcessTemplateVo> save(@RequestBody SysProcessTemplateVo body) {
         authorize(new AuthorizationContext(ACTION_PROCESS_MODULE_SAVE));
         return BaseResponse.success(baseService.save(body), null);
@@ -141,16 +142,15 @@ public class SysProcessTemplateController {
 
     /**
      * 编辑模板：PATCH /backend/sys/process/module/update
-     * 请求体为模板对象（必须携带 fieldId）；历史版本归档到 sys_process_template_history，
-     * 现版本号 +1 并全量替换节点。
+     * 请求体为模板对象（必须携带 fieldId，含 nodes + lines）；历史版本归档到
+     * sys_process_template_history（快照含连线），现版本号 +1 并全量替换节点与连线。
      *
      * @param body 模板对象，必须携带 fieldId
      * @return 统一响应，data 为更新后的模板；缺 fieldId 返回 BAD_REQUEST
      */
     @PatchMapping("/update")
     @Operation(summary = "编辑模板", description = "鉴权动作 sys.process.module.update（仅 "
-            + "SYS_PROCESS_TEMPLATE_ADMIN）；历史版本归档到 sys_process_template_history，现版本号 +1 "
-            + "并全量替换节点")
+            + "SYS_PROCESS_TEMPLATE_ADMIN）；同 save，历史版本归档含连线")
     public BaseResponse<SysProcessTemplateVo> update(@RequestBody SysProcessTemplateVo body) {
         if (null == body || StringUtil.isEmpty(body.getFieldId())) {
             return BaseResponse.failure("BAD_REQUEST", "fieldId is required");
