@@ -23,4 +23,11 @@ public class SysProcessExampleWorkitemConfigDo {
 
     /** 人工决策流向（目标节点 key，可空；v1_7 新增 D6）：审批人提交/通过时附带指定人工决策节点流向 */
     private String flowChoice;
+
+    /**
+     * 所属并行分支键（可空；v1_7 新增）：并行分支内的审批节点创建工作项时记录其分支首节点键，
+     * 供审批通过后跨调用恢复流转时回溯分支归属（{@code sys_process_example_node.field_runtime}
+     * 的 {@code activeBranchKeys} / {@code arrivedBranchKeys} 判定不重复计数）。
+     */
+    private String flowBranchKey;
 }

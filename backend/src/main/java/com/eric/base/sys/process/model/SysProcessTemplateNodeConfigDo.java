@@ -1,5 +1,6 @@
 package com.eric.base.sys.process.model;
 
+import com.eric.base.sys.process.properties.SysProcessConstants;
 import lombok.Data;
 
 import java.util.ArrayList;
@@ -57,6 +58,12 @@ public class SysProcessTemplateNodeConfigDo {
 
     /** 无审批人处理方式缺省值：同系统配置（默认跳过） */
     private static final String EMPTY_HANDLER_DEFAULT = "system";
+
+    /** 汇聚模式缺省值：全部激活分支到达后流出 */
+    private static final String JOIN_MODE_DEFAULT = "all";
+
+    /** 并行无可流转分支行为缺省值：转流程异常 */
+    private static final String NO_BRANCH_MODE_DEFAULT = "error";
 
     /** 审批来源：org=组织架构（默认，取 handlerIds/handlerNames）/ field=表单字段（取 handlerField，运行期读文档字段值）/ formula=公式定义器（取 handlerFormula，v1_7 新增） */
     private String handlerSource;
@@ -135,6 +142,12 @@ public class SysProcessTemplateNodeConfigDo {
     /** 默认流向（本节点出边目标节点 key 之一；无人工指定时走默认流向；v1_7 新增，人工决策节点有效） */
     private String defaultFlowKey;
 
+    /** 汇聚模式：all=全部激活分支到达后流出（默认）/ any=任一激活分支到达即流出（v1_7 新增，并行开始节点有效） */
+    private String joinMode = JOIN_MODE_DEFAULT;
+
+    /** 无可流转分支时行为：error=转流程异常（默认）/ continue=全部出边激活后继续（v1_7 新增，并行开始节点有效） */
+    private String noBranchMode = NO_BRANCH_MODE_DEFAULT;
+
     /**
      * 操作标识开关：key=操作标识（须定义在 process_template.${fieldModelName}.ops 中），
      * value=该节点审批人是否允许执行该操作。
@@ -162,6 +175,30 @@ public class SysProcessTemplateNodeConfigDo {
             return SKIP_MODE_NONE;
         }
         return trimmed;
+    }
+
+    /**
+     * 读取汇聚模式（v1_7 并行开始节点配置）：仅 {@code any} 生效，其余（空/非法/缺省）取 {@code all}。
+     */
+    public String getJoinMode() {
+        return SysProcessConstants.JOIN_MODE_ANY.equalsIgnoreCase(trimToNull(joinMode))
+                ? SysProcessConstants.JOIN_MODE_ANY : JOIN_MODE_DEFAULT;
+    }
+
+    /**
+     * 读取并行无可流转分支时的行为：仅 {@code continue} 生效，其余（空/非法/缺省）取 {@code error}。
+     */
+    public String getNoBranchMode() {
+        return SysProcessConstants.NO_BRANCH_MODE_CONTINUE.equalsIgnoreCase(trimToNull(noBranchMode))
+                ? SysProcessConstants.NO_BRANCH_MODE_CONTINUE : NO_BRANCH_MODE_DEFAULT;
+    }
+
+    private static String trimToNull(String value) {
+        if (null == value) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /**

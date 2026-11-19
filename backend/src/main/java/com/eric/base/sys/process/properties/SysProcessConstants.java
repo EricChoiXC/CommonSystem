@@ -125,8 +125,46 @@ public class SysProcessConstants {
     public static final String NODE_TYPE_DRAFT = "DRAFT";
     /** 节点类型：审批节点 */
     public static final String NODE_TYPE_APPROVE = "APPROVE";
-    /** 节点类型：机器人节点 */
+    /** 节点类型：机器人节点（历史拼写沿用不改名，正确拼写应为 ROBOT） */
     public static final String NODE_TYPE_ROBORT = "ROBORT";
+    /** 节点类型：抄送节点（v1_7 新增，解析抄送对象后自动办结继续） */
+    public static final String NODE_TYPE_CC = "CC";
+    /** 节点类型：条件分支（v1_7 新增，按出边分支条件取首个 true，无 true 走默认分支） */
+    public static final String NODE_TYPE_CONDITION = "CONDITION";
+    /** 节点类型：并行开始（v1_7 新增，逐出边求值启动条件，激活分支各自流转） */
+    public static final String NODE_TYPE_FORK = "FORK";
+    /** 节点类型：并行结束（v1_7 新增，按汇聚模式等待激活分支到达后流出） */
+    public static final String NODE_TYPE_JOIN = "JOIN";
+    /** 节点类型：人工决策（v1_7 新增，按最近一次人工指定流向或默认流向流出） */
+    public static final String NODE_TYPE_MANUAL = "MANUAL";
+
+    /** 固定节点键：开始节点 */
+    public static final String FIXED_NODE_KEY_START = "N1";
+    /** 固定节点键：草稿节点 */
+    public static final String FIXED_NODE_KEY_DRAFT = "N2";
+    /** 固定节点键：结束节点 */
+    public static final String FIXED_NODE_KEY_END = "N3";
+
+    /** 并行汇聚模式：全部激活分支到达后流出（缺省） */
+    public static final String JOIN_MODE_ALL = "all";
+    /** 并行汇聚模式：任一激活分支到达即流出 */
+    public static final String JOIN_MODE_ANY = "any";
+
+    /* ==================== 连线类型（sys_process_template_line / sys_process_example_line） ==================== */
+
+    /** 连线类型：普通连线 */
+    public static final String LINE_TYPE_NORMAL = "NORMAL";
+    /** 连线类型：条件分支（分支条件存连线 field_condition） */
+    public static final String LINE_TYPE_CONDITION = "CONDITION";
+    /** 连线类型：并行分支（分支启动条件存连线 field_condition） */
+    public static final String LINE_TYPE_PARALLEL = "PARALLEL";
+    /** 连线类型：人工决策 */
+    public static final String LINE_TYPE_MANUAL = "MANUAL";
+
+    /** FORK 无可流转分支时行为：转流程异常（缺省） */
+    public static final String NO_BRANCH_MODE_ERROR = "error";
+    /** FORK 无可流转分支时行为：全部出边激活后继续 */
+    public static final String NO_BRANCH_MODE_CONTINUE = "continue";
 
     /** 固定开始节点编号 */
     public static final int FIXED_NODE_NO_START = 1;
@@ -144,6 +182,8 @@ public class SysProcessConstants {
     public static final String APPROVE_MODE_SINGLE = "single";
     /** 审批模式：会审 */
     public static final String APPROVE_MODE_COUNTERSIGN = "countersign";
+    /** 审批模式：串行（v1_7 新增，按审批人列表顺序依次生成工作项） */
+    public static final String APPROVE_MODE_SERIAL = "serial";
     /** 节点触发：固定 */
     public static final String TRIGGER_TYPE_FIXED = "fixed";
     /** 节点触发：条件判断 */
@@ -279,6 +319,10 @@ public class SysProcessConstants {
     public static final String AUDIT_TYPE_ADMIN_ABANDON = "ADMIN_ABANDON";
     /** 管理员办结 */
     public static final String AUDIT_TYPE_ADMIN_FINISH = "ADMIN_FINISH";
+    /** 抄送节点自动留痕（抄送对象已记录，通知发送由 P17-BE-012/BE-014 落地） */
+    public static final String AUDIT_TYPE_CC_AUTO = "CC_AUTO";
+    /** 流程异常专用留痕（实例转 PAUSE，错误摘要入留痕） */
+    public static final String AUDIT_TYPE_SYSTEM_ERROR = "SYSTEM_ERROR";
 
     /* ==================== 管理员特权操作类型（流程详情页特权操作弹窗） ==================== */
 
@@ -302,6 +346,9 @@ public class SysProcessConstants {
 
     /** 工作项配置键：驳回后重新提交的流转方式（restart=重新流转 / backToNode=转回本节点） */
     public static final String WORKITEM_CONFIG_RESUME_MODE = "resumeMode";
+
+    /** 工作项配置键：人工决策流向（目标节点 key，审批人通过/提交时指定，后提交覆盖先提交） */
+    public static final String WORKITEM_CONFIG_FLOW_CHOICE = "flowChoice";
 
     /** 重新提交后流转方式：重新流转（从草稿节点后的首个节点重新流转） */
     public static final String RESUME_MODE_RESTART = "restart";

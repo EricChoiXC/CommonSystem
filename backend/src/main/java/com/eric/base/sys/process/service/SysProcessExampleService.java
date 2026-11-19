@@ -29,6 +29,10 @@ import com.eric.base.sys.process.properties.SysProcessTemplateProperties;
 import com.eric.base.sys.process.request.SysProcessAdminOperateRequest;
 import com.eric.base.sys.process.request.SysProcessExampleQuery;
 import com.eric.base.sys.process.resolver.ProcessResolver;
+import com.eric.base.sys.process.service.engine.ProcessFlowEngine;
+import com.eric.base.sys.process.service.engine.ProcessFlowGraph;
+import com.eric.base.sys.process.service.engine.ProcessFlowResult;
+import com.eric.base.sys.process.service.engine.ProcessFlowSupport;
 import com.eric.base.sys.process.response.SysProcessAuditNoteVo;
 import com.eric.base.sys.process.response.SysProcessExampleDetailVo;
 import com.eric.base.sys.process.response.SysProcessExampleNodeVo;
@@ -143,6 +147,8 @@ public class SysProcessExampleService {
     private final ProcessResolver resolver;
     private final SysProcessDocumentFieldService documentFieldService;
     private final ObjectMapper objectMapper;
+    private final ProcessFlowEngine flowEngine;
+    private final ProcessFlowSupport flowSupport;
 
     public SysProcessExampleService(SysProcessExampleDao exampleDao,
                                     SysProcessExampleNodeDao nodeDao,
@@ -154,7 +160,9 @@ public class SysProcessExampleService {
                                     SysOrgUserMapper userMapper,
                                     ProcessResolver resolver,
                                     SysProcessDocumentFieldService documentFieldService,
-                                    ObjectMapper objectMapper) {
+                                    ObjectMapper objectMapper,
+                                    ProcessFlowEngine flowEngine,
+                                    ProcessFlowSupport flowSupport) {
         this.exampleDao = exampleDao;
         this.nodeDao = nodeDao;
         this.workitemDao = workitemDao;
@@ -166,6 +174,8 @@ public class SysProcessExampleService {
         this.resolver = resolver;
         this.documentFieldService = documentFieldService;
         this.objectMapper = objectMapper;
+        this.flowEngine = flowEngine;
+        this.flowSupport = flowSupport;
     }
 
     /* ==================== 流程创建与提交（由实例所属模块调用） ==================== */
@@ -217,6 +227,7 @@ public class SysProcessExampleService {
             node.setFieldNodeName(templateNode.getFieldNodeName());
             node.setFieldNodeType(templateNode.getFieldNodeType());
             node.setFieldNodeConfig(templateNode.getFieldNodeConfig());
+            node.setFieldNodeKey(ProcessFlowGraph.nodeKey(templateNode));
             // 开始节点与草稿节点：开始节点已走过（FINISH），草稿节点为当前节点（PROCESSING），其余等待
             if (SysProcessConstants.NODE_TYPE_START.equals(templateNode.getFieldNodeType())) {
                 node.setFieldStatus(NODE_STATUS_FINISH);
@@ -249,21 +260,19 @@ public class SysProcessExampleService {
             throw new IllegalArgumentException("仅草稿或驳回状态的流程可提交");
         }
         SysOrgUser current = requireCurrentUser();
-        example.setFieldStatus(EXAMPLE_STATUS_PROCESSING);
-        exampleDao.update(example);
         addAudit(example.getFieldId(), null, current.getFieldId(),
                 AUDIT_TYPE_DRAFTER_SUBMIT, trimToNull(content));
-
-        // 草稿节点完成
+        // 草稿节点完成（图遍历下由引擎按连线进入后继节点）
         SysProcessExampleNode draftNode = nodeDao.selectByExampleAndType(example.getFieldId(), NODE_TYPE_DRAFT);
-        if (null != draftNode) {
+        if (null != draftNode && !NODE_STATUS_FINISH.equals(draftNode.getFieldStatus())) {
             draftNode.setFieldStatus(NODE_STATUS_FINISH);
             nodeDao.update(draftNode);
         }
-
-        // 确定流转起点：驳回后按「重新提交后流转方式」选择
-        SysProcessExampleNode startNode = resolveResubmitStartNode(example);
-        enterFlow(example, startNode);
+        example.setFieldStatus(EXAMPLE_STATUS_PROCESSING);
+        exampleDao.update(example);
+        // 流转起点：驳回后按「重新提交后流转方式」选择，否则草稿节点的出边目标
+        String entryKey = flowEngine.resolveResubmitEntryKey(example);
+        flowEngine.enterFlow(example, entryKey);
         log.info("process example submitted: id={}, status={}", example.getFieldId(), example.getFieldStatus());
         return load(example.getFieldId());
     }
@@ -293,7 +302,7 @@ public class SysProcessExampleService {
             draftNode.setFieldStatus(NODE_STATUS_PROCESSING);
             nodeDao.update(draftNode);
         }
-        markCurrentNodeWaiting(example.getFieldId());
+        flowSupport.markCurrentNodeWaiting(example.getFieldId());
         log.info("process example backed by drafter: id={}", example.getFieldId());
     }
 
@@ -334,11 +343,12 @@ public class SysProcessExampleService {
 
         SysProcessExampleNode node = requireNode(workitem.getFieldNodeId());
         if (isNodePassed(node, workitem.getFieldId())) {
+            // 节点标记完成（通过语义），随后由引擎沿出边继续流转
             node.setFieldStatus(NODE_STATUS_FINISH);
             nodeDao.update(node);
             finishRemainingWorkitems(node.getFieldId(), workitem.getFieldId());
             log.info("process example node passed: example={}, node={}", example.getFieldId(), node.getFieldNodeName());
-            enterNextNode(example, node);
+            flowEngine.pass(example, ProcessFlowGraph.nodeKey(node), node.getFieldNodeName(), workitem.getFieldId());
         }
         log.info("process example workitem passed: example={}, workitem={}", example.getFieldId(), workitem.getFieldId());
     }
@@ -761,122 +771,7 @@ public class SysProcessExampleService {
         return false;
     }
 
-    /* ==================== 流转引擎 ==================== */
-
-    /**
-     * 进入流转：从指定节点开始顺序流转，直到遇到需要人工审批的节点（PROCESSING）或结束节点（FINISH）。
-     * 自动跳过（实际处理人为空）的审批节点标记 PASS 后继续流转。
-     */
-    private void enterFlow(SysProcessExample example, SysProcessExampleNode startNode) {
-        SysProcessExampleNode node = startNode;
-        while (null != node) {
-            if (NODE_TYPE_APPROVE.equals(node.getFieldNodeType())) {
-                if (enterApproveNode(example, node)) {
-                    // 存在需要实际审批的工作项：等待审批
-                    example.setFieldStatus(EXAMPLE_STATUS_PROCESSING);
-                    exampleDao.update(example);
-                    return;
-                }
-                // 实际处理人为空：跳过该节点
-                node = nextNode(example.getFieldId(), node.getFieldNodeNo());
-            } else if (NODE_TYPE_END.equals(node.getFieldNodeType())) {
-                node.setFieldStatus(NODE_STATUS_PROCESSING);
-                nodeDao.update(node);
-                example.setFieldStatus(EXAMPLE_STATUS_FINISH);
-                example.setFieldFinishTime(new Date());
-                exampleDao.update(example);
-                return;
-            } else {
-                // 机器人/其他节点暂不承载人工审批，直接标记完成继续流转
-                node.setFieldStatus(NODE_STATUS_FINISH);
-                nodeDao.update(node);
-                node = nextNode(example.getFieldId(), node.getFieldNodeNo());
-            }
-        }
-    }
-
-    /**
-     * 进入审批节点：解析节点配置的审批人，按自动跳过规则创建工作项
-     * （包含跳过的处理人，跳过的工作项直接 FINISH 并生成 AUTO_PASS 审批记录）。
-     *
-     * @return true=存在需要实际审批的工作项（节点 PROCESSING）；false=全部跳过（节点 PASS）
-     */
-    private boolean enterApproveNode(SysProcessExample example, SysProcessExampleNode node) {
-        SysProcessTemplateNodeConfigDo config = parseNodeConfig(node.getFieldNodeConfig());
-        Set<String> handlers = resolveHandlers(example, config);
-        if (handlers.isEmpty()) {
-            // 实际处理人计算结果为空：按跳过处理
-            node.setFieldStatus(NODE_STATUS_PASS);
-            nodeDao.update(node);
-            return false;
-        }
-        PreviousNode prev = findPreviousEffectiveNode(example.getFieldId(), node.getFieldNodeNo());
-        Set<String> skipped = computeSkippedHandlers(example, config, handlers, prev);
-        Date now = new Date();
-        int processing = 0;
-        for (String handlerId : handlers) {
-            SysProcessExampleWorkitem workitem = new SysProcessExampleWorkitem();
-            workitem.initFieldId();
-            workitem.setFieldExampleId(example.getFieldId());
-            workitem.setFieldNodeId(node.getFieldId());
-            workitem.setFieldHandlerId(handlerId);
-            workitem.setFieldExpectHandlerId(handlerId);
-            workitem.setFieldCreateTime(now);
-            if (skipped.contains(handlerId)) {
-                workitem.setFieldStatus(WORKITEM_STATUS_FINISH);
-                workitem.setFieldFinishTime(now);
-                addAudit(example.getFieldId(), workitem.getFieldId(), handlerId,
-                        AUDIT_TYPE_AUTO_PASS, "自动跳过重复审批人");
-            } else {
-                workitem.setFieldStatus(WORKITEM_STATUS_PROCESSING);
-                processing++;
-            }
-            workitemDao.insert(workitem);
-        }
-        if (processing > 0) {
-            node.setFieldStatus(NODE_STATUS_PROCESSING);
-            nodeDao.update(node);
-            return true;
-        }
-        node.setFieldStatus(NODE_STATUS_PASS);
-        nodeDao.update(node);
-        return false;
-    }
-
-    /**
-     * 按节点「审批来源」解析实际处理人集合（依据流程核心业务.md「审批人配置」）：
-     * <ul>
-     * <li>组织架构（默认）：取节点配置的 handlerIds；</li>
-     * <li>表单字段：读取流程实例对应文档实体 handlerField 字段值，从中解析出组织架构（岗位/用户）
-     *     作为审批人；字段未配置、值为空或无法解析时返回空集合（节点按跳过处理）。</li>
-     * </ul>
-     */
-    private Set<String> resolveHandlers(SysProcessExample example, SysProcessTemplateNodeConfigDo config) {
-        if (null == config) {
-            return Set.of();
-        }
-        String handlerSource = StringUtil.isEmpty(config.getHandlerSource())
-                ? HANDLER_SOURCE_ORG : config.getHandlerSource().trim();
-        if (HANDLER_SOURCE_FIELD.equals(handlerSource)) {
-            String value = documentFieldService.resolveFieldValue(
-                    example.getFieldModelName(), example.getFieldModelId(), config.getHandlerField());
-            return parseHandlerIds(normalizeFieldHandlerValue(value));
-        }
-        return parseHandlerIds(config.getHandlerIds());
-    }
-
-    /**
-     * 归一化文档字段取值：兼容 JSON 数组（["id1","id2"]）、逗号/中文逗号分隔等写法，
-     * 统一转为 handlerIds 的 ';' 分隔形式。
-     */
-    private static String normalizeFieldHandlerValue(String value) {
-        if (StringUtil.isEmpty(value)) {
-            return value;
-        }
-        return value.replace("[", "").replace("]", "")
-                .replace("\"", "").replace("'", "")
-                .replace(",", ";").replace("，", ";");
-    }
+    /* ==================== 流转引擎入口（薄层：校验 + 委托 ProcessFlowEngine） ==================== */
 
     /**
      * 计算本节点的自动跳过处理人集合（依据流程核心业务.md「流程流转公共规范」第 5、6 条）：
@@ -963,53 +858,6 @@ public class SysProcessExampleService {
         return prev;
     }
 
-    /**
-     * 通过节点后进入下一节点；下一节点可能被全部跳过（PASS）或直接到达结束节点（FINISH）。
-     */
-    private void enterNextNode(SysProcessExample example, SysProcessExampleNode finishedNode) {
-        enterFlow(example, nextNode(example.getFieldId(), finishedNode.getFieldNodeNo()));
-    }
-
-    /**
-     * 解析「重新提交后流转方式」确定重新提交的流转起点：
-     * 驳回后重新提交时读取驳回节点（REJECT）工作项保存的 resumeMode——
-     * restart=重新流转（草稿节点后的首个节点）、backToNode=转回本节点（驳回节点）；
-     * 草稿提交时从草稿节点后的首个节点开始。
-     */
-    private SysProcessExampleNode resolveResubmitStartNode(SysProcessExample example) {
-        // 驳回后重新提交：存在驳回节点时按工作项保存的 resumeMode 决定流转起点
-        List<SysProcessExampleNode> rejected = nodeDao.selectByExampleAndStatus(example.getFieldId(), NODE_STATUS_REJECT);
-        if (!rejected.isEmpty()) {
-            SysProcessExampleNode rejectedNode = rejected.get(rejected.size() - 1);
-            String resumeMode = readRejectedResumeMode(rejectedNode.getFieldId());
-            if (RESUME_MODE_BACK_TO_NODE.equals(resumeMode)) {
-                return rejectedNode;
-            }
-        }
-        return nextNode(example.getFieldId(), SysProcessConstants.FIXED_NODE_NO_DRAFT);
-    }
-
-    /**
-     * 读取驳回节点工作项中保存的「重新提交后流转方式」（驳回者工作项的 field_config）。
-     */
-    private String readRejectedResumeMode(String nodeId) {
-        for (SysProcessExampleWorkitem workitem : workitemDao.selectListByNodeId(nodeId)) {
-            if (StringUtil.isEmpty(workitem.getFieldConfig())) {
-                continue;
-            }
-            try {
-                SysProcessExampleWorkitemConfigDo config =
-                        objectMapper.readValue(workitem.getFieldConfig(), SysProcessExampleWorkitemConfigDo.class);
-                if (null != config && StringUtil.isNotEmpty(config.getResumeMode())) {
-                    return config.getResumeMode();
-                }
-            } catch (Exception e) {
-                log.warn("parse workitem config failed, skip: {}", e.getMessage());
-            }
-        }
-        return null;
-    }
-
     /* ==================== 管理员操作实现 ==================== */
 
     /** 管理员跳转：PROCESSING / RETURN 时可跳转到审批节点或起草节点；生成 ADMIN_JUMP 记录。 */
@@ -1020,21 +868,15 @@ public class SysProcessExampleService {
         }
         SysProcessExampleNode target = requireNode(targetNodeId);
         if (!NODE_TYPE_APPROVE.equals(target.getFieldNodeType())
-                && !NODE_TYPE_DRAFT.equals(target.getFieldNodeType())) {
-            throw new IllegalArgumentException("跳转节点仅限审批节点或起草节点");
+                && !NODE_TYPE_DRAFT.equals(target.getFieldNodeType())
+                && !SysProcessConstants.NODE_TYPE_MANUAL.equals(target.getFieldNodeType())) {
+            throw new IllegalArgumentException("跳转节点仅限审批节点、起草节点或人工决策节点");
         }
         addAudit(example.getFieldId(), null, operatorId, AUDIT_TYPE_ADMIN_JUMP, content);
         abandonActiveWorkitems(example.getFieldId());
-        markCurrentNodeWaiting(example.getFieldId());
-
-        if (NODE_TYPE_DRAFT.equals(target.getFieldNodeType())) {
-            target.setFieldStatus(NODE_STATUS_PROCESSING);
-            nodeDao.update(target);
-            example.setFieldStatus(EXAMPLE_STATUS_RETURN);
-            exampleDao.update(example);
-        } else {
-            enterFlow(example, target);
-        }
+        flowSupport.markCurrentNodeWaiting(example.getFieldId());
+        // 跳转=废弃在途工作项后从目标节点进入引擎（起草节点停留等待重新提交）
+        flowEngine.adminJump(example, targetNodeId);
     }
 
     /** 管理员终审通过：PROCESSING / RETURN / PAUSE 时办结；生成 ADMIN_FINISH 记录。 */
@@ -1055,12 +897,8 @@ public class SysProcessExampleService {
             throw new IllegalArgumentException("仅审批中的流程可暂停");
         }
         addAudit(example.getFieldId(), null, operatorId, AUDIT_TYPE_ADMIN_PAUSE, content);
-        for (SysProcessExampleWorkitem workitem : workitemDao.selectActiveByExample(example.getFieldId())) {
-            if (WORKITEM_STATUS_PROCESSING.equals(workitem.getFieldStatus())) {
-                workitem.setFieldStatus(WORKITEM_STATUS_PAUSE);
-                workitemDao.update(workitem);
-            }
-        }
+        flowSupport.toggleActiveWorkitems(example.getFieldId(),
+                WORKITEM_STATUS_PROCESSING, WORKITEM_STATUS_PAUSE);
         example.setFieldStatus(EXAMPLE_STATUS_PAUSE);
         exampleDao.update(example);
     }
@@ -1071,12 +909,8 @@ public class SysProcessExampleService {
             throw new IllegalArgumentException("仅暂停状态的流程可恢复");
         }
         addAudit(example.getFieldId(), null, operatorId, AUDIT_TYPE_ADMIN_RESUME, content);
-        for (SysProcessExampleWorkitem workitem : workitemDao.selectActiveByExample(example.getFieldId())) {
-            if (WORKITEM_STATUS_PAUSE.equals(workitem.getFieldStatus())) {
-                workitem.setFieldStatus(WORKITEM_STATUS_PROCESSING);
-                workitemDao.update(workitem);
-            }
-        }
+        flowSupport.toggleActiveWorkitems(example.getFieldId(),
+                WORKITEM_STATUS_PAUSE, WORKITEM_STATUS_PROCESSING);
         example.setFieldStatus(EXAMPLE_STATUS_PROCESSING);
         exampleDao.update(example);
     }
@@ -1151,60 +985,20 @@ public class SysProcessExampleService {
         workitemDao.update(workitem);
     }
 
-    /** 废弃处理中（PROCESSING / PAUSE）的工作项（收回/作废/跳转时）。 */
+    /** 废弃处理中（PROCESSING / PAUSE）的工作项（收回/作废/跳转时） */
     private void abandonActiveWorkitems(String exampleId) {
-        Date now = new Date();
-        for (SysProcessExampleWorkitem workitem : workitemDao.selectActiveByExample(exampleId)) {
-            workitem.setFieldStatus(WORKITEM_STATUS_ABANDON);
-            workitem.setFieldFinishTime(now);
-            workitemDao.update(workitem);
-        }
+        flowSupport.abandonActiveWorkitems(exampleId);
     }
 
-    /** 完成处理中（PROCESSING / PAUSE）的工作项（管理员办结时）。 */
+    /** 完成处理中（PROCESSING / PAUSE）的工作项（管理员办结时） */
     private void finishActiveWorkitems(String exampleId) {
-        Date now = new Date();
-        for (SysProcessExampleWorkitem workitem : workitemDao.selectActiveByExample(exampleId)) {
-            workitem.setFieldStatus(WORKITEM_STATUS_FINISH);
-            workitem.setFieldFinishTime(now);
-            workitemDao.update(workitem);
-        }
-    }
-
-    /** 将当前处理中的节点（PROCESSING）置为等待（收回/跳转离开后不再停留）。 */
-    private void markCurrentNodeWaiting(String exampleId) {
-        for (SysProcessExampleNode node : nodeDao.selectByExampleAndStatus(exampleId, NODE_STATUS_PROCESSING)) {
-            if (NODE_TYPE_DRAFT.equals(node.getFieldNodeType()) || NODE_TYPE_END.equals(node.getFieldNodeType())) {
-                continue;
-            }
-            node.setFieldStatus(NODE_STATUS_WAITING);
-            nodeDao.update(node);
-        }
-    }
-
-    /** 下一节点（按编号顺延）。 */
-    private SysProcessExampleNode nextNode(String exampleId, int currentNo) {
-        List<SysProcessExampleNode> nodes = nodeDao.selectListByExampleId(exampleId);
-        for (SysProcessExampleNode node : nodes) {
-            if (node.getFieldNodeNo() > currentNo) {
-                return node;
-            }
-        }
-        return null;
+        flowSupport.finishActiveWorkitems(exampleId);
     }
 
     /** 生成审批记录。 */
     private void addAudit(String exampleId, String workitemId, String handlerId,
                           String handleType, String content) {
-        SysProcessAuditNote note = new SysProcessAuditNote();
-        note.initFieldId();
-        note.setFieldExampleId(exampleId);
-        note.setFieldWorkitemId(workitemId);
-        note.setFieldHandlerId(handlerId);
-        note.setFieldContent(content);
-        note.setFieldCreateTime(new Date());
-        note.setFieldHandleType(handleType);
-        auditNoteDao.insert(note);
+        flowSupport.addAudit(exampleId, workitemId, handlerId, handleType, content);
     }
 
     /** 校验并返回流程实例。 */
@@ -1349,6 +1143,7 @@ public class SysProcessExampleService {
             vo.setFieldNodeName(node.getFieldNodeName());
             vo.setFieldNodeType(node.getFieldNodeType());
             vo.setFieldStatus(node.getFieldStatus());
+            vo.setFieldNodeKey(ProcessFlowGraph.nodeKey(node));
             return vo;
         }).toList();
     }

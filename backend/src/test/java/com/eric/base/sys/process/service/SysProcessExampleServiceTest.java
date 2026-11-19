@@ -8,20 +8,29 @@ import com.eric.base.sys.org.mapper.SysOrgUserMapper;
 import com.eric.base.sys.org.model.SysOrgUser;
 import com.eric.base.sys.process.dao.SysProcessAuditNoteDao;
 import com.eric.base.sys.process.dao.SysProcessExampleDao;
+import com.eric.base.sys.process.dao.SysProcessExampleLineDao;
 import com.eric.base.sys.process.dao.SysProcessExampleNodeDao;
 import com.eric.base.sys.process.dao.SysProcessExampleWorkitemDao;
 import com.eric.base.sys.process.dao.SysProcessTemplateDao;
+import com.eric.base.sys.process.dao.SysProcessTemplateLineDao;
 import com.eric.base.sys.process.dao.SysProcessTemplateNodeDao;
 import com.eric.base.sys.process.model.SysProcessAuditNote;
 import com.eric.base.sys.process.model.SysProcessExample;
+import com.eric.base.sys.process.model.SysProcessExampleLine;
 import com.eric.base.sys.process.model.SysProcessExampleNode;
 import com.eric.base.sys.process.model.SysProcessExampleWorkitem;
 import com.eric.base.sys.process.model.SysProcessTemplate;
+import com.eric.base.sys.process.model.SysProcessTemplateLine;
 import com.eric.base.sys.process.model.SysProcessTemplateNode;
+import com.eric.base.sys.process.model.SysProcessTemplateNodeConfigDo;
 import com.eric.base.sys.process.properties.SysProcessConstants;
 import com.eric.base.sys.process.request.SysProcessAdminOperateRequest;
 import com.eric.base.sys.process.resolver.ProcessResolver;
 import com.eric.base.sys.process.response.SysProcessExampleDetailVo;
+import com.eric.base.sys.process.service.engine.ProcessFlowEngine;
+import com.eric.base.sys.process.service.engine.ProcessFlowGraphLoader;
+import com.eric.base.sys.process.service.engine.ProcessFlowSupport;
+import com.eric.base.sys.process.service.engine.ProcessHandlerResolver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,15 +39,19 @@ import org.mockito.MockedStatic;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -96,6 +109,10 @@ class SysProcessExampleServiceTest {
     private SysOrgUserMapper userMapper;
     private ProcessResolver resolver;
     private SysProcessDocumentFieldService documentFieldService;
+    private SysProcessExampleLineDao exampleLineDao;
+    private SysProcessTemplateLineDao templateLineDao;
+    private ProcessHandlerResolver handlerResolver;
+    private ProcessFlowEngine flowEngine;
     private SysProcessExampleService service;
     private MockedStatic<UserUtil> userUtil;
 
@@ -115,9 +132,17 @@ class SysProcessExampleServiceTest {
         userMapper = mock(SysOrgUserMapper.class);
         resolver = mock(ProcessResolver.class);
         documentFieldService = mock(SysProcessDocumentFieldService.class);
+        exampleLineDao = mock(SysProcessExampleLineDao.class);
+        templateLineDao = mock(SysProcessTemplateLineDao.class);
+        handlerResolver = mock(ProcessHandlerResolver.class);
+        ProcessFlowSupport flowSupport = new ProcessFlowSupport(exampleDao, nodeDao, workitemDao,
+                auditNoteDao, new ObjectMapper());
+        flowEngine = new ProcessFlowEngine(exampleDao, nodeDao, workitemDao, auditNoteDao,
+                settingService, new ProcessFlowGraphLoader(exampleLineDao, templateLineDao), flowSupport,
+                handlerResolver, documentFieldService, null, null);
         service = new SysProcessExampleService(exampleDao, nodeDao, workitemDao, auditNoteDao,
                 templateDao, templateNodeDao, settingService, userMapper, resolver, documentFieldService,
-                new ObjectMapper());
+                new ObjectMapper(), flowEngine, flowSupport);
 
         // 默认公共配置：自动跳过/包含起草人/连续跳过均开启
         when(settingService.getBooleanValue(eq(SysProcessConstants.SETTING_TYPE_PROCESS),
@@ -126,6 +151,22 @@ class SysProcessExampleServiceTest {
                 eq(SysProcessConstants.SETTING_PROCESS_AUTO_HANDLE_PASS_DRAFTER))).thenReturn(true);
         when(settingService.getBooleanValue(eq(SysProcessConstants.SETTING_TYPE_PROCESS),
                 eq(SysProcessConstants.SETTING_PROCESS_AUTO_CONTINUE_PASS))).thenReturn(true);
+
+        // 审批人解析服务桩：按节点配置的地址本/表单字段取值返回处理人（去重保序）
+        when(handlerResolver.resolveHandlerIds(any(), any(), anyMap())).thenAnswer(invocation -> {
+            SysProcessTemplateNodeConfigDo config = invocation.getArgument(0);
+            if (null == config) {
+                return List.of();
+            }
+            if (SysProcessConstants.HANDLER_SOURCE_FIELD.equals(config.getHandlerSource())) {
+                // 引擎按「表单字段」源解析审批人（本桩中转文档字段读取，断言口径保持原语义）
+                String value = documentFieldService.resolveFieldValue("sys_org", example.getFieldModelId(),
+                        config.getHandlerField());
+                return splitIds(value);
+            }
+            return splitIds(config.getHandlerIds());
+        });
+        when(handlerResolver.resolveCcIds(any(), any(), anyMap())).thenReturn(List.of());
 
         // 默认：未知用户返回 null（必须先注册，具体用户匹配在后生效）
         when(userMapper.selectById(anyString())).thenReturn(null);
@@ -147,6 +188,8 @@ class SysProcessExampleServiceTest {
                 exampleNode(NODE4_ID, 4, "审批节点4", "APPROVE", SysProcessConstants.NODE_STATUS_WAITING, CONFIG_SINGLE),
                 exampleNode(NODE5_ID, 5, "结束节点", "END", SysProcessConstants.NODE_STATUS_WAITING, null)));
         when(nodeDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(exampleNodes);
+        // 图连线（实例连线快照优先：START→DRAFT→审批3→审批4→END）
+        when(exampleLineDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(flowLines());
         when(nodeDao.selectByExampleAndStatus(anyString(), eq(SysProcessConstants.NODE_STATUS_REJECT)))
                 .thenReturn(List.of());
         when(nodeDao.selectByExampleAndType(EXAMPLE_ID, SysProcessConstants.NODE_TYPE_DRAFT))
@@ -261,7 +304,8 @@ class SysProcessExampleServiceTest {
 
         service.submit(EXAMPLE_ID, "请审批");
 
-        verify(documentFieldService).resolveFieldValue("sys_org", "model-1", "fieldManagerId");
+        verify(documentFieldService, atLeastOnce())
+                .resolveFieldValue("sys_org", "model-1", "fieldManagerId");
         verify(workitemDao, times(2)).insert(argThat(w -> NODE3_ID.equals(w.getFieldNodeId())
                 && SysProcessConstants.WORKITEM_STATUS_PROCESSING.equals(w.getFieldStatus())));
     }
@@ -279,6 +323,20 @@ class SysProcessExampleServiceTest {
 
         verify(nodeDao).update(argThat(n -> NODE3_ID.equals(n.getFieldId())
                 && SysProcessConstants.NODE_STATUS_PASS.equals(n.getFieldStatus())));
+    }
+
+    @Test
+    void submitResolvesHandlersFromDocumentFieldSourceReadsFieldPerParsePass() {
+        // 表单字段源：引擎解析审批人时读取文档字段（审批人解析一次、公式变量表一次）
+        example.setFieldModelId("model-1");
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_WAITING, CONFIG_FIELD));
+        when(documentFieldService.resolveFieldValue("sys_org", "model-1", "fieldManagerId"))
+                .thenReturn(U1);
+
+        service.submit(EXAMPLE_ID, "请审批");
+
+        verify(documentFieldService, times(2)).resolveFieldValue("sys_org", "model-1", "fieldManagerId");
     }
 
     @Test
@@ -716,7 +774,43 @@ class SysProcessExampleServiceTest {
         node.setFieldNodeType(type);
         node.setFieldStatus(status);
         node.setFieldNodeConfig(config);
+        node.setFieldNodeKey("N" + no);
         return node;
+    }
+
+    /** 实例连线快照：START(N1)→DRAFT(N2)→审批3(N3)→审批4(N4)→END(N5) */
+    private static List<SysProcessExampleLine> flowLines() {
+        List<SysProcessExampleLine> lines = new ArrayList<>();
+        lines.add(exampleLine("L1", "N1", "N2"));
+        lines.add(exampleLine("L2", "N2", "N3"));
+        lines.add(exampleLine("L3", "N3", "N4"));
+        lines.add(exampleLine("L4", "N4", "N5"));
+        return lines;
+    }
+
+    private static SysProcessExampleLine exampleLine(String id, String fromKey, String toKey) {
+        SysProcessExampleLine line = new SysProcessExampleLine();
+        line.setFieldId(id);
+        line.setFieldExampleId(EXAMPLE_ID);
+        line.setFieldFromKey(fromKey);
+        line.setFieldToKey(toKey);
+        line.setFieldLineType(SysProcessConstants.LINE_TYPE_NORMAL);
+        line.setFieldBranchOrder(1);
+        line.setFieldIsDefault(false);
+        return line;
+    }
+
+    private static List<String> splitIds(String value) {
+        if (null == value || value.isBlank()) {
+            return List.of();
+        }
+        List<String> ids = new ArrayList<>();
+        for (String id : value.split(";")) {
+            if (!id.isBlank() && !ids.contains(id.trim())) {
+                ids.add(id.trim());
+            }
+        }
+        return ids;
     }
 
     private static SysProcessExampleWorkitem workitem(String id, String nodeId, String handlerId, String status) {
