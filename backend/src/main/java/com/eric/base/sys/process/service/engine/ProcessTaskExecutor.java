@@ -1,5 +1,6 @@
 package com.eric.base.sys.process.service.engine;
 
+import com.eric.base.sys.process.model.SysProcessExampleWorkitem;
 import com.eric.base.sys.process.model.SysProcessTemplateNodeConfigDo;
 
 /**
@@ -32,9 +33,11 @@ public interface ProcessTaskExecutor {
      * @param exampleId  流程实例 id
      * @param nodeId     流程实例节点 id
      * @param nodeName   节点名称（异常文案用）
+     * @param workitem   当前工作项（可空：流程级/节点级步骤无工作项；工作项步骤携带，供上下文组装）
      * @param taskDetail 节点配置的任务明细（任务名称/执行任务/执行步骤/任务参数）
      */
     record ProcessTaskRequest(String exampleId, String nodeId, String nodeName,
+                              SysProcessExampleWorkitem workitem,
                               SysProcessTemplateNodeConfigDo.TaskDetail taskDetail) {
     }
 }

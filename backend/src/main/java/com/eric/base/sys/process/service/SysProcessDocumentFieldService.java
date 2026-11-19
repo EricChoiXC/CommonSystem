@@ -75,6 +75,37 @@ public class SysProcessDocumentFieldService {
         return null == value ? null : String.valueOf(value);
     }
 
+    /**
+     * 读取流程所属业务文档实体（整条，供流程任务上下文 ProcessTaskContext.model 使用）。
+     * <p>复用与 {@link #resolveFieldValue} 同一份「实体类 -> Mapper」索引，不重复建索引：
+     * 按模板分类的文档实体类定位 Mapper 后按 id 查询。</p>
+     *
+     * @param modelName 模板分类（process_template 二级配置项，即业务文档 field_model_name）
+     * @param modelId   业务文档 id
+     * @return 业务文档实体；分类未配置实体类、类加载失败、Mapper 缺失或未落库时返回 null
+     */
+    public Object resolveModel(String modelName, String modelId) {
+        if (StringUtil.isEmpty(modelName) || StringUtil.isEmpty(modelId)) {
+            return null;
+        }
+        String className = SysProcessTemplateProperties.getClassName(modelName.trim());
+        if (StringUtil.isEmpty(className)) {
+            log.warn("process_template 未配置文档实体类，无法读取业务单据: model={}", modelName);
+            return null;
+        }
+        Class<?> entityClass = loadClassQuietly(className);
+        if (null == entityClass) {
+            log.warn("文档实体类加载失败，无法读取业务单据: {}", className);
+            return null;
+        }
+        IBaseMapper<?> mapper = findMapper(entityClass);
+        if (null == mapper) {
+            log.warn("未找到文档实体类对应的 Mapper，无法读取业务单据: {}", className);
+            return null;
+        }
+        return mapper.selectById(modelId.trim());
+    }
+
     /** 从「实体类 -> Mapper」索引中取实体对应 Mapper（懒加载构建索引）。 */
     private IBaseMapper<?> findMapper(Class<?> entityClass) {
         Map<Class<?>, IBaseMapper<?>> mappers = this.mapperByEntity;

@@ -15,6 +15,7 @@ import com.eric.base.sys.process.model.SysProcessExampleWorkitemConfigDo;
 import com.eric.base.sys.process.model.SysProcessTemplateNodeConfigDo;
 import com.eric.base.sys.process.properties.SysProcessConstants;
 import com.eric.base.sys.process.service.SysProcessDocumentFieldService;
+import com.eric.base.sys.process.task.enums.ProcessTaskType;
 import com.eric.base.sys.formula.service.engine.FormulaContext;
 import com.eric.base.sys.formula.service.engine.FormulaEngine;
 import org.slf4j.Logger;
@@ -133,6 +134,9 @@ public class ProcessFlowEngine {
         FlowContext context = buildContext(example);
         context.queue.addLast(new FlowTask(entryKey.trim(), null));
         resumePendingBranches(context);
+        // 流程发起步骤任务（StartProcess，含强制任务）：每次进入流转（提交/重新提交）触发一次
+        runNodeTasks(context, null, ProcessTaskType.StartProcess, null);
+        runForceTasks(context, ProcessTaskType.StartProcess, null);
         return run(context, "进入流转");
     }
 
@@ -376,6 +380,10 @@ public class ProcessFlowEngine {
             throw ProcessFlowException.graph("连线指向不存在的节点: " + nodeKey);
         }
         String nodeType = node.getFieldNodeType();
+        // 节点进入步骤任务（StartNode）：首次进入（WAITING）触发一次，恢复/重复入队不重复触发
+        if (SysProcessConstants.NODE_STATUS_WAITING.equals(node.getFieldStatus())) {
+            runNodeTasks(context, node, ProcessTaskType.StartNode, null);
+        }
         if (SysProcessConstants.NODE_TYPE_START.equals(nodeType)) {
             return enterStart(context, node);
         }
@@ -563,9 +571,11 @@ public class ProcessFlowEngine {
 
     /* ==================== 节点进入（10 类） ==================== */
 
-    /** START：直接沿唯一出边流转 */
+    /** START：直接沿唯一出边流转；进入即触发创建实例步骤任务（CreateProcess，P17-BE-005） */
     private boolean enterStart(FlowContext context, SysProcessExampleNode node) {
         String nodeKey = ProcessFlowGraph.nodeKey(node);
+        // 创建实例步骤任务：实例首次进入流转图时触发（START 节点每个实例只经过一次）
+        runNodeTasks(context, node, ProcessTaskType.CreateProcess, null);
         if (!SysProcessConstants.NODE_STATUS_FINISH.equals(node.getFieldStatus())) {
             support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_FINISH);
         }
@@ -583,8 +593,12 @@ public class ProcessFlowEngine {
         return false;
     }
 
-    /** END：进入即流程办结 */
+    /**
+     * END：进入即流程办结；先触发流程结束步骤任务（EndProcess，含强制任务，P17-BE-005）。
+     */
     private boolean enterEnd(FlowContext context, SysProcessExampleNode node) {
+        runNodeTasks(context, node, ProcessTaskType.EndProcess, null);
+        runForceTasks(context, ProcessTaskType.EndProcess, null);
         support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_PROCESSING);
         support.markFinished(context.example);
         context.finished = true;
@@ -606,7 +620,7 @@ public class ProcessFlowEngine {
                     "抄送对象: " + String.join(";", ccIds));
         }
         // TODO(P17-BE-012/P17-BE-014)：按 ccIds 发送 READ 待阅（通知发送不在本任务范围内）
-        support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_FINISH);
+        finishNode(context, node, null);
         enqueueKey(context, context.graph.singleOutgoing(ProcessFlowGraph.nodeKey(node),
                 node.getFieldNodeName()).toKey(), null);
         return true;
@@ -621,29 +635,131 @@ public class ProcessFlowEngine {
         SysProcessTemplateNodeConfigDo config = support.parseNodeConfig(node.getFieldNodeConfig());
         List<SysProcessTemplateNodeConfigDo.TaskDetail> tasks = null == config || null == config.getTasks()
                 ? List.of() : config.getTasks();
-        ProcessTaskExecutor executor = null == taskExecutorProvider
-                ? null : taskExecutorProvider.getIfAvailable();
-        if (!tasks.isEmpty() && null == executor) {
-            log.warn("机器人节点配置了流程任务但无 ProcessTaskExecutor 实现（P17-BE-005 待交付），按无任务处理: node={}",
-                    node.getFieldNodeName());
-        }
-        if (null != executor) {
-            for (SysProcessTemplateNodeConfigDo.TaskDetail task : tasks) {
-                try {
-                    executor.execute(new ProcessTaskExecutor.ProcessTaskRequest(context.example.getFieldId(),
-                            node.getFieldId(), node.getFieldNodeName(), task));
-                } catch (ProcessFlowException e) {
-                    throw e;
-                } catch (RuntimeException e) {
-                    throw ProcessFlowException.task("机器人节点「" + displayName(node.getFieldNodeName())
-                            + "」流程任务执行失败: " + e.getMessage(), e);
-                }
+        // 已声明为合法执行步骤（ProcessTaskType）的明细，由节点进入/结束等步骤触发点统一执行
+        // （见 enterNode 的 StartNode 触发与 finishNode 的 EndNode 触发），此处只兜底执行
+        // 步骤无法识别的遗留明细，避免同一任务被步骤触发与机器人节点各执行一次。
+        List<SysProcessTemplateNodeConfigDo.TaskDetail> unbound = new ArrayList<>();
+        for (SysProcessTemplateNodeConfigDo.TaskDetail task : tasks) {
+            if (null == ProcessTaskType.parse(task.getTaskType())) {
+                unbound.add(task);
             }
         }
-        support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_FINISH);
+        runNodeTasks(context, node, null, null, unbound);
+        finishNode(context, node, null);
         enqueueKey(context, context.graph.singleOutgoing(ProcessFlowGraph.nodeKey(node),
                 node.getFieldNodeName()).toKey(), null);
         return true;
+    }
+
+    /* ==================== 流程任务触发（P17-BE-005） ==================== */
+
+    /**
+     * 统一流程任务触发入口：按执行步骤触发该节点的流程任务（P17-BE-005，
+     * 依据 docs/v1_7-流程管理/功能实现方案-改造分析与方案设计.md §7.2「引擎在流转图各步骤触发」）。
+     * <p>无 {@link ProcessTaskExecutor} 实现 bean 时按「无任务」处理（保持既有流转等价性）。</p>
+     *
+     * @param context       流转上下文
+     * @param node          当前节点（可空：StartProcess/EndProcess 等流程级步骤）
+     * @param type          执行步骤（可空：仅执行显式传入的任务明细，如 ROBORT 节点遗留明细）
+     * @param workitem      当前工作项（可空：流程级/节点级步骤无工作项，工作项步骤携带）
+     * @param explicitTasks 显式任务明细（可空：按步骤触发时无需传入）
+     */
+    private void runNodeTasks(FlowContext context, SysProcessExampleNode node, ProcessTaskType type,
+                              SysProcessExampleWorkitem workitem) {
+        runNodeTasks(context, node, type, workitem, null);
+    }
+
+    /** 统一流程任务触发入口（含显式任务明细：ROBORT 节点配置 tasks 按序执行） */
+    private void runNodeTasks(FlowContext context, SysProcessExampleNode node, ProcessTaskType type,
+                              SysProcessExampleWorkitem workitem,
+                              List<SysProcessTemplateNodeConfigDo.TaskDetail> explicitTasks) {
+        ProcessTaskExecutor executor = null == taskExecutorProvider
+                ? null : taskExecutorProvider.getIfAvailable();
+        if (null == executor) {
+            if (null != explicitTasks && !explicitTasks.isEmpty()) {
+                log.warn("节点配置了流程任务但无 ProcessTaskExecutor 实现，按无任务处理: node={}",
+                        null == node ? null : node.getFieldNodeName());
+            }
+            return;
+        }
+        if (null != explicitTasks) {
+            for (SysProcessTemplateNodeConfigDo.TaskDetail task : explicitTasks) {
+                invokeTask(executor, context, node, workitem, task);
+            }
+            return;
+        }
+        if (null == type) {
+            return;
+        }
+        List<SysProcessTemplateNodeConfigDo.TaskDetail> stepTaskDetails = stepTasks(context, node, type);
+        for (SysProcessTemplateNodeConfigDo.TaskDetail task : stepTaskDetails) {
+            invokeTask(executor, context, node, workitem, task);
+        }
+    }
+
+    /** 单个任务明细执行（失败转流程异常：实例 PAUSE + SYSTEM_ERROR，任务日志由执行器记 failed） */
+    private void invokeTask(ProcessTaskExecutor executor, FlowContext context, SysProcessExampleNode node,
+                            SysProcessExampleWorkitem workitem,
+                            SysProcessTemplateNodeConfigDo.TaskDetail task) {
+        try {
+            executor.execute(new ProcessTaskExecutor.ProcessTaskRequest(context.example.getFieldId(),
+                    null == node ? null : node.getFieldId(),
+                    null == node ? null : node.getFieldNodeName(), workitem, task));
+        } catch (ProcessFlowException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw ProcessFlowException.task("节点「" + displayName(null == node ? null : node.getFieldNodeName())
+                    + "」流程任务执行失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 取指定步骤应触发的节点配置任务明细（节点为空或未配置 tasks 返回空表）。
+     */
+    private List<SysProcessTemplateNodeConfigDo.TaskDetail> stepTasks(FlowContext context,
+                                                                     SysProcessExampleNode node,
+                                                                     ProcessTaskType type) {
+        if (null == node) {
+            // 流程级步骤（StartProcess/EndProcess）无节点配置：仅强制任务生效
+            return List.of();
+        }
+        SysProcessTemplateNodeConfigDo config = support.parseNodeConfig(node.getFieldNodeConfig());
+        List<SysProcessTemplateNodeConfigDo.TaskDetail> tasks = null == config || null == config.getTasks()
+                ? List.of() : config.getTasks();
+        List<SysProcessTemplateNodeConfigDo.TaskDetail> matched = new ArrayList<>();
+        for (SysProcessTemplateNodeConfigDo.TaskDetail task : tasks) {
+            if (type == ProcessTaskType.parse(task.getTaskType())) {
+                matched.add(task);
+            }
+        }
+        return matched;
+    }
+
+    /**
+     * 触发指定步骤的强制任务（{@code isForce=true}，仅 StartProcess/EndProcess）：
+     * 对所有流程实例生效，不受节点配置约束。
+     */
+    private void runForceTasks(FlowContext context, ProcessTaskType type,
+                               SysProcessExampleWorkitem workitem) {
+        ProcessTaskExecutor executor = null == taskExecutorProvider
+                ? null : taskExecutorProvider.getIfAvailable();
+        if (null == executor || !(executor instanceof ProcessTaskForceExecutor forceExecutor)) {
+            return;
+        }
+        forceExecutor.executeForceTasks(context.example.getFieldId(), null, workitem, type);
+    }
+
+    /**
+     * 节点结束（P17-BE-005 EndNode 步骤 + 工作项结束 EndWorkitem 步骤）：
+     * 节点置 FINISH 并触发该节点的 EndNode 任务；显式传入的工作项（如自动跳过/串行推进生成者）
+     * 触发 EndWorkitem 任务。
+     */
+    private void finishNode(FlowContext context, SysProcessExampleNode node, SysProcessExampleWorkitem workitem) {
+        if (null != workitem) {
+            runNodeTasks(context, node, ProcessTaskType.EndWorkitem, workitem);
+        }
+        runNodeTasks(context, node, ProcessTaskType.EndNode, null);
+        support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_FINISH);
     }
 
     /**
@@ -663,7 +779,7 @@ public class ProcessFlowEngine {
                 continue;
             }
             if (evaluateLineCondition(context, node, line)) {
-                support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_FINISH);
+                finishNode(context, node, null);
                 enqueueKey(context, line.toKey(), null);
                 return true;
             }
@@ -673,7 +789,7 @@ public class ProcessFlowEngine {
             throw ProcessFlowException.condition("条件分支节点「" + displayName(node.getFieldNodeName())
                     + "」无 true 分支且未配置默认分支", null);
         }
-        support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_FINISH);
+        finishNode(context, node, null);
         enqueueKey(context, defaultLine.toKey(), null);
         return true;
     }
@@ -714,7 +830,7 @@ public class ProcessFlowEngine {
         runtime.setActiveBranchKeys(new ArrayList<>(activated));
         runtime.setJoinMode(joinMode);
         support.saveNodeRuntime(node, runtime);
-        support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_FINISH);
+        finishNode(context, node, null);
         for (String branchKey : activated) {
             activateBranch(context, branchKey, joinKey);
         }
@@ -761,7 +877,7 @@ public class ProcessFlowEngine {
             return false;
         }
         support.saveNodeRuntime(node, runtime);
-        support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_FINISH);
+        finishNode(context, node, null);
         enqueueKey(context, context.graph.singleOutgoing(joinKey, node.getFieldNodeName()).toKey(), null);
         return true;
     }
@@ -774,7 +890,8 @@ public class ProcessFlowEngine {
     private boolean enterManual(FlowContext context, SysProcessExampleNode node) {
         String nodeKey = ProcessFlowGraph.nodeKey(node);
         SysProcessTemplateNodeConfigDo config = support.parseNodeConfig(node.getFieldNodeConfig());
-        String choice = latestFlowChoice(context, nodeKey);
+        SysProcessExampleWorkitem lastWorkitem = latestFlowChoiceWorkitem(context, nodeKey);
+        String choice = null == lastWorkitem ? null : flowChoiceOf(lastWorkitem);
         if (StringUtil.isEmpty(choice) && null != config) {
             choice = config.getDefaultFlowKey();
         }
@@ -793,16 +910,16 @@ public class ProcessFlowEngine {
             throw ProcessFlowException.graph("人工决策节点「" + displayName(node.getFieldNodeName())
                     + "」的流向目标 " + choice + " 不是本节点出边目标");
         }
-        support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_FINISH);
+        finishNode(context, node, lastWorkitem);
         enqueueKey(context, target.toKey(), null);
         return true;
     }
 
     /**
-     * 取最近一次人工指定流向：审批记录时间倒序，首个「通过（HANDLER_PASS）+ 关联工作项带 flowChoice」
-     * 的记录的 flowChoice；无则返回 null（走默认流向）。
+     * 取最近一次人工指定流向的工作项：审批记录时间倒序，首个「通过（HANDLER_PASS）+ 关联工作项带
+     * flowChoice」的工作项；无则返回 null（走默认流向）。
      */
-    private String latestFlowChoice(FlowContext context, String nodeKey) {
+    private SysProcessExampleWorkitem latestFlowChoiceWorkitem(FlowContext context, String nodeKey) {
         List<SysProcessAuditNote> notes = new ArrayList<>(context.auditNotes);
         notes.sort((a, b) -> {
             java.util.Date left = a.getFieldCreateTime();
@@ -818,15 +935,21 @@ public class ProcessFlowEngine {
                 continue;
             }
             SysProcessExampleWorkitem workitem = context.workitemById(note.getFieldWorkitemId());
-            if (null == workitem) {
+            if (null == workitem || StringUtil.isEmpty(flowChoiceOf(workitem))) {
                 continue;
             }
-            SysProcessExampleWorkitemConfigDo config = support.parseWorkitemConfig(workitem.getFieldConfig());
-            if (null != config && StringUtil.isNotEmpty(config.getFlowChoice())) {
-                return config.getFlowChoice().trim();
-            }
+            return workitem;
         }
         return null;
+    }
+
+    /** 工作项配置中的人工决策流向（未配置返回 null） */
+    private String flowChoiceOf(SysProcessExampleWorkitem workitem) {
+        SysProcessExampleWorkitemConfigDo config = support.parseWorkitemConfig(workitem.getFieldConfig());
+        if (null == config || StringUtil.isEmpty(config.getFlowChoice())) {
+            return null;
+        }
+        return config.getFlowChoice().trim();
     }
 
     /**
@@ -981,8 +1104,12 @@ public class ProcessFlowEngine {
             config = new SysProcessExampleWorkitemConfigDo();
             config.setFlowBranchKey(branchKey);
         }
-        return support.insertWorkitem(context.example, node, handlerId, status,
+        SysProcessExampleWorkitem workitem = support.insertWorkitem(context.example, node, handlerId, status,
                 null == config ? null : support.writeJson(config));
+        // 工作项步骤任务：PROCESSING=工作项开始（StartWorkitem）；已 FINISH=自动跳过，工作项直接结束（EndWorkitem）
+        runNodeTasks(context, node, SysProcessConstants.WORKITEM_STATUS_FINISH.equals(status)
+                ? ProcessTaskType.EndWorkitem : ProcessTaskType.StartWorkitem, workitem);
+        return workitem;
     }
 
     /**
@@ -1017,7 +1144,7 @@ public class ProcessFlowEngine {
                 && !allWorkitemsFinished(workitems)) {
             return false;
         }
-        support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_FINISH);
+        finishNode(context, node, null);
         return true;
     }
 
@@ -1053,7 +1180,8 @@ public class ProcessFlowEngine {
             insertApproveWorkitem(context, node, handlerId, SysProcessConstants.WORKITEM_STATUS_PROCESSING);
             return false;
         }
-        support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_FINISH);
+        // 串行队列已走完：节点结束（EndNode），触发节点结束步骤任务
+        finishNode(context, node, null);
         return true;
     }
 

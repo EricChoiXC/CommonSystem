@@ -15,6 +15,7 @@ import com.eric.base.sys.org.service.SysOrgAuthService;
 import com.eric.base.sys.org.service.SysOrgElementService;
 import com.eric.base.sys.org.service.SysOrgRoleService;
 import com.eric.base.sys.org.service.SysOrgUserService;
+import com.eric.base.sys.process.task.ProcessTaskRegistry;
 import com.eric.base.sys.task.service.SysTaskSchedulerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,6 +56,7 @@ public class SysStartupTask implements ApplicationRunner {
     private final SysNumberModelCacheService sysNumberModelCacheService;
     private final CommonSourceSyncService commonSourceSyncService;
     private final CommonSourceMigrationService commonSourceMigrationService;
+    private final ProcessTaskRegistry processTaskRegistry;
 
     public SysStartupTask(SysOrgUserService sysOrgUserService,
                           SysOrgElementService sysOrgElementService,
@@ -68,7 +70,8 @@ public class SysStartupTask implements ApplicationRunner {
                           CommonModuleService commonModuleService,
                           SysNumberModelCacheService sysNumberModelCacheService,
                           CommonSourceSyncService commonSourceSyncService,
-                          CommonSourceMigrationService commonSourceMigrationService) {
+                          CommonSourceMigrationService commonSourceMigrationService,
+                          ProcessTaskRegistry processTaskRegistry) {
         this.sysOrgUserService = sysOrgUserService;
         this.sysOrgElementService = sysOrgElementService;
         this.sysOrgAuthService = sysOrgAuthService;
@@ -82,6 +85,7 @@ public class SysStartupTask implements ApplicationRunner {
         this.sysNumberModelCacheService = sysNumberModelCacheService;
         this.commonSourceSyncService = commonSourceSyncService;
         this.commonSourceMigrationService = commonSourceMigrationService;
+        this.processTaskRegistry = processTaskRegistry;
     }
 
     @Override
@@ -115,6 +119,20 @@ public class SysStartupTask implements ApplicationRunner {
         // 第十三个启动任务：扫描 properties/ 下各模块 numberRule.yml 构建编号接入项缓存，
         // 并校验 sys_number_rule.field_model_id 对失效接入项输出告警（不阻断启动）
         syncNumberModelsFromYml();
+        // 第十四个启动任务：扫描 @ProcessTask 流程任务类登记到 ProcessTaskRegistry
+        //（注解与接口缺一、任务名重复均启动报错 fail-fast）
+        registerProcessTasks();
+    }
+
+    /**
+     * 第十四个启动任务：@ProcessTask 流程任务扫描注册（fail-fast）。
+     * <p>调 {@link ProcessTaskRegistry#scanAndRegister()}：扫描容器内 Bean，登记「类上标注
+     * {@code @ProcessTask} 且实现 {@code ProcessTaskHandler}」的 {@code name → bean}；
+     * 注解与接口缺一即启动报错，任务名重复报错（错误信息含任务名与类名），
+     * 保证流程流转期按任务名调起时不会静默落空。</p>
+     */
+    private void registerProcessTasks() {
+        processTaskRegistry.scanAndRegister();
     }
 
     /**

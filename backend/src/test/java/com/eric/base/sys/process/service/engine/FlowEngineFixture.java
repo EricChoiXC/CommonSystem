@@ -43,38 +43,38 @@ import static org.mockito.Mockito.when;
  *              {@link ProcessFlowEngine}，断言引擎在图遍历后的节点状态、工作项、审批留痕与
  *              实例状态；不依赖真实数据库与 Spring 容器。
  */
-final class FlowEngineFixture {
+public class FlowEngineFixture {
 
     static final String EXAMPLE_ID = "10000000000000000000000000000001";
     static final String TEMPLATE_ID = "10000000000000000000000000000002";
     static final String CREATOR = "10000000000000000000000000000003";
-    static final String U1 = "10000000000000000000000000000011";
+    public static final String U1 = "10000000000000000000000000000011";
     static final String U2 = "10000000000000000000000000000012";
     static final String U3 = "10000000000000000000000000000013";
 
-    final ObjectMapper objectMapper = new ObjectMapper();
-    final SysProcessExampleDao exampleDao = mock(SysProcessExampleDao.class);
-    final SysProcessExampleNodeDao nodeDao = mock(SysProcessExampleNodeDao.class);
-    final SysProcessExampleWorkitemDao workitemDao = mock(SysProcessExampleWorkitemDao.class);
-    final SysProcessAuditNoteDao auditNoteDao = mock(SysProcessAuditNoteDao.class);
-    final SysProcessExampleLineDao exampleLineDao = mock(SysProcessExampleLineDao.class);
-    final SysProcessTemplateLineDao templateLineDao = mock(SysProcessTemplateLineDao.class);
-    final CommonSettingService settingService = mock(CommonSettingService.class);
-    final ProcessHandlerResolver handlerResolver = mock(ProcessHandlerResolver.class);
-    final SysProcessDocumentFieldService documentFieldService = mock(SysProcessDocumentFieldService.class);
-    final FormulaEngine formulaEngine = mock(FormulaEngine.class);
+    public final ObjectMapper objectMapper = new ObjectMapper();
+    public final SysProcessExampleDao exampleDao = mock(SysProcessExampleDao.class);
+    public final SysProcessExampleNodeDao nodeDao = mock(SysProcessExampleNodeDao.class);
+    public final SysProcessExampleWorkitemDao workitemDao = mock(SysProcessExampleWorkitemDao.class);
+    public final SysProcessAuditNoteDao auditNoteDao = mock(SysProcessAuditNoteDao.class);
+    public final SysProcessExampleLineDao exampleLineDao = mock(SysProcessExampleLineDao.class);
+    public final SysProcessTemplateLineDao templateLineDao = mock(SysProcessTemplateLineDao.class);
+    public final CommonSettingService settingService = mock(CommonSettingService.class);
+    public final ProcessHandlerResolver handlerResolver = mock(ProcessHandlerResolver.class);
+    public final SysProcessDocumentFieldService documentFieldService = mock(SysProcessDocumentFieldService.class);
+    public final FormulaEngine formulaEngine = mock(FormulaEngine.class);
 
-    final SysProcessExample example = new SysProcessExample();
-    final List<SysProcessExampleNode> nodes = new ArrayList<>();
-    final List<SysProcessExampleLine> lines = new ArrayList<>();
-    final List<SysProcessTemplateLine> templateLines = new ArrayList<>();
-    final List<SysProcessExampleWorkitem> workitems = new ArrayList<>();
-    final List<SysProcessAuditNote> auditNotes = new ArrayList<>();
+    public final SysProcessExample example = new SysProcessExample();
+    public final List<SysProcessExampleNode> nodes = new ArrayList<>();
+    public final List<SysProcessExampleLine> lines = new ArrayList<>();
+    public final List<SysProcessTemplateLine> templateLines = new ArrayList<>();
+    public final List<SysProcessExampleWorkitem> workitems = new ArrayList<>();
+    public final List<SysProcessAuditNote> auditNotes = new ArrayList<>();
 
     private ObjectProvider<ProcessTaskExecutor> taskExecutorProvider;
     private ProcessFlowEngine engine;
 
-    FlowEngineFixture() {
+    public FlowEngineFixture() {
         example.setFieldId(EXAMPLE_ID);
         example.setFieldTemplateId(TEMPLATE_ID);
         example.setFieldModelName("sys_org");
@@ -154,7 +154,7 @@ final class FlowEngineFixture {
     }
 
     /** 装配引擎（taskExecutor=null 表示 P17-BE-005 未提供实现） */
-    ProcessFlowEngine engine(ProcessTaskExecutor executor) {
+    public ProcessFlowEngine engine(ProcessTaskExecutor executor) {
         ProcessFlowSupport support = new ProcessFlowSupport(exampleDao, nodeDao, workitemDao,
                 auditNoteDao, objectMapper);
         ProcessFlowGraphLoader loader = new ProcessFlowGraphLoader(exampleLineDao, templateLineDao);
@@ -179,11 +179,11 @@ final class FlowEngineFixture {
     /* ==================== 图构建 ==================== */
 
     /** 新增实例节点（键固定为 N{no}） */
-    SysProcessExampleNode node(int no, String name, String type) {
+    public SysProcessExampleNode node(int no, String name, String type) {
         return node(no, name, type, null);
     }
 
-    SysProcessExampleNode node(int no, String name, String type, String configJson) {
+    public SysProcessExampleNode node(int no, String name, String type, String configJson) {
         SysProcessExampleNode node = new SysProcessExampleNode();
         node.setFieldId("node-" + no);
         node.setFieldExampleId(EXAMPLE_ID);
@@ -194,16 +194,18 @@ final class FlowEngineFixture {
         node.setFieldNodeConfig(configJson);
         node.setFieldStatus(SysProcessConstants.NODE_STATUS_WAITING);
         nodes.add(node);
+        // 与 exampleDao 同口径：按 id 可取回已构建节点（引擎按 id 读取节点写入任务留痕）
+        when(nodeDao.selectById(node.getFieldId())).thenReturn(node);
         return node;
     }
 
     /** 新增实例连线（总线型：NORMAL） */
-    SysProcessExampleLine line(String fromKey, String toKey) {
+    public SysProcessExampleLine line(String fromKey, String toKey) {
         return line(fromKey, toKey, SysProcessConstants.LINE_TYPE_NORMAL, null, null, 1);
     }
 
     /** 新增实例连线（完整参数） */
-    SysProcessExampleLine line(String fromKey, String toKey, String lineType, String condition,
+    public SysProcessExampleLine line(String fromKey, String toKey, String lineType, String condition,
                                Boolean isDefault, int branchOrder) {
         SysProcessExampleLine line = new SysProcessExampleLine();
         line.setFieldId("line-" + fromKey + "-" + toKey);
@@ -230,7 +232,7 @@ final class FlowEngineFixture {
         return line;
     }
 
-    SysProcessExampleNode nodeByKey(String nodeKey) {
+    public SysProcessExampleNode nodeByKey(String nodeKey) {
         for (SysProcessExampleNode node : nodes) {
             if (nodeKey.equals(node.getFieldNodeKey())) {
                 return node;
@@ -242,7 +244,7 @@ final class FlowEngineFixture {
     /* ==================== 节点配置 JSON ==================== */
 
     /** 审批节点配置：地址本审批人 + 审批模式 */
-    static String approveConfig(String approveMode, String handlerIds) {
+    public static String approveConfig(String approveMode, String handlerIds) {
         return "{\"handlerIds\":\"" + handlerIds + "\",\"approveMode\":\"" + approveMode
                 + "\",\"autoSkip\":\"no\",\"autoContinueSkip\":\"system\"}";
     }
@@ -271,7 +273,7 @@ final class FlowEngineFixture {
     }
 
     /** 机器人节点配置：一个流程任务明细 */
-    static String robortConfig(String taskBean) {
+    public static String robortConfig(String taskBean) {
         return "{\"tasks\":[{\"taskName\":\"流程任务\",\"taskBean\":\"" + taskBean
                 + "\",\"taskType\":\"StartNode\"}]}";
     }
@@ -289,7 +291,7 @@ final class FlowEngineFixture {
     /* ==================== 断言辅助 ==================== */
 
     /** 指定节点（按节点键）的全部工作项 */
-    List<SysProcessExampleWorkitem> workitemsOf(String nodeKey) {
+    public List<SysProcessExampleWorkitem> workitemsOf(String nodeKey) {
         String nodeId = nodeByKey(nodeKey).getFieldId();
         List<SysProcessExampleWorkitem> matched = new ArrayList<>();
         for (SysProcessExampleWorkitem workitem : workitems) {
@@ -312,17 +314,17 @@ final class FlowEngineFixture {
     }
 
     /** 指定节点状态 */
-    String statusOf(String nodeKey) {
+    public String statusOf(String nodeKey) {
         return nodeByKey(nodeKey).getFieldStatus();
     }
 
     /** 指定类型审批记录的条数 */
-    long auditCount(String handleType) {
+    public long auditCount(String handleType) {
         return auditNotes.stream().filter(note -> handleType.equals(note.getFieldHandleType())).count();
     }
 
     /** 指定类型审批记录的内容集合 */
-    List<String> auditContents(String handleType) {
+    public List<String> auditContents(String handleType) {
         List<String> contents = new ArrayList<>();
         for (SysProcessAuditNote note : auditNotes) {
             if (handleType.equals(note.getFieldHandleType())) {

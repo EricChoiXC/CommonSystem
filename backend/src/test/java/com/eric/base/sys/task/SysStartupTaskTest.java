@@ -13,6 +13,7 @@ import com.eric.base.sys.org.service.SysOrgAuthService;
 import com.eric.base.sys.org.service.SysOrgElementService;
 import com.eric.base.sys.org.service.SysOrgRoleService;
 import com.eric.base.sys.org.service.SysOrgUserService;
+import com.eric.base.sys.process.task.ProcessTaskRegistry;
 import com.eric.base.sys.task.service.SysTaskSchedulerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,7 @@ class SysStartupTaskTest {
     private SysNumberModelCacheService sysNumberModelCacheService;
     private CommonSourceSyncService commonSourceSyncService;
     private CommonSourceMigrationService commonSourceMigrationService;
+    private ProcessTaskRegistry processTaskRegistry;
     private SysStartupTask task;
 
     @BeforeEach
@@ -67,10 +69,11 @@ class SysStartupTaskTest {
         sysNumberModelCacheService = mock(SysNumberModelCacheService.class);
         commonSourceSyncService = mock(CommonSourceSyncService.class);
         commonSourceMigrationService = mock(CommonSourceMigrationService.class);
+        processTaskRegistry = mock(ProcessTaskRegistry.class);
         task = new SysStartupTask(sysOrgUserService, sysOrgElementService, sysOrgAuthService,
                 sysOrgRoleService, modelCacheService, sysTaskSchedulerService, commonSettingService,
                 sysDictService, sysI18nSyncService, commonModuleService, sysNumberModelCacheService,
-                commonSourceSyncService, commonSourceMigrationService);
+                commonSourceSyncService, commonSourceMigrationService, processTaskRegistry);
     }
 
     @Test
@@ -120,5 +123,7 @@ class SysStartupTaskTest {
         verify(commonSourceSyncService).sync();
         // 第十三个启动任务：数据迁移（表结构同步之后执行，先结构后数据）被调用
         verify(commonSourceMigrationService).migrate();
+        // 第十四个启动任务：@ProcessTask 流程任务扫描注册（fail-fast）被调用
+        verify(processTaskRegistry).scanAndRegister();
     }
 }

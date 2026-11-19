@@ -59,7 +59,7 @@ com.eric.base.sys.{模块}
 
 ## 3. 后端约束
 
-**分层**：`Controller` 继承 `BaseController` / `BaseCrudController`，只接收与校验，不写业务；`Service` 承载业务，模块级直接实现类（仅基础层保留 `IBaseService` / `BaseService`），不得直连 `Mapper`；`Dao` 与 `Mapper` 一对一，仅基础层保留 `IBaseDao` / `BaseDao`；复杂 SQL 写 XML；可复用的小逻辑放 `common/utils`（`IDUtil`、`StringUtil`、`IntegerUtil`、`FieldProjector`、`PasswordUtil`、`RoleUtil`、`UserUtil`、`YmlResourceUtil`）。启动期初始化统一在 `sys/task/SysStartupTask#run` 按序执行（共 13 项）：第一为表结构注解同步引擎（`CommonSourceSyncService`，受 `CS_SOURCE_SYNC_MODE` 门禁）、第二为数据迁移（`CommonSourceMigrationService`，先结构后数据），业务初始化任务自第三起追加，不另建 `ApplicationRunner`。
+**分层**：`Controller` 继承 `BaseController` / `BaseCrudController`，只接收与校验，不写业务；`Service` 承载业务，模块级直接实现类（仅基础层保留 `IBaseService` / `BaseService`），不得直连 `Mapper`；`Dao` 与 `Mapper` 一对一，仅基础层保留 `IBaseDao` / `BaseDao`；复杂 SQL 写 XML；可复用的小逻辑放 `common/utils`（`IDUtil`、`StringUtil`、`IntegerUtil`、`FieldProjector`、`PasswordUtil`、`RoleUtil`、`UserUtil`、`YmlResourceUtil`）。启动期初始化统一在 `sys/task/SysStartupTask#run` 按序执行（共 14 项）：第一为表结构注解同步引擎（`CommonSourceSyncService`，受 `CS_SOURCE_SYNC_MODE` 门禁）、第二为数据迁移（`CommonSourceMigrationService`，先结构后数据），业务初始化任务自第三起追加，第十四个为流程任务扫描注册（`ProcessTaskRegistry#scanAndRegister`：扫描容器内带 `@ProcessTask` 且实现 `ProcessTaskHandler` 的 Bean，登记 `name → bean`，注解/接口缺一、任务名重复均启动报错 fail-fast），不另建 `ApplicationRunner`。
 
 **接口**：路径 `/backend/{根模块}/{模块}/{次级模块}/{方法}`，`{根模块}` 只有 `common` 与 `sys`。
 
