@@ -7,7 +7,6 @@ import com.eric.base.sys.process.dao.SysProcessExampleDao;
 import com.eric.base.sys.process.dao.SysProcessExampleLineDao;
 import com.eric.base.sys.process.dao.SysProcessExampleNodeDao;
 import com.eric.base.sys.process.dao.SysProcessExampleWorkitemDao;
-import com.eric.base.sys.process.dao.SysProcessTemplateLineDao;
 import com.eric.base.sys.process.model.SysProcessAuditNote;
 import com.eric.base.sys.process.model.SysProcessExample;
 import com.eric.base.sys.process.model.SysProcessExampleLine;
@@ -15,7 +14,6 @@ import com.eric.base.sys.process.model.SysProcessExampleNode;
 import com.eric.base.sys.process.model.SysProcessExampleNodeRuntimeDo;
 import com.eric.base.sys.process.model.SysProcessExampleWorkitem;
 import com.eric.base.sys.process.model.SysProcessExampleWorkitemConfigDo;
-import com.eric.base.sys.process.model.SysProcessTemplateLine;
 import com.eric.base.sys.process.model.SysProcessTemplateNodeConfigDo;
 import com.eric.base.sys.process.properties.SysProcessConstants;
 import com.eric.base.sys.process.service.SysProcessDocumentFieldService;
@@ -41,7 +39,8 @@ import static org.mockito.Mockito.when;
  * @date 2026/11/19
  * @description P17-BE-003 引擎单测共用夹具：以 Mockito 桩 DAO + 内存节点/连线图装配
  *              {@link ProcessFlowEngine}，断言引擎在图遍历后的节点状态、工作项、审批留痕与
- *              实例状态；不依赖真实数据库与 Spring 容器。
+ *              实例状态；不依赖真实数据库与 Spring 容器。P17-BE-007 起连线只有实例快照一个来源
+ *              （{@link ProcessFlowGraphLoader} 不再读模板连线），夹具不提供模板连线桩。
  */
 public class FlowEngineFixture {
 
@@ -58,7 +57,6 @@ public class FlowEngineFixture {
     public final SysProcessExampleWorkitemDao workitemDao = mock(SysProcessExampleWorkitemDao.class);
     public final SysProcessAuditNoteDao auditNoteDao = mock(SysProcessAuditNoteDao.class);
     public final SysProcessExampleLineDao exampleLineDao = mock(SysProcessExampleLineDao.class);
-    public final SysProcessTemplateLineDao templateLineDao = mock(SysProcessTemplateLineDao.class);
     public final CommonSettingService settingService = mock(CommonSettingService.class);
     public final ProcessHandlerResolver handlerResolver = mock(ProcessHandlerResolver.class);
     public final SysProcessDocumentFieldService documentFieldService = mock(SysProcessDocumentFieldService.class);
@@ -67,7 +65,6 @@ public class FlowEngineFixture {
     public final SysProcessExample example = new SysProcessExample();
     public final List<SysProcessExampleNode> nodes = new ArrayList<>();
     public final List<SysProcessExampleLine> lines = new ArrayList<>();
-    public final List<SysProcessTemplateLine> templateLines = new ArrayList<>();
     public final List<SysProcessExampleWorkitem> workitems = new ArrayList<>();
     public final List<SysProcessAuditNote> auditNotes = new ArrayList<>();
 
@@ -132,9 +129,7 @@ public class FlowEngineFixture {
         });
         when(auditNoteDao.selectListByExampleId(EXAMPLE_ID)).thenAnswer(invocation -> List.copyOf(auditNotes));
         when(exampleLineDao.selectListByExampleId(EXAMPLE_ID)).thenAnswer(invocation ->
-                lines.isEmpty() ? null : List.copyOf(lines));
-        when(templateLineDao.selectListByTemplateId(TEMPLATE_ID)).thenAnswer(invocation ->
-                List.copyOf(templateLines));
+                List.copyOf(lines));
         when(settingService.getBooleanValue(eq(SysProcessConstants.SETTING_TYPE_PROCESS), anyString()))
                 .thenReturn(true);
         when(handlerResolver.resolveHandlerIds(any(), any(), any())).thenAnswer(invocation ->
@@ -157,7 +152,7 @@ public class FlowEngineFixture {
     public ProcessFlowEngine engine(ProcessTaskExecutor executor) {
         ProcessFlowSupport support = new ProcessFlowSupport(exampleDao, nodeDao, workitemDao,
                 auditNoteDao, objectMapper);
-        ProcessFlowGraphLoader loader = new ProcessFlowGraphLoader(exampleLineDao, templateLineDao);
+        ProcessFlowGraphLoader loader = new ProcessFlowGraphLoader(exampleLineDao);
         this.taskExecutorProvider = null == executor ? null : providerOf(executor);
         engine = new ProcessFlowEngine(exampleDao, nodeDao, workitemDao, auditNoteDao, settingService,
                 loader, support, handlerResolver, documentFieldService, formulaEngine, taskExecutorProvider);
@@ -185,7 +180,7 @@ public class FlowEngineFixture {
 
     public SysProcessExampleNode node(int no, String name, String type, String configJson) {
         SysProcessExampleNode node = new SysProcessExampleNode();
-        node.setFieldId("node-" + no);
+        node.initFieldId();
         node.setFieldExampleId(EXAMPLE_ID);
         node.setFieldNodeNo(no);
         node.setFieldNodeKey("N" + no);
@@ -220,18 +215,6 @@ public class FlowEngineFixture {
         return line;
     }
 
-    /** 新增模板连线（实例无连线快照时的回退来源） */
-    SysProcessTemplateLine templateLine(String fromKey, String toKey) {
-        SysProcessTemplateLine line = new SysProcessTemplateLine();
-        line.setFieldId("tline-" + fromKey + "-" + toKey);
-        line.setFieldTemplateId(TEMPLATE_ID);
-        line.setFieldFromKey(fromKey);
-        line.setFieldToKey(toKey);
-        line.setFieldLineType(SysProcessConstants.LINE_TYPE_NORMAL);
-        line.setFieldBranchOrder(1);
-        return line;
-    }
-
     public SysProcessExampleNode nodeByKey(String nodeKey) {
         for (SysProcessExampleNode node : nodes) {
             if (nodeKey.equals(node.getFieldNodeKey())) {
@@ -239,6 +222,20 @@ public class FlowEngineFixture {
             }
         }
         throw new IllegalStateException("no node with key " + nodeKey);
+    }
+
+    /**
+     * 按节点编号取实例节点 id（真实主键）。
+     * <p>{@code BaseModel#setFieldId} 会对非 32 位值重新生成 id（{@code IDUtil.initID}），
+     * 故节点 id 不可用 "node-{no}" 之类的字面量断言或引用，须经本方法取真实 id。</p>
+     */
+    public String nodeId(int no) {
+        for (SysProcessExampleNode node : nodes) {
+            if (Integer.valueOf(no).equals(node.getFieldNodeNo())) {
+                return node.getFieldId();
+            }
+        }
+        throw new IllegalStateException("no node with no " + no);
     }
 
     /* ==================== 节点配置 JSON ==================== */

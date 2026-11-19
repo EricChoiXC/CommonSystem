@@ -45,6 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -138,11 +139,11 @@ class SysProcessExampleServiceTest {
         ProcessFlowSupport flowSupport = new ProcessFlowSupport(exampleDao, nodeDao, workitemDao,
                 auditNoteDao, new ObjectMapper());
         flowEngine = new ProcessFlowEngine(exampleDao, nodeDao, workitemDao, auditNoteDao,
-                settingService, new ProcessFlowGraphLoader(exampleLineDao, templateLineDao), flowSupport,
+                settingService, new ProcessFlowGraphLoader(exampleLineDao), flowSupport,
                 handlerResolver, documentFieldService, null, null);
-        service = new SysProcessExampleService(exampleDao, nodeDao, workitemDao, auditNoteDao,
-                templateDao, templateNodeDao, settingService, userMapper, resolver, documentFieldService,
-                new ObjectMapper(), flowEngine, flowSupport);
+        service = new SysProcessExampleService(exampleDao, nodeDao, exampleLineDao, workitemDao,
+                auditNoteDao, templateDao, templateNodeDao, templateLineDao, settingService,
+                userMapper, resolver, documentFieldService, new ObjectMapper(), flowEngine, flowSupport);
 
         // 默认公共配置：自动跳过/包含起草人/连续跳过均开启
         when(settingService.getBooleanValue(eq(SysProcessConstants.SETTING_TYPE_PROCESS),
@@ -176,6 +177,9 @@ class SysProcessExampleServiceTest {
 
         template = template();
         when(templateDao.selectById(TEMPLATE_ID)).thenReturn(template);
+        // 默认模板节点/连线（createDraft 全量快照复制来源）
+        when(templateNodeDao.selectListByTemplateId(TEMPLATE_ID)).thenReturn(templateNodes());
+        when(templateLineDao.selectListByTemplateId(TEMPLATE_ID)).thenReturn(templateLines());
 
         example = example(SysProcessConstants.EXAMPLE_STATUS_DRAFT);
         when(exampleDao.selectById(EXAMPLE_ID)).thenReturn(example);
@@ -232,6 +236,53 @@ class SysProcessExampleServiceTest {
                 nodes.get(0).getFieldNodeNo() == 1 && SysProcessConstants.NODE_STATUS_FINISH.equals(nodes.get(0).getFieldStatus())
                         && nodes.get(1).getFieldNodeNo() == 2 && SysProcessConstants.NODE_STATUS_PROCESSING.equals(nodes.get(1).getFieldStatus())
                         && nodes.get(2).getFieldNodeNo() == 3 && SysProcessConstants.NODE_STATUS_WAITING.equals(nodes.get(2).getFieldStatus())));
+        verify(exampleLineDao).insertBatch(anyString(), argThat(lines -> lines.size() == 4));
+    }
+
+    @Test
+    void createDraftCopiesTemplateLineSnapshotWithBranchFields() {
+        when(templateNodeDao.selectListByTemplateId(TEMPLATE_ID)).thenReturn(templateNodes());
+        List<SysProcessTemplateLine> templateLines = templateLines();
+        when(templateLineDao.selectListByTemplateId(TEMPLATE_ID)).thenReturn(templateLines);
+        org.mockito.ArgumentCaptor<String> exampleIdCaptor =
+                org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<List<SysProcessExampleLine>> linesCaptor =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+
+        service.createDraft(TEMPLATE_ID, "model-1", null);
+
+        // 连线快照逐条复制：起点/终点键、连线类型、分支序号、分支名、分支条件、默认分支标记；
+        // 主键由 initFieldId() 生成（Mapper insertBatch 取 #{line.fieldId}，为空将插 NULL 主键失败）
+        verify(exampleLineDao).insertBatch(exampleIdCaptor.capture(), linesCaptor.capture());
+        String exampleId = exampleIdCaptor.getValue();
+        assertTrue(null != exampleId && !exampleId.isBlank(), "实例 id 由 initFieldId() 生成");
+        List<SysProcessExampleLine> copies = linesCaptor.getValue();
+        assertEquals(templateLines.size(), copies.size());
+        for (int i = 0; i < templateLines.size(); i++) {
+            SysProcessTemplateLine source = templateLines.get(i);
+            SysProcessExampleLine copy = copies.get(i);
+            assertTrue(null != copy.getFieldId() && !copy.getFieldId().isBlank(),
+                    "实例连线主键由 initFieldId() 生成");
+            assertEquals(exampleId, copy.getFieldExampleId());
+            assertEquals(source.getFieldFromKey(), copy.getFieldFromKey());
+            assertEquals(source.getFieldToKey(), copy.getFieldToKey());
+            assertEquals(source.getFieldLineType(), copy.getFieldLineType());
+            assertEquals(source.getFieldBranchOrder(), copy.getFieldBranchOrder());
+            assertEquals(source.getFieldBranchName(), copy.getFieldBranchName());
+            assertEquals(source.getFieldCondition(), copy.getFieldCondition());
+            assertEquals(source.getFieldIsDefault(), copy.getFieldIsDefault());
+        }
+    }
+
+    @Test
+    void createDraftFailsWhenTemplateHasNoLineDefinition() {
+        when(templateNodeDao.selectListByTemplateId(TEMPLATE_ID)).thenReturn(templateNodes());
+        when(templateLineDao.selectListByTemplateId(TEMPLATE_ID)).thenReturn(List.of());
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> service.createDraft(TEMPLATE_ID, "model-1", null));
+        assertEquals("流程模板缺少连线定义", error.getMessage());
+        verify(exampleLineDao, never()).insertBatch(anyString(), anyList());
     }
 
     @Test
@@ -729,6 +780,32 @@ class SysProcessExampleServiceTest {
         nodes.add(templateNode(4, "审批节点4", "APPROVE", CONFIG_SINGLE));
         nodes.add(templateNode(5, "结束节点", "END", null));
         return nodes;
+    }
+
+    /** 模板连线：START(N1)→DRAFT(N2)→审批3(N3)→审批4(N4)→END(N5)，首条为默认分支以覆盖分支字段复制 */
+    private List<SysProcessTemplateLine> templateLines() {
+        List<SysProcessTemplateLine> lines = new ArrayList<>();
+        for (SysProcessTemplateNode node : templateNodes()) {
+            if (node.getFieldNo() < 5) {
+                lines.add(templateLine("N" + node.getFieldNo(), "N" + (node.getFieldNo() + 1),
+                        node.getFieldNo() == 1));
+            }
+        }
+        return lines;
+    }
+
+    private static SysProcessTemplateLine templateLine(String fromKey, String toKey, boolean isDefault) {
+        SysProcessTemplateLine line = new SysProcessTemplateLine();
+        line.setFieldId("12345678901234567890123456789" + fromKey);
+        line.setFieldTemplateId(TEMPLATE_ID);
+        line.setFieldFromKey(fromKey);
+        line.setFieldToKey(toKey);
+        line.setFieldLineType(SysProcessConstants.LINE_TYPE_NORMAL);
+        line.setFieldBranchOrder(isDefault ? 1 : 2);
+        line.setFieldBranchName(isDefault ? "默认分支" : null);
+        line.setFieldCondition(null);
+        line.setFieldIsDefault(isDefault);
+        return line;
     }
 
     private static SysProcessTemplateNode templateNode(int no, String name, String type, String config) {

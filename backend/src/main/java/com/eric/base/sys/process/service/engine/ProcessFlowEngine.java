@@ -41,10 +41,11 @@ import java.util.Set;
  *              §3.2 图模型与节点键、§3.3 节点类型全集、§3.4 流转引擎设计）。
  *
  *              <h3>一、流转唯一依据</h3>
- *              连线（{@code sys_process_example_line}，实例无快照时回退
- *              {@code sys_process_template_line}）是流转唯一依据；{@code field_node_no} /
- *              {@code field_no} 仅作展示序号与确定性排序。节点键 {@code field_node_key}：
+ *              连线（{@code sys_process_example_line}，实例创建时的连线快照）是流转唯一依据；
+ *              {@code field_node_no} / {@code field_no} 仅作展示序号与确定性排序。节点键 {@code field_node_key}：
  *              固定 {@code N1}(START) / {@code N2}(DRAFT) / {@code N3}(END)，其余 {@code N4}、{@code N5}…
+ *              <p>P17-BE-007 起实例无连线快照时直接抛流程异常（{@link ProcessFlowGraphLoader}），
+ *              不再回退 {@code sys_process_template_line}。</p>
  *
  *              <h3>二、10 类节点语义</h3>
  *              <table border="1">
@@ -122,6 +123,8 @@ public class ProcessFlowEngine {
     /**
      * 进入流转：从指定节点沿连线遍历，直到停留待人工处理（WAITING）、办结（FINISHED）
      * 或转流程异常（PAUSED）。
+     * <p>图结构不可用（如实例连线快照缺失，{@link ProcessFlowGraphLoader} 抛流程异常）与流转中的
+     * 错误同口径处理：转流程异常（实例 PAUSE + SYSTEM_ERROR 留痕），不向调用方抛出流程异常。</p>
      *
      * @param example  流程实例（非空，引擎在出口落库实例状态）
      * @param entryKey 进入节点键（非空）
@@ -131,8 +134,21 @@ public class ProcessFlowEngine {
         if (StringUtil.isEmpty(entryKey)) {
             throw ProcessFlowException.graph("流程流转缺少进入节点键");
         }
-        FlowContext context = buildContext(example);
-        context.queue.addLast(new FlowTask(entryKey.trim(), null));
+        return enterFlowGraph(example, entryKey.trim());
+    }
+
+    /**
+     * 进入流转（图装配与流转同处异常出口）：实例连线快照缺失等图结构错误与流转中的错误
+     * 同口径处理——转流程异常（PAUSE + SYSTEM_ERROR），不向调用方抛出流程异常。
+     */
+    private ProcessFlowResult enterFlowGraph(SysProcessExample example, String entryKey) {
+        FlowContext context;
+        try {
+            context = buildContext(example);
+        } catch (ProcessFlowException e) {
+            return pauseOnError(new FlowContext(example), e, "进入流转");
+        }
+        context.queue.addLast(new FlowTask(entryKey, null));
         resumePendingBranches(context);
         // 流程发起步骤任务（StartProcess，含强制任务）：每次进入流转（提交/重新提交）触发一次
         runNodeTasks(context, null, ProcessTaskType.StartProcess, null);
@@ -163,7 +179,13 @@ public class ProcessFlowEngine {
      */
     public ProcessFlowResult pass(SysProcessExample example, String nodeKey, String nodeName,
                                   String workitemId) {
-        FlowContext context = buildContext(example);
+        FlowContext context;
+        try {
+            context = buildContext(example);
+        } catch (ProcessFlowException e) {
+            // 图结构不可用（如实例连线快照缺失）：与流转中的错误同口径转流程异常
+            return pauseOnError(new FlowContext(example), e, "审批通过后流转");
+        }
         SysProcessExampleNode node = context.graph.node(nodeKey);
         String name = null == node ? nodeName : node.getFieldNodeName();
         if (!advanceApprove(context, nodeKey, name)) {
@@ -228,13 +250,27 @@ public class ProcessFlowEngine {
 
     /**
      * 管理员跳转：废弃在途工作项后从目标节点进入引擎（图模型语义不变）。
+     * <ul>
+     * <li><b>起草节点（DRAFT）</b>：节点置 PROCESSING，实例转 RETURN 等待起草人重新提交
+     *     （不沿出边流转）；</li>
+     * <li><b>审批节点（APPROVE）</b>：从目标节点进入引擎，按节点配置解析审批人并生成工作项，
+     *     无需审批时沿出边继续；</li>
+     * <li><b>人工决策节点（MANUAL）</b>：从目标节点进入引擎，按最近一次人工指定流向或
+     *     节点默认流向流出（无来源时可经审批人通过时携带 flowChoice 指定）。</li>
+     * </ul>
      *
      * @param example     流程实例
      * @param targetNodeId 目标节点 id（审批节点 / 起草节点 / 人工决策节点）
-     * @return 流转终态
+     * @return 流转终态（起草节点停留为 WAITING，实例 RETURN）
      */
     public ProcessFlowResult adminJump(SysProcessExample example, String targetNodeId) {
-        FlowContext context = buildContext(example);
+        FlowContext context;
+        try {
+            context = buildContext(example);
+        } catch (ProcessFlowException e) {
+            // 图结构不可用（如实例连线快照缺失）：与流转中的错误同口径转流程异常
+            return pauseOnError(new FlowContext(example), e, "管理员跳转后流转");
+        }
         SysProcessExampleNode target = context.graph.nodeById(targetNodeId);
         if (null == target) {
             throw new IllegalArgumentException("流程节点不存在");

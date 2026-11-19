@@ -30,10 +30,10 @@ import java.util.Map;
  *                  {@code N{no}}（固定节点按类型优先归位 N1/N2/N3），保证旧数据仍可按连线流转。</li>
  *              </ul>
  *
- *              <h3>连线来源（本任务临时桥梁）</h3>
- *              优先实例连线（{@code sys_process_example_line}）；实例无连线时由
- *              {@link ProcessFlowGraphLoader} 回退读模板连线并告警。图构建完成后
- *              模板连线与实例连线在引擎视角完全同构，引擎不感知来源。
+ *              <h3>连线来源</h3>
+ *              连线取自 {@code sys_process_example_line}（实例创建时的连线快照，P17-BE-007 起
+ *              {@link ProcessFlowGraphLoader} 不再回退模板连线，实例无连线快照时直接抛流程异常）。
+ *              图构建完成后模板连线与实例连线在引擎视角完全同构，引擎不感知来源。
  */
 public class ProcessFlowGraph {
 
@@ -49,15 +49,15 @@ public class ProcessFlowGraph {
     /** 入边（key = 目标节点键） */
     private final Map<String, List<ProcessFlowLine>> incoming = new LinkedHashMap<>();
 
-    /** 连线来源：true=实例连线快照，false=模板连线回退 */
+    /** 连线来源：true=实例连线快照（当前唯一来源，保留标记供排障与旧模板回退期断言） */
     private final boolean fromInstanceSnapshot;
 
     /**
      * 构建流程图。
      *
      * @param exampleNodes    实例节点（非空）
-     * @param lines           连线（实例连线或模板连线，元素已归一为 {@link ProcessFlowLine}）
-     * @param instanceSnapshot true=连线取自实例快照；false=回退模板连线
+     * @param lines           连线（元素已归一为 {@link ProcessFlowLine}）
+     * @param instanceSnapshot true=连线取自实例快照
      */
     public ProcessFlowGraph(List<SysProcessExampleNode> exampleNodes, List<ProcessFlowLine> lines,
                             boolean instanceSnapshot) {
@@ -118,7 +118,7 @@ public class ProcessFlowGraph {
         return nodeByKey.containsKey(nodeKey);
     }
 
-    /** 连线是否取自实例快照（false=模板连线回退） */
+    /** 连线是否取自实例快照（P17-BE-007 起实例连线为唯一来源，正常流转恒为 true） */
     public boolean fromInstanceSnapshot() {
         return fromInstanceSnapshot;
     }
@@ -203,7 +203,11 @@ public class ProcessFlowGraph {
                 line.getFieldCondition(), Boolean.TRUE.equals(line.getFieldIsDefault()));
     }
 
-    /** 模板连线 → 引擎连线（实例无连线快照时的回退来源） */
+    /**
+     * 模板连线 → 引擎连线（模板侧图校验/预览归一，字段口径与实例连线一致）。
+     * <p>P17-BE-007 起流转引擎连线只来自实例快照（{@link #ofInstanceLine}），
+     * 本方法不再作为实例无连线时的回退来源。</p>
+     */
     public static ProcessFlowLine ofTemplateLine(SysProcessTemplateLine line) {
         return new ProcessFlowLine(line.getFieldId(), line.getFieldFromKey(), line.getFieldToKey(),
                 line.getFieldLineType(), line.getFieldBranchOrder(), line.getFieldBranchName(),

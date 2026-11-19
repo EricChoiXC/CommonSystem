@@ -17,18 +17,20 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_STAT
 import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_STATUS_PROCESSING;
 import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_STATUS_WAITING;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 /**
- * 流程流转引擎单测（三）：FORK/JOIN 并行汇聚、连线回退与流程异常
+ * 流程流转引擎单测（三）：FORK/JOIN 并行汇聚、实例连线快照与流程异常
  *
  * @author Eric
  * @date 2026/11/19
- * @description P17-BE-003 交付物：覆盖 §3.4 第 2 条并行汇聚（field_runtime 记录激活分支集合与到达进度，
- *              all/any 汇聚模式）、连线来源回退（实例无连线快照时读模板连线并告警）、
- *              流程异常（公式解析失败/无可流转分支 → 实例 PAUSE + SYSTEM_ERROR，已完成节点不回滚）。
+ * @description P17-BE-003 交付物、P17-BE-007 收敛：覆盖 §3.4 第 2 条并行汇聚（field_runtime
+ *              记录激活分支集合与到达进度，all/any 汇聚模式）、实例连线快照为流转唯一依据
+ *              （引擎只读实例连线，缺失即流程异常）、流程异常（公式解析失败/无可流转分支 →
+ *              实例 PAUSE + SYSTEM_ERROR，已完成节点不回滚）。
  */
 class ProcessFlowEngineForkJoinTest {
 
@@ -143,37 +145,50 @@ class ProcessFlowEngineForkJoinTest {
         assertEquals(NODE_STATUS_PROCESSING, fixture.statusOf("N5"));
     }
 
-    /* ==================== 连线来源回退（P17-BE-007 前临时桥梁） ==================== */
+    /* ==================== 实例连线快照为流转唯一依据（P17-BE-007 移除模板连线回退） ==================== */
 
     @Test
-    @DisplayName("实例无连线快照时回退模板连线继续流转")
-    void fallsBackToTemplateLinesWhenInstanceHasNoSnapshot() {
-        // 实例连线为空：按 field_template_id 读模板连线
+    @DisplayName("实例无连线快照时抛流程异常（不回退模板连线）")
+    void loadGraphFailsWhenInstanceHasNoLineSnapshot() {
         fixture.node(1, "开始节点", NODE_TYPE_START);
         fixture.node(2, "草稿节点", NODE_TYPE_START);
-        fixture.node(3, "结束节点", NODE_TYPE_END);
-        fixture.templateLines.add(fixture.templateLine("N1", "N2"));
-        fixture.templateLines.add(fixture.templateLine("N2", "N3"));
 
-        ProcessFlowResult result = fixture.engine(null).enterFlow(fixture.example, "N1");
+        ProcessFlowGraphLoader loader = new ProcessFlowGraphLoader(fixture.exampleLineDao);
 
-        assertTrue(result.isFinished(), "回退模板连线后应能沿 N1→N2→N3 流转完成");
-        assertEquals(NODE_STATUS_FINISH, fixture.statusOf("N1"));
-        assertEquals(NODE_STATUS_PROCESSING, fixture.statusOf("N3"));
+        ProcessFlowException error = assertThrows(ProcessFlowException.class,
+                () -> loader.load(fixture.example, fixture.nodes));
+        assertEquals(ProcessFlowException.CODE_GRAPH, error.getCode());
+        assertEquals("流程实例缺少连线定义: " + FlowEngineFixture.EXAMPLE_ID, error.getMessage());
     }
 
     @Test
-    @DisplayName("实例连线快照优先于模板连线")
-    void instanceLinesTakePrecedenceOverTemplateLines() {
+    @DisplayName("实例连线快照缺失：进入流转转流程异常 PAUSE + SYSTEM_ERROR")
+    void enterFlowPausesWhenInstanceHasNoLineSnapshot() {
         fixture.node(1, "开始节点", NODE_TYPE_START);
+        fixture.node(2, "草稿节点", NODE_TYPE_START);
+
+        ProcessFlowResult result = fixture.engine(null).enterFlow(fixture.example, "N1");
+
+        assertTrue(result.isPaused());
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_PAUSE, fixture.example.getFieldStatus());
+        assertEquals(1L, fixture.auditCount(SysProcessConstants.AUDIT_TYPE_SYSTEM_ERROR));
+        assertTrue(result.getErrorSummary().contains("流程实例缺少连线定义"));
+    }
+
+    @Test
+    @DisplayName("引擎按实例连线快照流转：模板连线不同也不影响")
+    void engineFlowsByInstanceLineSnapshotOnly() {
+        fixture.node(1, "开始节点", NODE_TYPE_START);
+        fixture.node(2, "草稿节点", NODE_TYPE_START);
         fixture.node(3, "结束节点", NODE_TYPE_END);
-        // 实例连线：N1→N3；模板连线：N1→N2（不存在的节点，若被采用会抛流程异常）
+        // 实例连线快照：N1→N3；模板侧若被读取将走 N1→N2（实例快照与模板不一致）
         fixture.line("N1", "N3");
-        fixture.templateLines.add(fixture.templateLine("N1", "N2"));
 
         ProcessFlowResult result = fixture.engine(null).enterFlow(fixture.example, "N1");
 
         assertTrue(result.isFinished());
+        assertEquals(NODE_STATUS_FINISH, fixture.statusOf("N1"));
+        assertEquals(NODE_STATUS_WAITING, fixture.statusOf("N2"), "模板连线路径上的节点不应被进入");
         assertEquals(NODE_STATUS_PROCESSING, fixture.statusOf("N3"));
     }
 

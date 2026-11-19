@@ -12,16 +12,20 @@ import com.eric.base.sys.org.model.SysOrgRole;
 import com.eric.base.sys.org.model.SysOrgUser;
 import com.eric.base.sys.process.dao.SysProcessAuditNoteDao;
 import com.eric.base.sys.process.dao.SysProcessExampleDao;
+import com.eric.base.sys.process.dao.SysProcessExampleLineDao;
 import com.eric.base.sys.process.dao.SysProcessExampleNodeDao;
 import com.eric.base.sys.process.dao.SysProcessExampleWorkitemDao;
 import com.eric.base.sys.process.dao.SysProcessTemplateDao;
+import com.eric.base.sys.process.dao.SysProcessTemplateLineDao;
 import com.eric.base.sys.process.dao.SysProcessTemplateNodeDao;
 import com.eric.base.sys.process.model.SysProcessAuditNote;
 import com.eric.base.sys.process.model.SysProcessExample;
+import com.eric.base.sys.process.model.SysProcessExampleLine;
 import com.eric.base.sys.process.model.SysProcessExampleNode;
 import com.eric.base.sys.process.model.SysProcessExampleWorkitem;
 import com.eric.base.sys.process.model.SysProcessExampleWorkitemConfigDo;
 import com.eric.base.sys.process.model.SysProcessTemplate;
+import com.eric.base.sys.process.model.SysProcessTemplateLine;
 import com.eric.base.sys.process.model.SysProcessTemplateNode;
 import com.eric.base.sys.process.model.SysProcessTemplateNodeConfigDo;
 import com.eric.base.sys.process.properties.SysProcessConstants;
@@ -138,10 +142,12 @@ public class SysProcessExampleService {
 
     private final SysProcessExampleDao exampleDao;
     private final SysProcessExampleNodeDao nodeDao;
+    private final SysProcessExampleLineDao exampleLineDao;
     private final SysProcessExampleWorkitemDao workitemDao;
     private final SysProcessAuditNoteDao auditNoteDao;
     private final SysProcessTemplateDao templateDao;
     private final SysProcessTemplateNodeDao templateNodeDao;
+    private final SysProcessTemplateLineDao templateLineDao;
     private final CommonSettingService settingService;
     private final SysOrgUserMapper userMapper;
     private final ProcessResolver resolver;
@@ -152,10 +158,12 @@ public class SysProcessExampleService {
 
     public SysProcessExampleService(SysProcessExampleDao exampleDao,
                                     SysProcessExampleNodeDao nodeDao,
+                                    SysProcessExampleLineDao exampleLineDao,
                                     SysProcessExampleWorkitemDao workitemDao,
                                     SysProcessAuditNoteDao auditNoteDao,
                                     SysProcessTemplateDao templateDao,
                                     SysProcessTemplateNodeDao templateNodeDao,
+                                    SysProcessTemplateLineDao templateLineDao,
                                     CommonSettingService settingService,
                                     SysOrgUserMapper userMapper,
                                     ProcessResolver resolver,
@@ -165,10 +173,12 @@ public class SysProcessExampleService {
                                     ProcessFlowSupport flowSupport) {
         this.exampleDao = exampleDao;
         this.nodeDao = nodeDao;
+        this.exampleLineDao = exampleLineDao;
         this.workitemDao = workitemDao;
         this.auditNoteDao = auditNoteDao;
         this.templateDao = templateDao;
         this.templateNodeDao = templateNodeDao;
+        this.templateLineDao = templateLineDao;
         this.settingService = settingService;
         this.userMapper = userMapper;
         this.resolver = resolver;
@@ -181,8 +191,11 @@ public class SysProcessExampleService {
     /* ==================== 流程创建与提交（由实例所属模块调用） ==================== */
 
     /**
-     * 创建流程实例（保存操作）：从模板快照创建实例与实例节点，流程状态 DRAFT，
-     * 当前节点为草稿节点。流程编号为空时自动生成。
+     * 创建流程实例（保存操作）：从模板快照创建实例、实例节点与实例连线，
+     * 流程状态 DRAFT，当前节点为草稿节点。流程编号为空时自动生成。
+     * <p>节点与连线均<b>全量快照复制</b>（含节点配置与连线分支配置），随后流转只读实例快照，
+     * 模板后续变更不影响本实例（依据 docs/v1_7-流程管理/功能实现方案-改造分析与方案设计.md
+     * §3.2「实例快照」与 docs/设计文档/sys/process/流程核心业务.md「实例快照」）。</p>
      *
      * @param templateId 模板 id（必须存在且启用）
      * @param modelId    所属模块（业务文档）id，可为空
@@ -239,8 +252,30 @@ public class SysProcessExampleService {
             nodes.add(node);
         }
         nodeDao.insertBatch(example.getFieldId(), nodes);
-        log.info("process example created: id={}, template={}, model={}, code={}",
-                example.getFieldId(), template.getFieldId(), template.getFieldModelName(), example.getFieldCode());
+
+        // 连线快照：与节点快照同事务全量复制（模板后续变更不影响本实例流转）
+        List<SysProcessTemplateLine> templateLines = templateLineDao.selectListByTemplateId(template.getFieldId());
+        if (null == templateLines || templateLines.isEmpty()) {
+            throw new IllegalStateException("流程模板缺少连线定义");
+        }
+        List<SysProcessExampleLine> lines = new ArrayList<>();
+        for (SysProcessTemplateLine templateLine : templateLines) {
+            SysProcessExampleLine line = new SysProcessExampleLine();
+            line.initFieldId();
+            line.setFieldExampleId(example.getFieldId());
+            line.setFieldFromKey(templateLine.getFieldFromKey());
+            line.setFieldToKey(templateLine.getFieldToKey());
+            line.setFieldLineType(templateLine.getFieldLineType());
+            line.setFieldBranchOrder(templateLine.getFieldBranchOrder());
+            line.setFieldBranchName(templateLine.getFieldBranchName());
+            line.setFieldCondition(templateLine.getFieldCondition());
+            line.setFieldIsDefault(templateLine.getFieldIsDefault());
+            lines.add(line);
+        }
+        exampleLineDao.insertBatch(example.getFieldId(), lines);
+        log.info("process example created: id={}, template={}, model={}, code={}, nodes={}, lines={}",
+                example.getFieldId(), template.getFieldId(), template.getFieldModelName(),
+                example.getFieldCode(), nodes.size(), lines.size());
         return toExampleVo(example);
     }
 
