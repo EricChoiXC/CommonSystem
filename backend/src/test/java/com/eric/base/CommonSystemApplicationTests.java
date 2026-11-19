@@ -43,6 +43,7 @@ import com.eric.base.sys.task.mapper.SysTaskExampleMapper;
 import com.eric.base.sys.task.mapper.SysTaskHistoryMapper;
 import com.eric.base.sys.task.mapper.SysTaskMainMapper;
 import com.eric.base.sys.process.mapper.SysProcessAuditNoteMapper;
+import com.eric.base.sys.process.mapper.SysProcessExampleLineMapper;
 import com.eric.base.sys.process.mapper.SysProcessExampleMapper;
 import com.eric.base.sys.process.mapper.SysProcessExampleNodeMapper;
 import com.eric.base.sys.process.mapper.SysProcessExampleWorkitemMapper;
@@ -304,6 +305,11 @@ class CommonSystemApplicationTests {
 		@Bean
 		SysProcessExampleNodeMapper sysProcessExampleNodeMapper() {
 			return Mockito.mock(SysProcessExampleNodeMapper.class);
+		}
+
+		@Bean
+		SysProcessExampleLineMapper sysProcessExampleLineMapper() {
+			return Mockito.mock(SysProcessExampleLineMapper.class);
 		}
 
 		@Bean
