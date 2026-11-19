@@ -34,6 +34,7 @@
 - 当前覆盖 `org`、`attachment`、`process`、`number`、`notify`、`audit`、`dict` 七个系统子模块。
 - 本轮输出仅创建 API 主文档骨架、模块依赖顺序、接口族分组与全局约束。
 - 当前不输出字段级接口清单，不输出完整错误码表，不输出 OpenAPI YAML。
+- **例外（分册承接）**：流程模块 v1_7 改造已产出字段级契约分册 [流程 v1_7 接口清单](../设计文档/sys/process/流程v1_7接口清单.md)，本文档 §4.3.4 只做骨架级承接、不重复字段卡片（与 §4.11 公式定义器、§4.10 数据源的分册承接口径一致）。
 
 ### 2.3 事实源优先级与冲突裁决
 
@@ -210,6 +211,24 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 - 流程提交由业务模块调用流程接口完成实例创建，流程模块不替业务模块做单据权限判定。
 - 审批、撤回、特权审批必须在接口契约中区分操作者身份与允许条件。
 - 与待办联动的创建、完成能力需保留清晰的服务边界，避免流程模块与待办模块循环耦合。
+
+#### 4.3.4 流程 v1_7 改造（引擎 DAG 化 / 审批操作 / 监控统计）
+
+- **改造范围**：流转模型由「按 `field_no` 顺序的线性串行链」升级为「节点 + 连线」图结构（连线为流转唯一依据，节点新增模板内唯一业务键 `nodeKey`：固定 `N1` 开始 / `N2` 起草 / `N3` 结束，其余 `N4`…顺延）；节点类型由 5 类扩为 10 类（新增 `CC` 抄送 / `CONDITION` 条件分支 / `FORK` 并行开始 / `JOIN` 并行结束 / `MANUAL` 人工决策，`ROBORT` 沿用历史拼写）；审批操作由 5 类扩为 14 类并新增统一操作入口；新增 `@ProcessTask` 流程任务体系、流程监控与流程统计。
+- **接口组变化**：
+
+| 接口组 | 次级模块 | v1_7 变化 |
+| --- | --- | --- |
+| 流程公共配置 | `setting` | 无接口变化（新增 2 项 `notify.*` 配置随 `/list` 透出） |
+| 流程模板 | `module` | `load` 响应扩展 `lines`；`save`/`update` 请求体扩展 `nodes` + `lines`（连线全量替换）；服务端新增图校验（连通性、出边数、默认分支唯一、FORK/JOIN 成对且不嵌套、MANUAL 默认流向合法、`operations` 必含且仅含一个 `handler_pass`、任务经注册校验） |
+| 流程实例 | `example` | `list` 请求体扩展 `scope`（`admin` 默认 / `myCreated` / `myJoined`，`my*` 强制本人数据过滤）；`load` 响应扩展 `lines` 与节点 `nodeKey`/`runtime`；`panel` 响应扩展 `operations`（按节点配置 ∩ 用户身份计算的按钮集）与图数据（`nodeOps` 业务标识逻辑不变）；`adminOperate` 目标节点范围扩展为任意审批/起草/人工决策节点 |
+| 流程审批操作 | `operation` | **新增**统一操作入口 `POST /backend/sys/process/operation/operate`（`operateType` 覆盖 14 类操作标识） |
+| 流程监控 | `example` | **新增** `POST /backend/sys/process/example/monitorList`（管理员级，在途/异常筛选） |
+| 流程统计 | `statistic` | **新增** `POST /backend/sys/process/statistic/admin`（管理员统计）与 `POST /backend/sys/process/statistic/my`（我的统计），只读聚合、不侵入流转 SQL |
+
+- **新增权限**：权限码 `SYS_PROCESS_MY_VIEWER`（我发起的/我参与的/我的流程统计，`roles.yml` 默认全员授予）；监控与统计（管理员）复用 `SYS_PROCESS_EXAMPLE_ADMIN`。新增 `ACTION_*`：`sys.process.example.operate`、`sys.process.example.monitorList`、`sys.process.statistic.admin`、`sys.process.statistic.my`（全集与判定口径见分册 §8/§9）。
+- **契约明细**：字段级请求/响应契约、14 类操作 × 参数 × 留痕矩阵、`CS_PROCESS_*` 错误码与在线文档注解文案，统一见 [流程 v1_7 接口清单](../设计文档/sys/process/流程v1_7接口清单.md)（本总文档不重复字段卡片）。
+- **性质说明**：本章节为骨架级承接；v1_7 的字段级契约以分册为准，冲突时以分册为准并回写本文档（对齐 4.11.4 的先例口径）。
 
 ### 4.4 编号机制模块
 
@@ -721,5 +740,5 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 
 - 组织架构模块中“角色分配”和“角色权限”的需求表述存在表名映射不一致，需在详细设计任务中确认接口术语。
 - 附件上传是否需要拆分“预签名上传/直传”模式，当前需求未覆盖，暂不纳入骨架。
-- 流程模块是否需要单独暴露“抄送读取”接口，当前先并入流程实例读取范围。
+- 流程模块抄送读取接口**已裁决（v1_7 / D4）**：不单独暴露抄送读取接口，抄送统一复用待阅 `READ` 通知类型并在流程实例读取范围内呈现（通知中心不加新页签）；契约见 [流程 v1_7 接口清单](../设计文档/sys/process/流程v1_7接口清单.md)。
 - 待办关注相关表在需求文档中写为 `start`，接口次级模块暂按 `star` 预留，需在数据库设计阶段确认。
