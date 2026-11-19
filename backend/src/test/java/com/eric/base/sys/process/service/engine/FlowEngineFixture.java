@@ -253,6 +253,18 @@ final class FlowEngineFixture {
                 + "\",\"approveMode\":\"single\",\"autoSkip\":\"no\"}";
     }
 
+    /** 节点配置 JSON 构造（key/value 均按字符串写入；v1_7 键 skipMode/emptyHandlerMode 等） */
+    static String configOf(String... keyValues) {
+        StringBuilder json = new StringBuilder("{");
+        for (int i = 0; i + 1 < keyValues.length; i += 2) {
+            if (i > 0) {
+                json.append(',');
+            }
+            json.append('"').append(keyValues[i]).append("\":\"").append(keyValues[i + 1]).append('"');
+        }
+        return json.append('}').toString();
+    }
+
     /** 抄送节点配置：地址本抄送对象 */
     static String ccConfig(String ccIds) {
         return "{\"ccIds\":\"" + ccIds + "\"}";

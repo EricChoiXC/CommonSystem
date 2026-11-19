@@ -903,6 +903,11 @@ public class ProcessFlowEngine {
         // 审批人顺序解析结果同时用于「是否需创建审批工作项」判定与工作项生成（一次解析、一次比对）
         List<String> ordered = resolveHandlerOrder(context, config, node);
         if (ordered.isEmpty()) {
+            // 解析结果为空按 emptyHandlerMode 分流（system/skip=跳过该节点；error=转流程异常，不在此处抛出）
+            if (SysProcessConstants.EMPTY_HANDLER_MODE_ERROR.equals(emptyHandlerMode(config))) {
+                throw ProcessFlowException.emptyHandler(
+                        "审批节点「" + displayName(node.getFieldNodeName()) + "」无审批人（emptyHandlerMode=error），转流程异常");
+            }
             support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_PASS);
             enqueueKey(context, context.graph.singleOutgoing(nodeKey, node.getFieldNodeName()).toKey(), null);
             return true;
@@ -915,11 +920,11 @@ public class ProcessFlowEngine {
         int processing = 0;
         for (String handlerId : ordered) {
             boolean skip = skipped.contains(handlerId);
-            insertApproveWorkitem(context, node, handlerId,
+            SysProcessExampleWorkitem workitem = insertApproveWorkitem(context, node, handlerId,
                     skip ? SysProcessConstants.WORKITEM_STATUS_FINISH
                             : SysProcessConstants.WORKITEM_STATUS_PROCESSING);
             if (skip) {
-                addAutoPassAudit(context, node, handlerId);
+                addAutoPassAudit(context, node, handlerId, workitem);
             } else {
                 processing++;
             }
@@ -943,8 +948,9 @@ public class ProcessFlowEngine {
         String firstHandler = null;
         for (String handlerId : ordered) {
             if (skipped.contains(handlerId)) {
-                insertApproveWorkitem(context, node, handlerId, SysProcessConstants.WORKITEM_STATUS_FINISH);
-                addAutoPassAudit(context, node, handlerId);
+                SysProcessExampleWorkitem workitem = insertApproveWorkitem(context, node, handlerId,
+                        SysProcessConstants.WORKITEM_STATUS_FINISH);
+                addAutoPassAudit(context, node, handlerId, workitem);
                 continue;
             }
             firstHandler = handlerId;
@@ -967,15 +973,15 @@ public class ProcessFlowEngine {
      * 创建审批工作项：并行分支内节点在工作项配置中记录所属分支键（{@code flowBranchKey}），
      * 供审批通过后跨调用恢复流转时回溯分支归属。
      */
-    private void insertApproveWorkitem(FlowContext context, SysProcessExampleNode node,
-                                       String handlerId, String status) {
+    private SysProcessExampleWorkitem insertApproveWorkitem(FlowContext context, SysProcessExampleNode node,
+                                                            String handlerId, String status) {
         String branchKey = context.branchByNode.get(ProcessFlowGraph.nodeKey(node));
         SysProcessExampleWorkitemConfigDo config = null;
         if (StringUtil.isNotEmpty(branchKey)) {
             config = new SysProcessExampleWorkitemConfigDo();
             config.setFlowBranchKey(branchKey);
         }
-        support.insertWorkitem(context.example, node, handlerId, status,
+        return support.insertWorkitem(context.example, node, handlerId, status,
                 null == config ? null : support.writeJson(config));
     }
 
@@ -1039,8 +1045,9 @@ public class ProcessFlowEngine {
                 continue;
             }
             if (skipped.contains(handlerId)) {
-                insertApproveWorkitem(context, node, handlerId, SysProcessConstants.WORKITEM_STATUS_FINISH);
-                addAutoPassAudit(context, node, handlerId);
+                SysProcessExampleWorkitem workitem = insertApproveWorkitem(context, node, handlerId,
+                        SysProcessConstants.WORKITEM_STATUS_FINISH);
+                addAutoPassAudit(context, node, handlerId, workitem);
                 continue;
             }
             insertApproveWorkitem(context, node, handlerId, SysProcessConstants.WORKITEM_STATUS_PROCESSING);
@@ -1087,22 +1094,66 @@ public class ProcessFlowEngine {
         return SysProcessConstants.APPROVE_MODE_SINGLE;
     }
 
-    /** 自动跳过留痕（跳过者工作项已置 FINISH） */
-    private void addAutoPassAudit(FlowContext context, SysProcessExampleNode node, String handlerId) {
-        support.addAudit(context.example.getFieldId(), null, handlerId,
+    /**
+     * 自动跳过留痕（跳过者工作项已置 FINISH）。
+     * <p>留痕必须回填跳过者工作项 id：{@link #findPreviousEffectiveNode} 以
+     * {@code AUTO_PASS} 留痕的 {@code workitemId} 反查上一有效节点中被自动跳过的处理人，
+     * 供 {@code autoContinueSkip} 二次判定（P17-BE-004）使用，留痕缺失工作项 id 会使
+     * 「连续跳过」判定恒不命中。</p>
+     */
+    private void addAutoPassAudit(FlowContext context, SysProcessExampleNode node, String handlerId,
+                                  SysProcessExampleWorkitem workitem) {
+        support.addAudit(context.example.getFieldId(),
+                null == workitem ? null : workitem.getFieldId(), handlerId,
                 SysProcessConstants.AUDIT_TYPE_AUTO_PASS, "自动跳过重复审批人");
     }
 
     /* ==================== 审批人与跳过解析 ==================== */
 
-    /** 审批人顺序解析（去重保序）：地址本全类型 + 公式源，失败转流程异常 */
+    /**
+     * 审批人顺序解析（去重保序）：地址本全类型 + 公式源，失败转流程异常。
+     * <p><b>与 emptyHandlerMode 的关系（P17-BE-004）</b>：节点配置为 {@code error} 时
+     * {@link ProcessHandlerResolver} 对空结果抛
+     * {@link ProcessHandlerResolveException#CODE_EMPTY_HANDLER}，引擎在
+     * {@link #createApproveWorkitems} 中先按 {@code emptyHandlerMode} 判定并抛
+     * {@link ProcessFlowException#emptyHandler}（与解析器同错误码），故 {@code error} 的
+     * 唯一出口始终是引擎侧判定；解析器在 {@code system}/{@code skip} 下不抛空结果异常，
+     * 万一抛出（如旧版解析器实现）则在此按「空结果」吞掉，交引擎按跳过语义继续，避免双出口。</p>
+     */
     private List<String> resolveHandlerOrder(FlowContext context, SysProcessTemplateNodeConfigDo config,
                                              SysProcessExampleNode node) {
         if (null == config) {
             return List.of();
         }
-        return handlerResolver.resolveHandlerIds(config, node.getFieldNodeName(),
-                formulaVariables(context, config));
+        try {
+            return handlerResolver.resolveHandlerIds(config, node.getFieldNodeName(),
+                    formulaVariables(context, config));
+        } catch (ProcessHandlerResolveException e) {
+            if (ProcessHandlerResolveException.CODE_EMPTY_HANDLER.equals(e.getCode())
+                    && !SysProcessConstants.EMPTY_HANDLER_MODE_ERROR.equals(emptyHandlerMode(config))) {
+                log.warn("解析器提前抛出无审批人异常，节点配置为跳过的空审批人语义，按空结果继续: node={}, mode={}",
+                        displayName(node.getFieldNodeName()), emptyHandlerMode(config));
+                return List.of();
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 无审批人处理方式归一（P17-BE-004）：仅 {@code skip}/{@code error} 生效，
+     * 其余（空/非法/缺省）取 {@code system}（同系统配置=跳过该节点，即存量默认行为）。
+     * 抄送节点解析为空不适用本语义（{@code enterCc} 按「无需抄送」处理）。
+     */
+    private static String emptyHandlerMode(SysProcessTemplateNodeConfigDo config) {
+        if (null == config || StringUtil.isEmpty(config.getEmptyHandlerMode())) {
+            return SysProcessConstants.EMPTY_HANDLER_MODE_SYSTEM;
+        }
+        String mode = config.getEmptyHandlerMode().trim().toLowerCase(java.util.Locale.ROOT);
+        if (SysProcessConstants.EMPTY_HANDLER_MODE_SKIP.equals(mode)
+                || SysProcessConstants.EMPTY_HANDLER_MODE_ERROR.equals(mode)) {
+            return mode;
+        }
+        return SysProcessConstants.EMPTY_HANDLER_MODE_SYSTEM;
     }
 
     /**
@@ -1125,30 +1176,50 @@ public class ProcessFlowEngine {
     }
 
     /**
-     * 计算本节点的自动跳过处理人集合（沿用存量语义，依据流程核心业务.md「流程流转公共规范」）：
-     * 上一有效节点审批人（及其后起草人）为重复审批人；是否跳过由公共配置 auto_handle_pass 与
-     * 节点配置 autoSkip 共同决定，连续跳过由 autoContinueSkip 决定。
+     * 计算本节点的自动跳过处理人集合（P17-BE-004 接入 v2 跳过体系，依据流程核心业务.md
+     * 「流程流转公共规范」#6 与审批节点配置表）：
+     *
+     * <h3>一、skipMode 为总开关（决定「相同审批人是否跳过」与比对范围）</h3>
+     * <ul>
+     * <li><b>none</b>：不跳过（即便系统配置允许自动跳过），直接返回空集合；</li>
+     * <li><b>system</b>（缺省）：同系统配置——按公共配置 {@code auto_handle_pass} 决定是否启用跳过，
+     * 比对范围沿用「上一有效审批节点处理人」（+ 起草人，见下）；</li>
+     * <li><b>prev</b>：与上一有效审批节点（终态 FINISH/REJECT 的审批节点，自动跳过 PASS 节点不算）
+     * 的处理人相同时跳过；取值本身即明确要求，<b>不以系统配置为前置门禁</b>；</li>
+     * <li><b>any</b>：与本实例全部已审批人（本实例全部已通过/已驳回审批节点的处理人并集）相同时跳过，
+     * 同样不以系统配置为前置门禁。</li>
+     * </ul>
+     * 公共配置 {@code auto_handle_pass_drafter} 命中时，起草人一并进入比对集合（三个启用分支一致）。
+     *
+     * <h3>二、autoContinueSkip 为二次判定（连续跳过维度）</h3>
+     * 上一有效节点中被自动跳过（{@code AUTO_PASS}）的处理人，在本节点是否继续自动跳过：
+     * {@code yes} 跳过、{@code no} 不跳过（本节点需实际审批）、{@code system} 按公共配置
+     * {@code auto_continue_pass}。该二次判定只在 skipMode 已启用跳过的 prev/any/system 分支内生效。
+     *
+     * @param handlers 本节点审批人顺序解析结果（去重保序，仅用于比对，不改变顺序）
+     * @return 应自动跳过的处理人集合（去重保序，未被判定跳过者不入集合）
      */
     private Set<String> computeSkippedHandlers(FlowContext context, SysProcessTemplateNodeConfigDo config,
                                                Set<String> handlers, String nodeKey) {
         Set<String> skipped = new LinkedHashSet<>();
-        PreviousNode prev = findPreviousEffectiveNode(context, nodeKey);
-        String autoSkip = null == config || StringUtil.isEmpty(config.getAutoSkip())
-                ? SysProcessConstants.AUTO_SKIP_SYSTEM : config.getAutoSkip();
-        String autoContinueSkip = null == config || StringUtil.isEmpty(config.getAutoContinueSkip())
-                ? SysProcessConstants.AUTO_CONTINUE_SKIP_SYSTEM : config.getAutoContinueSkip();
-        boolean nodeAutoPass = SysProcessConstants.AUTO_SKIP_YES.equals(autoSkip)
-                || (SysProcessConstants.AUTO_SKIP_SYSTEM.equals(autoSkip) && context.settingAutoPass);
-        if (!nodeAutoPass) {
+        if (null == handlers || handlers.isEmpty()) {
             return skipped;
         }
-        boolean nodeContinue = SysProcessConstants.AUTO_CONTINUE_SKIP_YES.equals(autoContinueSkip)
-                || (SysProcessConstants.AUTO_CONTINUE_SKIP_SYSTEM.equals(autoContinueSkip)
-                && context.settingAutoContinuePass);
-        Set<String> duplicate = new HashSet<>(prev.handlers);
+        String skipMode = null == config ? SysProcessConstants.SKIP_MODE_SYSTEM : config.getNormalizedSkipMode();
+        if (SysProcessConstants.SKIP_MODE_NONE.equals(skipMode)) {
+            return skipped;
+        }
+        if (SysProcessConstants.SKIP_MODE_SYSTEM.equals(skipMode) && !context.settingAutoPass) {
+            return skipped;
+        }
+        PreviousNode prev = findPreviousEffectiveNode(context, nodeKey);
+        Set<String> duplicate = SysProcessConstants.SKIP_MODE_ANY.equals(skipMode)
+                ? approvedHandlersOfExample(context)
+                : new HashSet<>(prev.handlers);
         if (context.settingAutoPassDrafter) {
             duplicate.add(context.example.getFieldCreatorId());
         }
+        boolean nodeContinue = autoContinueSkipEnabled(context, config);
         for (String handlerId : handlers) {
             if (!duplicate.contains(handlerId)) {
                 continue;
@@ -1161,6 +1232,67 @@ public class ProcessFlowEngine {
         return skipped;
     }
 
+    /** 连续跳过归一（P17-BE-004 不改动既有语义）：yes=跳过 / no=不跳过 / system=按公共配置 auto_continue_pass */
+    private static boolean autoContinueSkipEnabled(FlowContext context, SysProcessTemplateNodeConfigDo config) {
+        String autoContinueSkip = null == config || StringUtil.isEmpty(config.getAutoContinueSkip())
+                ? SysProcessConstants.AUTO_CONTINUE_SKIP_SYSTEM : config.getAutoContinueSkip().trim();
+        if (SysProcessConstants.AUTO_CONTINUE_SKIP_YES.equalsIgnoreCase(autoContinueSkip)) {
+            return true;
+        }
+        if (SysProcessConstants.AUTO_CONTINUE_SKIP_NO.equalsIgnoreCase(autoContinueSkip)) {
+            return false;
+        }
+        return context.settingAutoContinuePass;
+    }
+
+    /**
+     * 本实例「已审批人」并集（skipMode=any 的比对范围，只读）：本实例全部终态为
+     * FINISH（已通过）/ REJECT（已驳回）的审批节点处理人，取处理人字段（expect_handler_id 优先，
+     * 回退 handler_id）；自动跳过（PASS）节点不属于终态审批节点，其处理人不入并集。
+     */
+    private Set<String> approvedHandlersOfExample(FlowContext context) {
+        Set<String> approved = new HashSet<>();
+        for (SysProcessExampleNode node : context.graph.nodes()) {
+            if (!SysProcessConstants.NODE_TYPE_APPROVE.equals(node.getFieldNodeType())
+                    || !isEffectiveNodeStatus(node.getFieldStatus())) {
+                continue;
+            }
+            for (SysProcessExampleWorkitem workitem : workitemsOfNode(node.getFieldId())) {
+                String handlerId = workitemHandlerId(workitem);
+                if (null != handlerId) {
+                    approved.add(handlerId);
+                }
+            }
+        }
+        return approved;
+    }
+
+    /** 有效审批节点终态：FINISH（已通过）/ REJECT（已驳回）；自动跳过 PASS 节点不算有效节点 */
+    private static boolean isEffectiveNodeStatus(String nodeStatus) {
+        return SysProcessConstants.NODE_STATUS_FINISH.equals(nodeStatus)
+                || SysProcessConstants.NODE_STATUS_REJECT.equals(nodeStatus);
+    }
+
+    /** 工作项处理人取值：expect_handler_id 优先，回退 handler_id；皆空返回 null */
+    private static String workitemHandlerId(SysProcessExampleWorkitem workitem) {
+        if (null == workitem) {
+            return null;
+        }
+        if (StringUtil.isNotEmpty(workitem.getFieldExpectHandlerId())) {
+            return workitem.getFieldExpectHandlerId();
+        }
+        return StringUtil.isEmpty(workitem.getFieldHandlerId()) ? null : workitem.getFieldHandlerId();
+    }
+
+    /** 节点工作项（按节点 id 只读查询，DAO 空返回归一为空表） */
+    private List<SysProcessExampleWorkitem> workitemsOfNode(String nodeId) {
+        if (StringUtil.isEmpty(nodeId)) {
+            return List.of();
+        }
+        List<SysProcessExampleWorkitem> items = workitemDao.selectListByNodeId(nodeId);
+        return null == items ? List.of() : items;
+    }
+
     /**
      * 查找指定节点在图上的最近「有效节点」（编号小者优先）：终态为 FINISH / REJECT 的审批节点；
      * 自动跳过（PASS）节点不作为有效节点。返回其审批人集合与被自动跳过的处理人集合。
@@ -1169,9 +1301,7 @@ public class ProcessFlowEngine {
         PreviousNode prev = new PreviousNode();
         SysProcessExampleNode effective = null;
         for (SysProcessExampleNode node : previousApproveCandidates(context, nodeKey)) {
-            if (SysProcessConstants.NODE_TYPE_APPROVE.equals(node.getFieldNodeType())
-                    && (SysProcessConstants.NODE_STATUS_FINISH.equals(node.getFieldStatus())
-                    || SysProcessConstants.NODE_STATUS_REJECT.equals(node.getFieldStatus()))) {
+            if (isEffectiveNodeStatus(node.getFieldStatus())) {
                 effective = node;
                 break;
             }
@@ -1180,11 +1310,10 @@ public class ProcessFlowEngine {
             return prev;
         }
         Set<String> autoPassWorkitemIds = autoPassWorkitemIds(context);
-        for (SysProcessExampleWorkitem workitem : support.workitemsOfNode(effective.getFieldId())) {
-            if (StringUtil.isNotEmpty(workitem.getFieldExpectHandlerId())) {
-                prev.handlers.add(workitem.getFieldExpectHandlerId());
-            } else if (StringUtil.isNotEmpty(workitem.getFieldHandlerId())) {
-                prev.handlers.add(workitem.getFieldHandlerId());
+        for (SysProcessExampleWorkitem workitem : workitemsOfNode(effective.getFieldId())) {
+            String handlerId = workitemHandlerId(workitem);
+            if (null != handlerId) {
+                prev.handlers.add(handlerId);
             }
             if (autoPassWorkitemIds.contains(workitem.getFieldId())) {
                 prev.skipped.add(workitem.getFieldHandlerId());

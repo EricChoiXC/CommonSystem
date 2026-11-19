@@ -195,6 +195,20 @@ public class SysProcessConstants {
     /** 是否允许自动跳过：否 */
     public static final String AUTO_SKIP_NO = "no";
 
+    /**
+     * 相同审批人跳过模式（skipMode，v1_7 新增，P17-BE-004 接入引擎）：
+     * 跳过总开关与比对范围，与 autoContinueSkip（连续跳过）为两个维度。
+     * {@link SysProcessTemplateNodeConfigDo#getSkipMode()} 已做旧键 autoSkip 的 yes→prev、no→none 归一。
+     */
+    /** 相同审批人跳过模式：同系统配置（沿用公共配置 auto_handle_pass / auto_handle_pass_drafter；缺省） */
+    public static final String SKIP_MODE_SYSTEM = "system";
+    /** 相同审批人跳过模式：不跳过（即便系统配置允许自动跳过） */
+    public static final String SKIP_MODE_NONE = "none";
+    /** 相同审批人跳过模式：上一有效审批节点（终态 FINISH/REJECT，自动跳过节点不算）的处理人相同时跳过 */
+    public static final String SKIP_MODE_PREV = "prev";
+    /** 相同审批人跳过模式：本实例全部已审批人（已通过/已驳回审批节点的处理人并集）相同时跳过 */
+    public static final String SKIP_MODE_ANY = "any";
+
     /** 审批来源：组织架构（默认，直接取节点配置的审批人） */
     public static final String HANDLER_SOURCE_ORG = "org";
     /** 审批来源：表单字段（审批时读取文档实体字段值解析出组织架构作为审批人） */

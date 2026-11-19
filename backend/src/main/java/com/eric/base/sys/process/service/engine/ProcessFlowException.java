@@ -78,6 +78,15 @@ public class ProcessFlowException extends RuntimeException {
         return new ProcessFlowException(CODE_SYSTEM, message, cause);
     }
 
+    /**
+     * 无审批人（审批源解析结果为空）且节点配置 {@code emptyHandlerMode=error}（P17-BE-004）：
+     * 引擎侧「emptyHandlerMode 为唯一出口」的判定结果，错误码沿用
+     * {@link ProcessHandlerResolveException#CODE_EMPTY_HANDLER}，保证留痕摘要与解析器同码。
+     */
+    public static ProcessFlowException emptyHandler(String message) {
+        return new ProcessFlowException(ProcessHandlerResolveException.CODE_EMPTY_HANDLER, message);
+    }
+
     public String getCode() {
         return code;
     }

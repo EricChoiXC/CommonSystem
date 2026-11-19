@@ -1,6 +1,7 @@
 package com.eric.base.sys.process.model;
 
 import com.eric.base.sys.process.properties.SysProcessConstants;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import java.util.ArrayList;
@@ -52,6 +53,9 @@ public class SysProcessTemplateNodeConfigDo {
 
     /** 相同审批人跳过模式：不跳过（旧值 no 的归一结果） */
     private static final String SKIP_MODE_NONE = "none";
+
+    /** 相同审批人跳过模式：已审批人（本实例全部已通过/已驳回审批节点处理人的并集）相同时跳过 */
+    private static final String SKIP_MODE_ANY = "any";
 
     /** 审批人解析方式缺省值：负责人 */
     private static final String RESOLVE_MODE_DEFAULT = "leader";
@@ -175,6 +179,25 @@ public class SysProcessTemplateNodeConfigDo {
             return SKIP_MODE_NONE;
         }
         return trimmed;
+    }
+
+    /**
+     * 跳过模式归一（供引擎判定使用，P17-BE-004）：在 {@link #getSkipMode()}（旧值已归一）基础上
+     * 把大小写与非法取值收敛——仅 {@code none}/{@code prev}/{@code any} 生效，其余（空/非法/缺省）取 {@code system}。
+     * <p>标注 {@code @JsonIgnore}：本方法为只读派生取值（无对应字段），若不排除会被 Jackson 序列化为
+     * {@code normalizedSkipMode} 键，而反序列化时该键无对应属性，导致节点配置 JSON 往返失败并污染存量配置。</p>
+     */
+    @JsonIgnore
+    public String getNormalizedSkipMode() {
+        String value = trimToNull(getSkipMode());
+        if (null == value) {
+            return SKIP_MODE_DEFAULT;
+        }
+        String normalized = value.toLowerCase(java.util.Locale.ROOT);
+        if (SKIP_MODE_NONE.equals(normalized) || SKIP_MODE_PREV.equals(normalized) || SKIP_MODE_ANY.equals(normalized)) {
+            return normalized;
+        }
+        return SKIP_MODE_DEFAULT;
     }
 
     /**
