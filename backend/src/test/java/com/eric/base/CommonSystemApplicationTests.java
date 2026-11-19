@@ -47,6 +47,7 @@ import com.eric.base.sys.process.mapper.SysProcessExampleMapper;
 import com.eric.base.sys.process.mapper.SysProcessExampleNodeMapper;
 import com.eric.base.sys.process.mapper.SysProcessExampleWorkitemMapper;
 import com.eric.base.sys.process.mapper.SysProcessTemplateHistoryMapper;
+import com.eric.base.sys.process.mapper.SysProcessTemplateLineMapper;
 import com.eric.base.sys.process.mapper.SysProcessTemplateMapper;
 import com.eric.base.sys.process.mapper.SysProcessTemplateNodeMapper;
 import org.junit.jupiter.api.Test;
@@ -288,6 +289,11 @@ class CommonSystemApplicationTests {
 		@Bean
 		SysProcessTemplateHistoryMapper sysProcessTemplateHistoryMapper() {
 			return Mockito.mock(SysProcessTemplateHistoryMapper.class);
+		}
+
+		@Bean
+		SysProcessTemplateLineMapper sysProcessTemplateLineMapper() {
+			return Mockito.mock(SysProcessTemplateLineMapper.class);
 		}
 
 		@Bean

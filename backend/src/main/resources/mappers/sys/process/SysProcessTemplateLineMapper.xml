@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eric.base.sys.process.mapper.SysProcessTemplateLineMapper">
+
+    <!--
+        流程模板连线表(sys_process_template_line)映射
+        field_line_type 枚举: NORMAL=普通 CONDITION=条件分支 PARALLEL=并行分支 MANUAL=人工决策；
+        field_branch_order 为条件/并行分支的判断顺序（field_condition 仅 CONDITION/PARALLEL 填写），
+        条件分支节点的出边中有且仅有一条 field_is_default = b'1'；连线随模板保存全量替换（删旧插新同事务）。
+    -->
+
+    <resultMap id="SysProcessTemplateLineResultMap" type="com.eric.base.sys.process.model.SysProcessTemplateLine">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_template_id" property="fieldTemplateId"/>
+        <result column="field_from_key" property="fieldFromKey"/>
+        <result column="field_to_key" property="fieldToKey"/>
+        <result column="field_line_type" property="fieldLineType"/>
+        <result column="field_branch_order" property="fieldBranchOrder"/>
+        <result column="field_branch_name" property="fieldBranchName"/>
+        <result column="field_condition" property="fieldCondition"/>
+        <result column="field_is_default" property="fieldIsDefault"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_template_id, field_from_key, field_to_key, field_line_type,
+        field_branch_order, field_branch_name, field_condition, field_is_default
+    </sql>
+
+    <insert id="insert" parameterType="com.eric.base.sys.process.model.SysProcessTemplateLine">
+        INSERT INTO sys_process_template_line (
+        <include refid="BaseColumns"/>
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldTemplateId}, #{model.fieldFromKey}, #{model.fieldToKey},
+        #{model.fieldLineType}, #{model.fieldBranchOrder}, #{model.fieldBranchName},
+        #{model.fieldCondition}, #{model.fieldIsDefault}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.eric.base.sys.process.model.SysProcessTemplateLine">
+        UPDATE sys_process_template_line
+        <set>
+            <if test="model.fieldTemplateId != null">field_template_id = #{model.fieldTemplateId},</if>
+            <if test="model.fieldFromKey != null">field_from_key = #{model.fieldFromKey},</if>
+            <if test="model.fieldToKey != null">field_to_key = #{model.fieldToKey},</if>
+            <if test="model.fieldLineType != null">field_line_type = #{model.fieldLineType},</if>
+            <if test="model.fieldBranchOrder != null">field_branch_order = #{model.fieldBranchOrder},</if>
+            <if test="model.fieldBranchName != null">field_branch_name = #{model.fieldBranchName},</if>
+            <if test="model.fieldCondition != null">field_condition = #{model.fieldCondition},</if>
+            <if test="model.fieldIsDefault != null">field_is_default = #{model.fieldIsDefault},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_process_template_line
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysProcessTemplateLineResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_template_line
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <select id="selectList" resultMap="SysProcessTemplateLineResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_template_line
+        <where>
+            <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
+            <if test="model.fieldTemplateId != null and model.fieldTemplateId != ''">AND field_template_id = #{model.fieldTemplateId}</if>
+        </where>
+        ORDER BY field_from_key ASC, field_branch_order ASC
+    </select>
+
+    <!-- 轻量加载：仅返回 field_id 与 field_name（本表无 field_name 列，别名指向 field_branch_name），供关联对象赋值使用 -->
+    <resultMap id="SysProcessTemplateLineLoadResultMap" type="com.eric.base.sys.process.model.SysProcessTemplateLine">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_branch_name" property="fieldBranchName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysProcessTemplateLineLoadResultMap">
+        SELECT field_id, field_branch_name AS field_name
+        FROM sys_process_template_line
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!-- 按模板查询全部连线（按起始节点键、分支序号升序） -->
+    <select id="selectListByTemplateId" parameterType="string" resultMap="SysProcessTemplateLineResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_template_line
+        WHERE field_template_id = #{templateId}
+        ORDER BY field_from_key ASC, field_branch_order ASC
+    </select>
+
+    <!-- 按「模板 + 起始节点键」查询候选出边（走组合索引 idx_template_line_from） -->
+    <select id="selectListByTemplateIdAndFromKey" resultMap="SysProcessTemplateLineResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_process_template_line
+        WHERE field_template_id = #{templateId}
+          AND field_from_key = #{fromKey}
+        ORDER BY field_branch_order ASC
+    </select>
+
+    <!-- 删除模板全部连线（保存全量替换前清空） -->
+    <delete id="deleteByTemplateId" parameterType="string">
+        DELETE FROM sys_process_template_line
+        WHERE field_template_id = #{templateId}
+    </delete>
+
+    <!-- 批量插入模板连线（保存时全量重建） -->
+    <insert id="insertBatch">
+        INSERT INTO sys_process_template_line (
+        <include refid="BaseColumns"/>
+        ) VALUES
+        <foreach collection="lines" item="line" separator=",">
+            (#{line.fieldId}, #{templateId}, #{line.fieldFromKey}, #{line.fieldToKey},
+            #{line.fieldLineType}, #{line.fieldBranchOrder}, #{line.fieldBranchName},
+            #{line.fieldCondition}, #{line.fieldIsDefault})
+        </foreach>
+    </insert>
+
+</mapper>
