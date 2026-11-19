@@ -29,7 +29,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 
 /**
  * 流程节点处理人解析服务（地址本全类型 + 公式源）
@@ -714,23 +713,5 @@ public class ProcessHandlerResolver {
         private static ResolveMode of(String value) {
             return null == value ? LEADER : BY_NAME.getOrDefault(value, LEADER);
         }
-    }
-
-    /** 供未来扩展的元素取数函数（保留泛型签名避免误用字段注入） */
-    @SuppressWarnings("unused")
-    private static <T> Function<T, T> identity() {
-        return Function.identity();
-    }
-
-    /** 未使用占位：群组成员元素模型在只读路径按 ID 展开，避免与 org 服务写路径耦合 */
-    @SuppressWarnings("unused")
-    private static Class<SysOrgGroupUser> groupUserModel() {
-        return SysOrgGroupUser.class;
-    }
-
-    /** 未使用占位：HashSet 仅在去重兜底场景备用 */
-    @SuppressWarnings("unused")
-    private static Set<String> emptySet() {
-        return new HashSet<>();
     }
 }
