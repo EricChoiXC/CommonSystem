@@ -7,6 +7,7 @@
     <!--
         流程模板节点表(sys_process_template_node)映射
         field_node_type 枚举: START/END/DRAFT/APPROVE/ROBORT；
+        field_node_key 为节点业务键（模板内唯一，固定节点 N1=开始 N2=起草 N3=结束，其余顺延）；
         field_node_config 以 JSON 字符串保存审批节点配置（审批人/审批模式/节点触发/触发条件/是否允许自动跳过）。
     -->
 
@@ -17,17 +18,18 @@
         <result column="field_node_name" property="fieldNodeName"/>
         <result column="field_node_type" property="fieldNodeType"/>
         <result column="field_node_config" property="fieldNodeConfig"/>
+        <result column="field_node_key" property="fieldNodeKey"/>
     </resultMap>
 
     <sql id="BaseColumns">
-        field_id, field_template_id, field_no, field_node_name, field_node_type, field_node_config
+        field_id, field_template_id, field_no, field_node_name, field_node_type, field_node_config, field_node_key
     </sql>
 
     <insert id="insert" parameterType="com.eric.base.sys.process.model.SysProcessTemplateNode">
         INSERT INTO sys_process_template_node (
         <include refid="BaseColumns"/>
         ) VALUES (
-        #{model.fieldId}, #{model.fieldTemplateId}, #{model.fieldNo}, #{model.fieldNodeName}, #{model.fieldNodeType}, #{model.fieldNodeConfig}
+        #{model.fieldId}, #{model.fieldTemplateId}, #{model.fieldNo}, #{model.fieldNodeName}, #{model.fieldNodeType}, #{model.fieldNodeConfig}, #{model.fieldNodeKey}
         )
     </insert>
 
@@ -39,6 +41,7 @@
             <if test="model.fieldNodeName != null">field_node_name = #{model.fieldNodeName},</if>
             <if test="model.fieldNodeType != null">field_node_type = #{model.fieldNodeType},</if>
             <if test="model.fieldNodeConfig != null">field_node_config = #{model.fieldNodeConfig},</if>
+            <if test="model.fieldNodeKey != null">field_node_key = #{model.fieldNodeKey},</if>
         </set>
         WHERE field_id = #{model.fieldId}
     </update>
@@ -62,6 +65,7 @@
         <where>
             <if test="model.fieldId != null and model.fieldId != ''">AND field_id = #{model.fieldId}</if>
             <if test="model.fieldTemplateId != null and model.fieldTemplateId != ''">AND field_template_id = #{model.fieldTemplateId}</if>
+            <if test="model.fieldNodeKey != null and model.fieldNodeKey != ''">AND field_node_key = #{model.fieldNodeKey}</if>
         </where>
         ORDER BY field_no ASC
     </select>
@@ -99,7 +103,7 @@
         <include refid="BaseColumns"/>
         ) VALUES
         <foreach collection="nodes" item="node" separator=",">
-            (#{node.fieldId}, #{templateId}, #{node.fieldNo}, #{node.fieldNodeName}, #{node.fieldNodeType}, #{node.fieldNodeConfig})
+            (#{node.fieldId}, #{templateId}, #{node.fieldNo}, #{node.fieldNodeName}, #{node.fieldNodeType}, #{node.fieldNodeConfig}, #{node.fieldNodeKey})
         </foreach>
     </insert>
 

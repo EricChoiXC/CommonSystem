@@ -47,4 +47,7 @@ public class SysProcessExampleWorkitemVo {
 
     /** 重新提交后流转方式：restart=重新流转 / backToNode=转回本节点 */
     private String resumeMode;
+
+    /** 来源工作项 id（转办/转办收回/已审批人收回生成的新工作项追溯），可空 */
+    private String fieldFromWorkitemId;
 }

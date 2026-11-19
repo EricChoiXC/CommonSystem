@@ -53,4 +53,17 @@ public class SysProcessExampleNode extends BaseModel {
     @ColumnField(name = "field_status", comment = "节点状态: WAITING=等待处理 PROCESSING=审批中 FINISH=完成 PASS=跳过 REJECT=驳回",
             type = ColumnType.STRING, length = 20, defaultValue = "WAITING")
     private String fieldStatus;
+
+    /** 节点业务键（模板节点快照，模板内唯一；存量实例由迁移回填） */
+    @ColumnField(name = "field_node_key", comment = "节点业务键(模板节点快照,模板内唯一)",
+            type = ColumnType.STRING, length = 50, nullable = true)
+    private String fieldNodeKey;
+
+    /**
+     * 节点运行态（JSON 字符串，固定结构 POJO：activeBranchKeys / arrivedBranchKeys / joinMode），
+     * 仅 FORK/JOIN 节点有值；引擎内部运行态，不透出到 {@code SysProcessExampleNodeVo}（分册 §4.4）。
+     */
+    @ColumnField(name = "field_runtime", comment = "节点运行态(JSON对象,FORK激活分支集合/JOIN到达进度)",
+            type = ColumnType.JSON, nullable = true)
+    private String fieldRuntime;
 }

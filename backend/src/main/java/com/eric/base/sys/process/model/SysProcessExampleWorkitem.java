@@ -69,4 +69,9 @@ public class SysProcessExampleWorkitem extends BaseModel {
     /** 工作项配置（JSON 字符串，如驳回后的「重新提交后流转方式」） */
     @ColumnField(name = "field_config", comment = "工作项配置(JSON对象,如驳回后重新提交流转方式)", type = ColumnType.JSON, nullable = true)
     private String fieldConfig;
+
+    /** 来源工作项id（转办/转办收回/已审批人收回生成的新工作项追溯；存量工作项无来源链路，为空） */
+    @ColumnField(name = "field_from_workitem_id", comment = "来源工作项id(转办/转办收回/已审批人收回生成的新工作项追溯)",
+            type = ColumnType.STRING, length = 32, nullable = true)
+    private String fieldFromWorkitemId;
 }

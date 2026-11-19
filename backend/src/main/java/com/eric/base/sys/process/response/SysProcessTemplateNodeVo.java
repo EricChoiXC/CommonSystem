@@ -62,4 +62,7 @@ public class SysProcessTemplateNodeVo {
      * value=该节点审批人是否允许执行该操作；未配置/未开启均视为不允许。
      */
     private Map<String, Boolean> ops;
+
+    /** 节点业务键（模板内唯一，固定节点 N1=开始 N2=起草 N3=结束，其余顺延） */
+    private String fieldNodeKey;
 }

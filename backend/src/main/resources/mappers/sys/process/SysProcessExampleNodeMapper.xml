@@ -8,6 +8,8 @@
         流程实例节点表(sys_process_example_node)映射
         field_node_type 枚举: START/END/DRAFT/APPROVE/ROBORT；
         field_status 枚举: WAITING/PROCESSING/FINISH/PASS/REJECT；
+        field_node_key 为模板节点业务键快照（模板内唯一，供流程图节点定位与连线端点匹配）；
+        field_runtime 为节点运行态（JSON 字符串，仅 FORK/JOIN 节点有值，引擎内部态不透出 VO）；
         field_node_config 为模板节点配置快照（JSON 字符串）。
     -->
 
@@ -19,17 +21,21 @@
         <result column="field_node_type" property="fieldNodeType"/>
         <result column="field_node_config" property="fieldNodeConfig"/>
         <result column="field_status" property="fieldStatus"/>
+        <result column="field_node_key" property="fieldNodeKey"/>
+        <result column="field_runtime" property="fieldRuntime"/>
     </resultMap>
 
     <sql id="BaseColumns">
-        field_id, field_example_id, field_node_no, field_node_name, field_node_type, field_node_config, field_status
+        field_id, field_example_id, field_node_no, field_node_name, field_node_type, field_node_config, field_status,
+        field_node_key, field_runtime
     </sql>
 
     <insert id="insert" parameterType="com.eric.base.sys.process.model.SysProcessExampleNode">
         INSERT INTO sys_process_example_node (
         <include refid="BaseColumns"/>
         ) VALUES (
-        #{model.fieldId}, #{model.fieldExampleId}, #{model.fieldNodeNo}, #{model.fieldNodeName}, #{model.fieldNodeType}, #{model.fieldNodeConfig}, #{model.fieldStatus}
+        #{model.fieldId}, #{model.fieldExampleId}, #{model.fieldNodeNo}, #{model.fieldNodeName}, #{model.fieldNodeType}, #{model.fieldNodeConfig}, #{model.fieldStatus},
+        #{model.fieldNodeKey}, #{model.fieldRuntime}
         )
     </insert>
 
@@ -42,6 +48,8 @@
             <if test="model.fieldNodeType != null">field_node_type = #{model.fieldNodeType},</if>
             <if test="model.fieldNodeConfig != null">field_node_config = #{model.fieldNodeConfig},</if>
             <if test="model.fieldStatus != null">field_status = #{model.fieldStatus},</if>
+            <if test="model.fieldNodeKey != null">field_node_key = #{model.fieldNodeKey},</if>
+            <if test="model.fieldRuntime != null">field_runtime = #{model.fieldRuntime},</if>
         </set>
         WHERE field_id = #{model.fieldId}
     </update>
@@ -67,6 +75,7 @@
             <if test="model.fieldExampleId != null and model.fieldExampleId != ''">AND field_example_id = #{model.fieldExampleId}</if>
             <if test="model.fieldNodeNo != null">AND field_node_no = #{model.fieldNodeNo}</if>
             <if test="model.fieldNodeType != null and model.fieldNodeType != ''">AND field_node_type = #{model.fieldNodeType}</if>
+            <if test="model.fieldNodeKey != null and model.fieldNodeKey != ''">AND field_node_key = #{model.fieldNodeKey}</if>
             <if test="model.fieldStatus != null and model.fieldStatus != ''">AND field_status = #{model.fieldStatus}</if>
         </where>
         ORDER BY field_node_no ASC
@@ -127,7 +136,8 @@
         <include refid="BaseColumns"/>
         ) VALUES
         <foreach collection="nodes" item="node" separator=",">
-            (#{node.fieldId}, #{exampleId}, #{node.fieldNodeNo}, #{node.fieldNodeName}, #{node.fieldNodeType}, #{node.fieldNodeConfig}, #{node.fieldStatus})
+            (#{node.fieldId}, #{exampleId}, #{node.fieldNodeNo}, #{node.fieldNodeName}, #{node.fieldNodeType}, #{node.fieldNodeConfig}, #{node.fieldStatus},
+            #{node.fieldNodeKey}, #{node.fieldRuntime})
         </foreach>
     </insert>
 

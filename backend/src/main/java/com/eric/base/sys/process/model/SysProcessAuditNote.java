@@ -56,9 +56,17 @@ public class SysProcessAuditNote extends BaseModel {
             type = ColumnType.TIMESTAMP, defaultFunction = DefaultFunction.CURRENT_TIMESTAMP)
     private Date fieldCreateTime;
 
-    /** 处理操作：DRAFTER_SUBMIT / DRAFTER_BACK / DRAFTER_ABANDON / HANDLER_PASS / HANDLER_RETURN /
-     *  AUTO_PASS / ADMIN_PAUSE / ADMIN_RESUME / ADMIN_JUMP / ADMIN_ABANDON / ADMIN_FINISH */
-    @ColumnField(name = "field_handle_type", comment = "处理操作: DRAFTER_SUBMIT=起草人提交 DRAFTER_BACK=起草人收回 DRAFTER_ABANDON=起草人废弃 HANDLER_PASS=处理人通过 HANDLER_RETURN=处理人驳回 AUTO_PASS=自动跳过 ADMIN_PAUSE=管理员暂停 ADMIN_RESUME=管理员恢复 ADMIN_JUMP=管理员跳转 ADMIN_ABANDON=管理员作废 ADMIN_FINISH=管理员办结",
-            type = ColumnType.STRING, length = 20)
+    /**
+     * 处理操作（全集 21 值 = 既有 11 + v1_7 新增 10，见《流程v1_7数据库设计分册》§7.7）：
+     * DRAFTER_SUBMIT / DRAFTER_BACK / DRAFTER_ABANDON / HANDLER_PASS / HANDLER_RETURN / AUTO_PASS /
+     * ADMIN_PAUSE / ADMIN_RESUME / ADMIN_JUMP / ADMIN_ABANDON / ADMIN_FINISH /
+     * HANDLER_REJECT / CC_AUTO / DRAFTER_EXPEDITE / HANDLER_CC / HANDLER_TRANSFER /
+     * HANDLER_TRANSFER_RETRACT / PROCESSED_RETRACT / PROCESSED_EXPEDITE / ADMIN_CHANGE_HANDLER /
+     * SYSTEM_ERROR；
+     * HANDLER_RETURN 保留兼容历史数据，新操作统一写 HANDLER_REJECT（可指定驳回目标 + resumeMode）。
+     * 列宽 VARCHAR(20) → VARCHAR(50)：最长新值 HANDLER_TRANSFER_RETRACT 为 24 字符（L1 扩长）。
+     */
+    @ColumnField(name = "field_handle_type", comment = "处理操作: DRAFTER_SUBMIT=起草人提交 DRAFTER_BACK=起草人收回 DRAFTER_ABANDON=起草人废弃 HANDLER_PASS=处理人通过 HANDLER_RETURN=处理人驳回 AUTO_PASS=自动跳过 ADMIN_PAUSE=管理员暂停 ADMIN_RESUME=管理员恢复 ADMIN_JUMP=管理员跳转 ADMIN_ABANDON=管理员作废 ADMIN_FINISH=管理员办结 HANDLER_REJECT=处理人驳回(新语义:可指定驳回目标+resumeMode) CC_AUTO=抄送节点自动办结留痕 DRAFTER_EXPEDITE=起草人催办 HANDLER_CC=审批人抄送 HANDLER_TRANSFER=审批人转办 HANDLER_TRANSFER_RETRACT=转办收回 PROCESSED_RETRACT=已审批人收回 PROCESSED_EXPEDITE=已审批人催办 ADMIN_CHANGE_HANDLER=管理员更换审批人 SYSTEM_ERROR=流程异常(附错误摘要)",
+            type = ColumnType.STRING, length = 50)
     private String fieldHandleType;
 }

@@ -27,4 +27,7 @@ public class SysProcessExampleNodeVo {
 
     /** 节点状态：WAITING / PROCESSING / FINISH / PASS / REJECT */
     private String fieldStatus;
+
+    /** 节点业务键（模板节点快照，模板内唯一），供实例详情流程图渲染节点定位与连线端点匹配 */
+    private String fieldNodeKey;
 }

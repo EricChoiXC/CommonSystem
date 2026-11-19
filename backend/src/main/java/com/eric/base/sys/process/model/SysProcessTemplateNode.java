@@ -48,4 +48,9 @@ public class SysProcessTemplateNode extends BaseModel {
     /** 节点配置（JSON 字符串，审批节点才有：审批人/审批模式/节点触发/触发条件/是否允许自动跳过） */
     @ColumnField(name = "field_node_config", comment = "节点配置(JSON对象)", type = ColumnType.JSON, nullable = true)
     private String fieldNodeConfig;
+
+    /** 节点业务键（模板内唯一，固定节点 N1=开始 N2=起草 N3=结束，其余顺延；存量行由迁移回填） */
+    @ColumnField(name = "field_node_key", comment = "节点业务键(模板内唯一,固定节点 N1=开始 N2=起草 N3=结束,其余顺延)",
+            type = ColumnType.STRING, length = 50, nullable = true)
+    private String fieldNodeKey;
 }
