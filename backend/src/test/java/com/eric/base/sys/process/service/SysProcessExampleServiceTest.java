@@ -496,7 +496,8 @@ class SysProcessExampleServiceTest {
         // 其他审批人工作项转为 FINISH
         verify(workitemDao).update(argThat(w -> WI_U2.equals(w.getFieldId())
                 && SysProcessConstants.WORKITEM_STATUS_FINISH.equals(w.getFieldStatus())));
-        verify(auditNoteDao).insert(argThat(n -> SysProcessConstants.AUDIT_TYPE_HANDLER_RETURN.equals(n.getFieldHandleType())));
+        // v1_7 起新操作统一留痕 HANDLER_REJECT（旧 4 参入口同样写新类型，HANDLER_RETURN 保留兼容历史数据）
+        verify(auditNoteDao).insert(argThat(n -> SysProcessConstants.AUDIT_TYPE_HANDLER_REJECT.equals(n.getFieldHandleType())));
         verify(nodeDao).update(argThat(n -> NODE3_ID.equals(n.getFieldId())
                 && SysProcessConstants.NODE_STATUS_REJECT.equals(n.getFieldStatus())));
         verify(exampleDao).update(argThat(e -> SysProcessConstants.EXAMPLE_STATUS_RETURN.equals(e.getFieldStatus())));
@@ -510,6 +511,181 @@ class SysProcessExampleServiceTest {
         example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
         assertThrows(IllegalArgumentException.class,
                 () -> service.reject(EXAMPLE_ID, WI_U1, "不同意", null));
+    }
+
+    /* ==================== 驳回目标校验（P17-BE-009） ==================== */
+
+    /** 驳回目标配置：允许起草节点（N2）与上游审批节点 N3 */
+    private static final String CONFIG_REJECT_TARGETS =
+            "{\"handlerIds\":\"" + U1 + "\",\"approveMode\":\"single\",\"rejectTargets\":[\"N2\",\"N3\"]}";
+
+    /** 驳回目标配置：含未流经节点 N5（校验「配置 ∩ 已流经」交集） */
+    private static final String CONFIG_REJECT_TARGETS_WITH_WAITING =
+            "{\"handlerIds\":\"" + U1 + "\",\"approveMode\":\"single\",\"rejectTargets\":[\"N2\",\"N5\"]}";
+
+    private static final String NODE6_ID = "12345678901234567890123456789016";
+
+    /**
+     * 装配驳回目标校验图：N1(START)→N2(DRAFT)→N3(APPROVE,已流经位)→N4(APPROVE,驳回者所在)
+     * →N5(APPROVE,未流经)→N6(END)。
+     *
+     * @param node3Status 已流经位节点 N3 的状态（FINISH / REJECT / PASS / WAITING）
+     * @param node4Config 驳回者所在节点 N4 的节点配置（承载 rejectTargets）
+     */
+    private void setUpRejectTargetGraph(String node3Status, String node4Config) {
+        exampleNodes.clear();
+        exampleNodes.addAll(List.of(
+                exampleNode("12345678901234567890123456789091", 1, "开始节点", "START",
+                        SysProcessConstants.NODE_STATUS_FINISH, null),
+                exampleNode("12345678901234567890123456789092", 2, "草稿节点", "DRAFT",
+                        SysProcessConstants.NODE_STATUS_FINISH, null),
+                exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE", node3Status, CONFIG_SINGLE),
+                exampleNode(NODE4_ID, 4, "审批节点4", "APPROVE",
+                        SysProcessConstants.NODE_STATUS_PROCESSING, node4Config),
+                exampleNode(NODE5_ID, 5, "审批节点5", "APPROVE",
+                        SysProcessConstants.NODE_STATUS_WAITING, CONFIG_SINGLE),
+                exampleNode(NODE6_ID, 6, "结束节点", "END", SysProcessConstants.NODE_STATUS_WAITING, null)));
+        // 连线：N1→N2→N3→N4→N5→N6
+        List<SysProcessExampleLine> lines = new ArrayList<>();
+        lines.add(exampleLine("L1", "N1", "N2"));
+        lines.add(exampleLine("L2", "N2", "N3"));
+        lines.add(exampleLine("L3", "N3", "N4"));
+        lines.add(exampleLine("L4", "N4", "N5"));
+        lines.add(exampleLine("L5", "N5", "N6"));
+        when(exampleLineDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(lines);
+        when(nodeDao.selectByExampleAndType(EXAMPLE_ID, SysProcessConstants.NODE_TYPE_DRAFT))
+                .thenReturn(exampleNodeAt(2));
+        when(nodeDao.selectByExampleAndType(EXAMPLE_ID, SysProcessConstants.NODE_TYPE_END))
+                .thenReturn(exampleNodeAt(6));
+    }
+
+    /** 驳回场景桩：驳回者 U1 持有节点4（N4）的 PROCESSING 工作项 */
+    private void stubRejecterWorkitem() {
+        when(nodeDao.selectById(NODE4_ID)).thenReturn(exampleNodeAt(4));
+        when(workitemDao.selectById(WI_U1)).thenReturn(workitem(WI_U1, NODE4_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        when(workitemDao.selectListByNodeId(NODE4_ID)).thenReturn(List.of(
+                workitem(WI_U2, NODE4_ID, U2, SysProcessConstants.WORKITEM_STATUS_PROCESSING)));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+    }
+
+    @Test
+    void rejectWithConfiguredTargetKeepsTargetAndDraftNodesUntouched() {
+        // 配置 [N2,N3]：N3 为已流经（FINISH）上游审批节点 → 允许；留痕 HANDLER_REJECT，
+        // 目标节点（N3）与起草节点状态均不改动（重新提交时按 resumeMode 进入目标节点）
+        setUpRejectTargetGraph(SysProcessConstants.NODE_STATUS_FINISH, CONFIG_REJECT_TARGETS);
+        stubRejecterWorkitem();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+
+        service.reject(EXAMPLE_ID, WI_U1, "退回节点3", "N3", SysProcessConstants.RESUME_MODE_BACK_TO_NODE);
+
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_HANDLER_REJECT.equals(n.getFieldHandleType())));
+        verify(workitemDao).update(argThat(w -> WI_U1.equals(w.getFieldId())
+                && SysProcessConstants.WORKITEM_STATUS_FINISH.equals(w.getFieldStatus())
+                && w.getFieldConfig().contains("\"resumeMode\":\"backToNode\"")
+                && w.getFieldConfig().contains("\"rejectTargetKey\":\"N3\"")));
+        verify(workitemDao).update(argThat(w -> WI_U2.equals(w.getFieldId())
+                && SysProcessConstants.WORKITEM_STATUS_FINISH.equals(w.getFieldStatus())));
+        verify(nodeDao).update(argThat(n -> NODE4_ID.equals(n.getFieldId())
+                && SysProcessConstants.NODE_STATUS_REJECT.equals(n.getFieldStatus())));
+        verify(exampleDao).update(argThat(e -> SysProcessConstants.EXAMPLE_STATUS_RETURN.equals(e.getFieldStatus())));
+        // 驳回目标=非起草节点：目标节点与起草节点均不置 PROCESSING
+        verify(nodeDao, never()).update(argThat(n -> NODE3_ID.equals(n.getFieldId())));
+        verify(nodeDao, never()).update(argThat(n -> n.getFieldNodeNo() == 2
+                && SysProcessConstants.NODE_STATUS_PROCESSING.equals(n.getFieldStatus())));
+    }
+
+    @Test
+    void rejectWithDraftTargetReturnsDraftNodeToProcessing() {
+        // 配置 [N2,N3]：起草节点 N2 恒视为已流经 → 允许；起草节点转回 PROCESSING（现状行为不变）
+        setUpRejectTargetGraph(SysProcessConstants.NODE_STATUS_FINISH, CONFIG_REJECT_TARGETS);
+        stubRejecterWorkitem();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+
+        service.reject(EXAMPLE_ID, WI_U1, "退回起草节点", "N2", SysProcessConstants.RESUME_MODE_BACK_TO_NODE);
+
+        verify(exampleDao).update(argThat(e -> SysProcessConstants.EXAMPLE_STATUS_RETURN.equals(e.getFieldStatus())));
+        verify(nodeDao).update(argThat(n -> n.getFieldNodeNo() == 2
+                && SysProcessConstants.NODE_STATUS_PROCESSING.equals(n.getFieldStatus())));
+    }
+
+    @Test
+    void rejectRejectsTargetNotInConfigEvenIfTraversed() {
+        // 配置为空（无 rejectTargets）→ 允许目标仅起草节点；已流经（FINISH）的 N3 也不允许
+        setUpRejectTargetGraph(SysProcessConstants.NODE_STATUS_FINISH, CONFIG_SINGLE);
+        stubRejecterWorkitem();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.reject(EXAMPLE_ID, WI_U1, "退回节点3", "N3",
+                        SysProcessConstants.RESUME_MODE_BACK_TO_NODE));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_NODE_TARGET_INVALID));
+        assertTrue(error.getMessage().contains("审批节点3"), "拒绝原因须列出节点名");
+        // 校验失败不产生任何流转写操作
+        verify(auditNoteDao, never()).insert(any(SysProcessAuditNote.class));
+        verify(exampleDao, never()).update(any(SysProcessExample.class));
+    }
+
+    @Test
+    void rejectRejectsWaitingTargetEvenIfConfigured() {
+        // 配置 [N2,N5]：N5 未流经（WAITING，不算已流经）→ 拒绝
+        setUpRejectTargetGraph(SysProcessConstants.NODE_STATUS_FINISH, CONFIG_REJECT_TARGETS_WITH_WAITING);
+        stubRejecterWorkitem();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.reject(EXAMPLE_ID, WI_U1, "退回节点5", "N5",
+                        SysProcessConstants.RESUME_MODE_BACK_TO_NODE));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_NODE_TARGET_INVALID));
+        verify(auditNoteDao, never()).insert(any(SysProcessAuditNote.class));
+    }
+
+    @Test
+    void rejectRejectsAutoPassTargetEvenIfConfigured() {
+        // 配置 [N2,N3]：N3 为 PASS（自动跳过，不算已流经）→ 拒绝
+        setUpRejectTargetGraph(SysProcessConstants.NODE_STATUS_PASS, CONFIG_REJECT_TARGETS);
+        stubRejecterWorkitem();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.reject(EXAMPLE_ID, WI_U1, "退回节点3", "N3",
+                        SysProcessConstants.RESUME_MODE_BACK_TO_NODE));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_NODE_TARGET_INVALID));
+    }
+
+    @Test
+    void rejectRejectsUnknownTargetKey() {
+        // 目标 key 不是本实例节点（N9 不在实例节点集合）→ 拒绝
+        setUpRejectTargetGraph(SysProcessConstants.NODE_STATUS_FINISH, CONFIG_REJECT_TARGETS);
+        stubRejecterWorkitem();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.reject(EXAMPLE_ID, WI_U1, "非法目标", "N9",
+                        SysProcessConstants.RESUME_MODE_BACK_TO_NODE));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_NODE_TARGET_INVALID));
+        assertTrue(error.getMessage().contains("N9"));
+    }
+
+    @Test
+    void rejectPreservesExistingWorkitemConfigKeys() {
+        // 驳回者工作项已有 flowChoice / flowBranchKey：先读回再写，不清掉既有键
+        setUpRejectTargetGraph(SysProcessConstants.NODE_STATUS_FINISH, CONFIG_REJECT_TARGETS);
+        stubRejecterWorkitem();
+        SysProcessExampleWorkitem rejecter = workitem(WI_U1, NODE4_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        rejecter.setFieldConfig("{\"resumeMode\":\"restart\",\"flowChoice\":\"N8\",\"flowBranchKey\":\"N3\"}");
+        when(workitemDao.selectById(WI_U1)).thenReturn(rejecter);
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+
+        service.reject(EXAMPLE_ID, WI_U1, "退回节点3", "N3", SysProcessConstants.RESUME_MODE_BACK_TO_NODE);
+
+        verify(workitemDao).update(argThat(w -> WI_U1.equals(w.getFieldId())
+                && w.getFieldConfig().contains("\"resumeMode\":\"backToNode\"")
+                && w.getFieldConfig().contains("\"rejectTargetKey\":\"N3\"")
+                && w.getFieldConfig().contains("\"flowChoice\":\"N8\"")
+                && w.getFieldConfig().contains("\"flowBranchKey\":\"N3\"")));
     }
 
     @Test
@@ -550,6 +726,52 @@ class SysProcessExampleServiceTest {
         // 重新流转：仍从草稿节点后的首个审批节点（编号3）开始
         verify(workitemDao, times(2)).insert(argThat(w -> NODE3_ID.equals(w.getFieldNodeId())
                 && SysProcessConstants.WORKITEM_STATUS_PROCESSING.equals(w.getFieldStatus())));
+    }
+
+    @Test
+    void resubmitBackToNodeEntersNonDraftRejectTarget() {
+        // 流程 RETURN，驳回节点为编号 4（REJECT），其工作项配置 resumeMode=backToNode + rejectTargetKey=N3（非起草目标）
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_RETURN);
+        SysProcessExampleNode node4 = exampleNodeAt(4);
+        node4.setFieldStatus(SysProcessConstants.NODE_STATUS_REJECT);
+        SysProcessExampleNode node3 = exampleNodeAt(3);
+        node3.setFieldStatus(SysProcessConstants.NODE_STATUS_FINISH);
+        when(nodeDao.selectByExampleAndStatus(EXAMPLE_ID, SysProcessConstants.NODE_STATUS_REJECT))
+                .thenReturn(List.of(node4));
+        SysProcessExampleWorkitem rejected = workitem(WI_U1, NODE4_ID, U1, SysProcessConstants.WORKITEM_STATUS_FINISH);
+        rejected.setFieldConfig("{\"resumeMode\":\"backToNode\",\"rejectTargetKey\":\"N3\"}");
+        when(workitemDao.selectListByNodeId(NODE4_ID)).thenReturn(List.of(rejected));
+
+        SysProcessExampleDetailVo detail = service.submit(EXAMPLE_ID, "重新提交");
+
+        // 重新提交进入驳回目标节点 N3（而非被驳回节点 N4）：目标节点重建工作项、节点 PROCESSING、流程 PROCESSING
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_PROCESSING, detail.getExample().getFieldStatus());
+        verify(workitemDao, times(2)).insert(argThat(w -> NODE3_ID.equals(w.getFieldNodeId())
+                && SysProcessConstants.WORKITEM_STATUS_PROCESSING.equals(w.getFieldStatus())));
+        verify(nodeDao).update(argThat(n -> NODE3_ID.equals(n.getFieldId())
+                && SysProcessConstants.NODE_STATUS_PROCESSING.equals(n.getFieldStatus())));
+        verify(workitemDao, never()).insert(argThat(w -> NODE4_ID.equals(w.getFieldNodeId())));
+    }
+
+    @Test
+    void resubmitBackToNodeWithDraftTargetFallsBackToRejectedNode() {
+        // 流程 RETURN，驳回节点为编号 4（REJECT），工作项配置 rejectTargetKey=N2（起草目标）→ 回退被驳回节点（现状回归）
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_RETURN);
+        SysProcessExampleNode node4 = exampleNodeAt(4);
+        node4.setFieldStatus(SysProcessConstants.NODE_STATUS_REJECT);
+        when(nodeDao.selectByExampleAndStatus(EXAMPLE_ID, SysProcessConstants.NODE_STATUS_REJECT))
+                .thenReturn(List.of(node4));
+        SysProcessExampleWorkitem rejected = workitem(WI_U1, NODE4_ID, U1, SysProcessConstants.WORKITEM_STATUS_FINISH);
+        rejected.setFieldConfig("{\"resumeMode\":\"backToNode\",\"rejectTargetKey\":\"N2\"}");
+        when(workitemDao.selectListByNodeId(NODE4_ID)).thenReturn(List.of(rejected));
+
+        service.submit(EXAMPLE_ID, "重新提交");
+
+        // 起草目标回退被驳回节点：进入 N4 重建工作项（与既有 backToNode 行为一致）
+        verify(workitemDao, times(2)).insert(argThat(w -> NODE4_ID.equals(w.getFieldNodeId())
+                && SysProcessConstants.WORKITEM_STATUS_PROCESSING.equals(w.getFieldStatus())));
+        verify(nodeDao).update(argThat(n -> NODE4_ID.equals(n.getFieldId())
+                && SysProcessConstants.NODE_STATUS_PROCESSING.equals(n.getFieldStatus())));
     }
 
     /* ==================== 自动跳过 ==================== */
@@ -885,7 +1107,7 @@ class SysProcessExampleServiceTest {
 
         assertEquals(SysProcessConstants.EXAMPLE_STATUS_RETURN, result.getFieldStatus());
         verify(auditNoteDao).insert(argThat(n ->
-                SysProcessConstants.AUDIT_TYPE_HANDLER_RETURN.equals(n.getFieldHandleType())));
+                SysProcessConstants.AUDIT_TYPE_HANDLER_REJECT.equals(n.getFieldHandleType())));
         verify(workitemDao).update(argThat(w -> WI_U1.equals(w.getFieldId())
                 && null != w.getFieldConfig() && w.getFieldConfig().contains("backToNode")));
     }

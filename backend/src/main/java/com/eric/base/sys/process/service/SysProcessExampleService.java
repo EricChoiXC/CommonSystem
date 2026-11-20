@@ -81,6 +81,7 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYP
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_DRAFTER_BACK;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_DRAFTER_SUBMIT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_PASS;
+import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_REJECT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_RETURN;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUTO_CONTINUE_SKIP_SYSTEM;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUTO_CONTINUE_SKIP_YES;
@@ -147,7 +148,8 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.WORKITEM_
  *                  生成 DRAFT_SUBMIT 审批记录；</li>
  *              <li>起草人收回/废弃：PROCESSING 收回转 DRAFT、DRAFT/RETURN 废弃转 ABANDON；</li>
  *              <li>审批人通过/驳回：单签一人通过即通过节点、会审需全员通过；
- *                  驳回转 RETURN 并回到起草节点，驳回时选择「重新提交后流转方式」保存到工作项配置；</li>
+ *                  驳回按「节点配置 rejectTargets ∩ 已流经节点」校验目标（空默认起草节点）转 RETURN，
+ *                  留痕 HANDLER_REJECT，目标与「重新提交后流转方式」保存到驳回者工作项配置；</li>
  *              <li>审批人解析：按节点「审批来源」解析——组织架构直接取配置审批人，表单字段读取文档实体
  *                  对应字段值解析出组织架构（岗位/用户）作为审批人，结果为空时跳过节点；</li>
  *              <li>自动跳过：按公共配置（auto_handle_pass / auto_handle_pass_drafter / auto_continue_pass）
@@ -473,13 +475,41 @@ public class SysProcessExampleService {
     }
 
     /**
-     * 审批人驳回：流程 PROCESSING 时当前工作项处理人可驳回；生成 HANDLER_RETURN 审批记录，
-     * 该节点其他工作项转 FINISH，流程转 RETURN，节点转回起草节点；
-     * 驳回操作必须选择「重新提交后流转方式」（restart=重新流转 / backToNode=转回本节点），
-     * 保存到驳回者工作项的 field_config。
+     * 审批人驳回（旧入口，向后兼容）：语义同 {@link #reject(String, String, String, String, String)}
+     * 且驳回目标按起草节点处理（rejectTargetKey 传 null，不做目标校验），业务模块旧调用语义不变。
      */
     @Transactional
     public void reject(String exampleId, String workitemId, String content, String resumeMode) {
+        reject(exampleId, workitemId, content, null, resumeMode);
+    }
+
+    /**
+     * 审批人驳回（全参，P17-BE-009 驳回目标改造）：流程 PROCESSING 时当前工作项处理人可驳回；
+     * 生成 {@link SysProcessConstants#AUDIT_TYPE_HANDLER_REJECT HANDLER_REJECT} 审批记录
+     * （{@code HANDLER_RETURN} 保留兼容历史数据），被驳回节点其他工作项转 FINISH，流程转 RETURN。
+     * <ul>
+     * <li><b>驳回目标校验</b>：rejectTargetKey 非空时，允许目标 = 驳回节点配置 {@code rejectTargets}
+     *     ∩ 已流经节点（配置为空或交集为空时默认仅起草节点；已流经判定：起草节点恒可，
+     *     审批节点 FINISH / REJECT 算已流经，PASS / WAITING / PROCESSING 不算）；
+     *     目标不在允许集合或不是本实例节点时抛 {@code CS_PROCESS_NODE_TARGET_INVALID}；</li>
+     * <li><b>驳回目标=起草节点</b>（rejectTargetKey 为空按起草节点处理，旧入口语义不变）：
+     *     起草节点置 PROCESSING（现状行为不变）；</li>
+     * <li><b>驳回目标=非起草节点（上游审批节点）</b>：目标节点状态不改动（保持 FINISH）、
+     *     起草节点不置 PROCESSING，流程仍转 RETURN；由起草人重新提交时按 resumeMode
+     *     进入目标节点（引擎 {@code resolveResubmitEntryKey} 解析入口）。</li>
+     * </ul>
+     * 驳回者工作项 field_config 写入 {resumeMode, rejectTargetKey}（经 ProcessFlowSupport 先读回再写，
+     * 保留既有 flowChoice / flowBranchKey）。
+     *
+     * @param exampleId       流程实例 id
+     * @param workitemId      工作项 id（必填）
+     * @param content         审批意见
+     * @param rejectTargetKey 驳回目标节点 key（可空：按起草节点目标处理，不做校验）
+     * @param resumeMode      重新提交后流转方式（restart=重新流转 / backToNode=转回驳回目标，必填）
+     */
+    @Transactional
+    public void reject(String exampleId, String workitemId, String content,
+                       String rejectTargetKey, String resumeMode) {
         if (StringUtil.isEmpty(resumeMode)
                 || (!RESUME_MODE_RESTART.equals(resumeMode) && !RESUME_MODE_BACK_TO_NODE.equals(resumeMode))) {
             throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING
@@ -490,15 +520,27 @@ public class SysProcessExampleService {
             throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅审批中的流程可执行审批操作");
         }
         SysProcessExampleWorkitem workitem = requireProcessingWorkitem(example.getFieldId(), workitemId);
+        SysProcessExampleNode node = requireNode(workitem.getFieldNodeId());
+        // 驳回目标校验（旧入口 rejectTargetKey=null 按起草节点目标处理，不做校验）
+        String targetKey = trimToNull(rejectTargetKey);
+        SysProcessExampleNode targetNode = null == targetKey ? null
+                : requireRejectTarget(example, node, targetKey);
         SysOrgUser current = requireCurrentUser();
         workitem.setFieldStatus(WORKITEM_STATUS_FINISH);
         workitem.setFieldFinishTime(new Date());
-        workitem.setFieldConfig(writeJson(workitemConfig(resumeMode)));
+        // {resumeMode, rejectTargetKey} 写入驳回者工作项配置（先读回再写，不清掉 flowChoice / flowBranchKey）
+        SysProcessExampleWorkitemConfigDo config = flowSupport.parseWorkitemConfig(workitem.getFieldConfig());
+        if (null == config) {
+            config = new SysProcessExampleWorkitemConfigDo();
+        }
+        config.setResumeMode(resumeMode);
+        config.setRejectTargetKey(targetKey);
+        workitem.setFieldConfig(flowSupport.writeJson(config));
         workitemDao.update(workitem);
+        // 留痕：v1_7 起新操作统一 HANDLER_REJECT（HANDLER_RETURN 保留兼容历史数据）
         addAudit(example.getFieldId(), workitem.getFieldId(), current.getFieldId(),
-                AUDIT_TYPE_HANDLER_RETURN, trimToNull(content));
+                AUDIT_TYPE_HANDLER_REJECT, trimToNull(content));
 
-        SysProcessExampleNode node = requireNode(workitem.getFieldNodeId());
         node.setFieldStatus(NODE_STATUS_REJECT);
         nodeDao.update(node);
         // 该节点其他审批人工作项转为 FINISH
@@ -506,14 +548,80 @@ public class SysProcessExampleService {
 
         example.setFieldStatus(EXAMPLE_STATUS_RETURN);
         exampleDao.update(example);
-        // 节点转回起草节点
-        SysProcessExampleNode draftNode = nodeDao.selectByExampleAndType(example.getFieldId(), NODE_TYPE_DRAFT);
-        if (null != draftNode) {
-            draftNode.setFieldStatus(NODE_STATUS_PROCESSING);
-            nodeDao.update(draftNode);
+        // 起草节点仅驳回目标为起草节点（或旧入口未指定目标）时转回 PROCESSING；非起草目标保持原状态
+        if (null == targetNode || NODE_TYPE_DRAFT.equals(targetNode.getFieldNodeType())) {
+            SysProcessExampleNode draftNode = nodeDao.selectByExampleAndType(example.getFieldId(), NODE_TYPE_DRAFT);
+            if (null != draftNode) {
+                draftNode.setFieldStatus(NODE_STATUS_PROCESSING);
+                nodeDao.update(draftNode);
+            }
         }
-        log.info("process example rejected: example={}, node={}, resumeMode={}",
-                example.getFieldId(), node.getFieldNodeName(), resumeMode);
+        log.info("process example rejected: example={}, node={}, rejectTargetKey={}, resumeMode={}",
+                example.getFieldId(), node.getFieldNodeName(), targetKey, resumeMode);
+    }
+
+    /**
+     * 驳回目标校验（P17-BE-009，依据 docs/设计文档/sys/process/流程核心业务.md「驳回与重新提交（D3）」）：
+     * 允许目标 = 驳回节点配置 {@code rejectTargets} ∩ 已流经节点（配置为空或交集为空时默认仅起草节点）。
+     * 已流经节点运行期判定口径：起草节点恒视为已流经；审批节点状态 FINISH / REJECT 视为已流经
+     * （实际审批过或曾被驳回）；PASS（自动跳过）与 WAITING / PROCESSING 不算。
+     * 目标键必须是本实例节点键（按 nodeKey 匹配实例节点集合），否则同样拒绝。
+     *
+     * @param example    流程实例
+     * @param rejectNode 驳回者所在节点（rejectTargets 配置来源）
+     * @param targetKey  驳回目标节点 key（非空）
+     * @return 命中的目标实例节点（非空）
+     */
+    private SysProcessExampleNode requireRejectTarget(SysProcessExample example, SysProcessExampleNode rejectNode,
+                                                      String targetKey) {
+        List<SysProcessExampleNode> nodes = nodeDao.selectListByExampleId(example.getFieldId());
+        SysProcessExampleNode target = null;
+        Set<String> traversedKeys = new LinkedHashSet<>();
+        if (null != nodes) {
+            for (SysProcessExampleNode node : nodes) {
+                String key = ProcessFlowGraph.nodeKey(node);
+                if (key.equals(targetKey)) {
+                    target = node;
+                }
+                if (isTraversedNode(node)) {
+                    traversedKeys.add(key);
+                }
+            }
+        }
+        if (null == target) {
+            throw new IllegalArgumentException(CS_PROCESS_NODE_TARGET_INVALID
+                    + "：驳回目标节点 " + targetKey + " 不是本流程实例的节点");
+        }
+        // 允许目标集合 = rejectTargets ∩ 已流经节点；配置为空（或交集为空）默认仅起草节点
+        Set<String> allowed = new LinkedHashSet<>();
+        SysProcessTemplateNodeConfigDo config = parseNodeConfig(rejectNode.getFieldNodeConfig());
+        List<String> rejectTargets = null == config ? null : config.getRejectTargets();
+        if (null != rejectTargets && !rejectTargets.isEmpty()) {
+            for (String key : rejectTargets) {
+                if (StringUtil.isNotEmpty(key) && traversedKeys.contains(key.trim())) {
+                    allowed.add(key.trim());
+                }
+            }
+        }
+        if (allowed.isEmpty()) {
+            allowed.add(SysProcessConstants.FIXED_NODE_KEY_DRAFT);
+        }
+        if (!allowed.contains(targetKey)) {
+            throw new IllegalArgumentException(CS_PROCESS_NODE_TARGET_INVALID + "：驳回目标「"
+                    + (StringUtil.isEmpty(target.getFieldNodeName()) ? targetKey : target.getFieldNodeName())
+                    + "」不在允许的驳回目标范围内（允许目标 = 节点配置 rejectTargets ∩ 已流经节点）");
+        }
+        return target;
+    }
+
+    /** 已流经节点判定（驳回目标候选口径）：起草节点恒可；审批节点 FINISH / REJECT 算已流经，其余不算。 */
+    private static boolean isTraversedNode(SysProcessExampleNode node) {
+        if (NODE_TYPE_DRAFT.equals(node.getFieldNodeType())) {
+            return true;
+        }
+        return NODE_TYPE_APPROVE.equals(node.getFieldNodeType())
+                && (NODE_STATUS_FINISH.equals(node.getFieldStatus())
+                || NODE_STATUS_REJECT.equals(node.getFieldStatus()));
     }
 
     /* ==================== 管理员特权操作 ==================== */
@@ -639,7 +747,7 @@ public class SysProcessExampleService {
                 requireOperateParam(workitemId, "workitemId");
                 requireOperateParam(rejectTargetKey, "rejectTargetKey");
                 requireOperateParam(resumeMode, "resumeMode");
-                reject(exampleId, workitemId, content, resumeMode);
+                reject(exampleId, workitemId, content, rejectTargetKey, resumeMode);
             }
             case OPERATE_TYPE_ADMIN_ABANDON -> adminOperate(exampleId, ADMIN_OPERATE_ABANDON, null, content, extraAdminRoles);
             case OPERATE_TYPE_ADMIN_JUMP -> {
@@ -1491,12 +1599,6 @@ public class SysProcessExampleService {
     private boolean boolSetting(String key, boolean defaultValue) {
         Boolean value = settingService.getBooleanValue(SysProcessConstants.SETTING_TYPE_PROCESS, key);
         return null == value ? defaultValue : value;
-    }
-
-    private SysProcessExampleWorkitemConfigDo workitemConfig(String resumeMode) {
-        SysProcessExampleWorkitemConfigDo config = new SysProcessExampleWorkitemConfigDo();
-        config.setResumeMode(resumeMode);
-        return config;
     }
 
     /** 生成流程编号：P + 时间戳 + 随机数。 */

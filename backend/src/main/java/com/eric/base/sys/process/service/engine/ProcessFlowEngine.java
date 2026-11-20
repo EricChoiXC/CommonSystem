@@ -223,8 +223,11 @@ public class ProcessFlowEngine {
     }
 
     /**
-     * 解析重新提交的流转起点：驳回后按工作项保存的 resumeMode 决定回到驳回节点（backToNode）
-     * 或从草稿节点重新流转（restart / 无驳回记录）。
+     * 解析重新提交的流转起点：驳回后按工作项保存的 resumeMode 决定——
+     * backToNode 时优先进入驳回者工作项配置记录的非起草节点驳回目标（{@code rejectTargetKey}，P17-BE-009，
+     * 引擎 {@code enterFlow} 按连线重入，enterApprove 对 FINISH 节点重入会重建工作项）；
+     * 目标缺失 / 为起草节点 / 历史数据（无 rejectTargetKey）回退被驳回节点本身（兼容现状）；
+     * restart / 无驳回记录从草稿节点出边重新流转。
      *
      * @param example 流程实例（RETURN 或 DRAFT）
      * @return 重新提交的进入节点键
@@ -236,6 +239,10 @@ public class ProcessFlowEngine {
             SysProcessExampleNode rejectedNode = rejected.get(rejected.size() - 1);
             String resumeMode = readRejectedResumeMode(rejectedNode.getFieldId());
             if (SysProcessConstants.RESUME_MODE_BACK_TO_NODE.equals(resumeMode)) {
+                String entryKey = readRejectedEntryKey(rejectedNode.getFieldId());
+                if (isValidRejectEntryKey(example, entryKey)) {
+                    return entryKey;
+                }
                 return ProcessFlowGraph.nodeKey(rejectedNode);
             }
         }
@@ -246,6 +253,33 @@ public class ProcessFlowEngine {
             throw ProcessFlowException.graph("草稿节点缺少出边，无法重新流转");
         }
         return outgoing.get(0).toKey();
+    }
+
+    /** 读取驳回者工作项配置中保存的驳回目标节点 key（rejectTargetKey，未记录返回 null） */
+    private String readRejectedEntryKey(String nodeId) {
+        for (SysProcessExampleWorkitem workitem : support.workitemsOfNode(nodeId)) {
+            SysProcessExampleWorkitemConfigDo config = support.parseWorkitemConfig(workitem.getFieldConfig());
+            if (null != config && StringUtil.isNotEmpty(config.getRejectTargetKey())) {
+                return config.getRejectTargetKey().trim();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 驳回重新提交入口键校验（P17-BE-009）：目标键须为本实例节点键且非起草节点——
+     * 起草目标回退被驳回节点（backToNode 现状语义），历史数据无 rejectTargetKey 同样回退。
+     */
+    private boolean isValidRejectEntryKey(SysProcessExample example, String entryKey) {
+        if (StringUtil.isEmpty(entryKey)) {
+            return false;
+        }
+        for (SysProcessExampleNode node : nodeDao.selectListByExampleId(example.getFieldId())) {
+            if (entryKey.equals(ProcessFlowGraph.nodeKey(node))) {
+                return !SysProcessConstants.NODE_TYPE_DRAFT.equals(node.getFieldNodeType());
+            }
+        }
+        return false;
     }
 
     /**

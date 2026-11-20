@@ -380,7 +380,12 @@ public class SysProcessConstants {
     public static final String AUDIT_TYPE_DRAFTER_ABANDON = "DRAFTER_ABANDON";
     /** 处理人通过 */
     public static final String AUDIT_TYPE_HANDLER_PASS = "HANDLER_PASS";
-    /** 处理人驳回 */
+    /**
+     * 处理人驳回（v1_7 新增，P17-BE-009）：新操作统一写本类型（可指定驳回目标 + resumeMode）；
+     * {@link #AUDIT_TYPE_HANDLER_RETURN} 保留兼容历史数据，不再新增写入。
+     */
+    public static final String AUDIT_TYPE_HANDLER_REJECT = "HANDLER_REJECT";
+    /** 处理人驳回（历史类型）：仅存量历史数据使用，v1_7 起新操作统一写 {@link #AUDIT_TYPE_HANDLER_REJECT} */
     public static final String AUDIT_TYPE_HANDLER_RETURN = "HANDLER_RETURN";
     /** 自动跳过（重复审批人/起草人自动跳过时的留痕） */
     public static final String AUDIT_TYPE_AUTO_PASS = "AUTO_PASS";
@@ -424,6 +429,9 @@ public class SysProcessConstants {
 
     /** 工作项配置键：人工决策流向（目标节点 key，审批人通过/提交时指定，后提交覆盖先提交） */
     public static final String WORKITEM_CONFIG_FLOW_CHOICE = "flowChoice";
+
+    /** 工作项配置键：驳回目标节点 key（v1_7 新增，驳回者工作项记录，供重新提交 backToNode 进入目标节点） */
+    public static final String WORKITEM_CONFIG_REJECT_TARGET_KEY = "rejectTargetKey";
 
     /** 重新提交后流转方式：重新流转（从草稿节点后的首个节点重新流转） */
     public static final String RESUME_MODE_RESTART = "restart";
