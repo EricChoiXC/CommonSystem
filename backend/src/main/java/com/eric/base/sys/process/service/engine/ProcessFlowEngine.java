@@ -920,14 +920,31 @@ public class ProcessFlowEngine {
 
     /**
      * MANUAL：按「最近一次人工指定流向」流出，无指定走 {@code defaultFlowKey}。
-     * <p>取审批记录时间倒序最近一个带 {@code flowChoice} 的通过记录（后提交覆盖先提交，
-     * D6）；候选流向须为本节点实际出边目标之一，否则回退默认流向。</p>
+     * <p>流向来源有两路（后提交覆盖先提交，D6）：</p>
+     * <ul>
+     * <li><b>审批人通过侧</b>：审批记录时间倒序最近一个带 {@code flowChoice} 的
+     *     HANDLER_PASS 关联工作项（{@code field_config.flowChoice}）；</li>
+     * <li><b>起草人提交侧</b>（P17-BE-008 补全）：本节点 {@code flowDecisions} 含起草节点键
+     *     且起草节点运行态带 {@code flowChoice} 时，按审批记录时间与通过侧取较晚者
+     *     （最近 DRAFTER_SUBMIT 记录时间 vs 该 PASS 记录时间）。</li>
+     * </ul>
+     * <p>候选流向须为本节点实际出边目标之一，否则回退默认流向。</p>
      */
     private boolean enterManual(FlowContext context, SysProcessExampleNode node) {
         String nodeKey = ProcessFlowGraph.nodeKey(node);
         SysProcessTemplateNodeConfigDo config = support.parseNodeConfig(node.getFieldNodeConfig());
         SysProcessExampleWorkitem lastWorkitem = latestFlowChoiceWorkitem(context, nodeKey);
         String choice = null == lastWorkitem ? null : flowChoiceOf(lastWorkitem);
+        java.util.Date passChoiceTime = null == lastWorkitem ? null : passNoteTimeOf(context, lastWorkitem);
+        // 起草人提交侧人工流向：与通过侧按审批记录时间取较晚者（后提交覆盖先提交）
+        String draftChoice = draftNodeFlowChoice(context, config);
+        java.util.Date draftChoiceTime = StringUtil.isEmpty(draftChoice) ? null : latestDrafterSubmitTime(context);
+        if (StringUtil.isNotEmpty(draftChoice)
+                && (StringUtil.isEmpty(choice) || (null != draftChoiceTime
+                && (null == passChoiceTime || draftChoiceTime.after(passChoiceTime))))) {
+            choice = draftChoice;
+            lastWorkitem = null;
+        }
         if (StringUtil.isEmpty(choice) && null != config) {
             choice = config.getDefaultFlowKey();
         }
@@ -949,6 +966,58 @@ public class ProcessFlowEngine {
         finishNode(context, node, lastWorkitem);
         enqueueKey(context, target.toKey(), null);
         return true;
+    }
+
+    /**
+     * 起草节点提交侧人工流向（D6 提交侧补全，P17-BE-008）：本节点 {@code flowDecisions}
+     * 含起草节点键且起草节点运行态带 {@code flowChoice} 时返回该流向；否则返回 null。
+     */
+    private String draftNodeFlowChoice(FlowContext context, SysProcessTemplateNodeConfigDo config) {
+        if (null == config || null == config.getFlowDecisions() || config.getFlowDecisions().isEmpty()) {
+            return null;
+        }
+        SysProcessExampleNode draftNode = null;
+        for (SysProcessExampleNode candidate : context.graph.nodes()) {
+            if (SysProcessConstants.NODE_TYPE_DRAFT.equals(candidate.getFieldNodeType())) {
+                draftNode = candidate;
+                break;
+            }
+        }
+        if (null == draftNode || !config.getFlowDecisions().contains(ProcessFlowGraph.nodeKey(draftNode))) {
+            return null;
+        }
+        SysProcessExampleNodeRuntimeDo runtime = support.parseNodeRuntime(draftNode.getFieldRuntime());
+        if (null == runtime || StringUtil.isEmpty(runtime.getFlowChoice())) {
+            return null;
+        }
+        return runtime.getFlowChoice().trim();
+    }
+
+    /** 最近一次起草人提交（DRAFTER_SUBMIT）审批记录时间；无记录返回 null */
+    private java.util.Date latestDrafterSubmitTime(FlowContext context) {
+        java.util.Date latest = null;
+        for (SysProcessAuditNote note : context.auditNotes) {
+            if (!SysProcessConstants.AUDIT_TYPE_DRAFTER_SUBMIT.equals(note.getFieldHandleType())
+                    || null == note.getFieldCreateTime()) {
+                continue;
+            }
+            if (null == latest || note.getFieldCreateTime().after(latest)) {
+                latest = note.getFieldCreateTime();
+            }
+        }
+        return latest;
+    }
+
+    /** 指定工作项关联的通过（HANDLER_PASS）审批记录时间；无记录返回 null */
+    private java.util.Date passNoteTimeOf(FlowContext context, SysProcessExampleWorkitem workitem) {
+        for (SysProcessAuditNote note : context.auditNotes) {
+            if (SysProcessConstants.AUDIT_TYPE_HANDLER_PASS.equals(note.getFieldHandleType())
+                    && workitem.getFieldId().equals(note.getFieldWorkitemId())
+                    && null != note.getFieldCreateTime()) {
+                return note.getFieldCreateTime();
+            }
+        }
+        return null;
     }
 
     /**

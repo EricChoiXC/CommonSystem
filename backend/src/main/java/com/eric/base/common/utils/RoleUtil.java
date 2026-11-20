@@ -67,7 +67,7 @@ public final class RoleUtil {
         }
         List<String> expected = List.of(roleCodes);
         return user.getRoles().stream().anyMatch(role ->
-                expected.contains(role.getFieldCode())
-                        || (matchName && expected.contains(role.getFieldName())));
+                (null != role.getFieldCode() && expected.contains(role.getFieldCode()))
+                        || (matchName && null != role.getFieldName() && expected.contains(role.getFieldName())));
     }
 }

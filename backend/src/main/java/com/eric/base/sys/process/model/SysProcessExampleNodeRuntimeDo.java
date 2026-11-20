@@ -15,7 +15,7 @@ import java.util.List;
  *              docs/设计文档/sys/process/流程v1_7数据库设计分册.md §4.4 与 §8.4「实例节点运行态 JSON」）。
  *              <p>结构（v1 冻结）：</p>
  *              <pre>{@code
- * {"activeBranchKeys": ["N5","N7"], "arrivedBranchKeys": ["N5"], "joinMode": "all"}
+ * {"activeBranchKeys": ["N5","N7"], "arrivedBranchKeys": ["N5"], "joinMode": "all", "flowChoice": "N8"}
  *              }</pre>
  *              <ul>
  *              <li>{@code activeBranchKeys}：FORK 激活的分支首节点键集合（记于 FORK 节点运行态）；</li>
@@ -23,6 +23,9 @@ import java.util.List;
  *                  与 {@code activeBranchKeys} 取交集判定汇聚是否满足）；</li>
  *              <li>{@code joinMode}：冗余 FORK 配置的汇聚模式（{@code all} 全部 / {@code any} 任一），
  *                  便于 JOIN 判定不回溯上游。</li>
+ *              <li>{@code flowChoice}：人工决策流向（目标节点 key，P17-BE-008 起起草人提交时
+ *                  可指定，落于起草节点运行态；后提交覆盖先提交，引擎 MANUAL 节点按审批记录
+ *                  时间与审批人通过侧的 flowChoice 取较晚者）。</li>
  *              </ul>
  *              <p>仅 FORK / JOIN 节点有值，其余节点为 NULL（视为空运行态）；嵌套并行本期不支持，
  *              同一实例内 FORK 与 JOIN 一对一。本对象为引擎内部运行态，不透出到
@@ -39,4 +42,12 @@ public class SysProcessExampleNodeRuntimeDo {
 
     /** 汇聚模式：all=全部激活分支到达后流出 / any=任一到达即流出（冗余 FORK 配置） */
     private String joinMode;
+
+    /**
+     * 人工决策流向（目标节点 key，可空；P17-BE-008 新增 D6 提交侧）：
+     * 起草人提交（drafter_submit）携带 flowChoice 时写入起草节点运行态，
+     * 后提交覆盖先提交；引擎 MANUAL 节点解析流向时按审批记录时间与
+     * HANDLER_PASS 工作项携带的 flowChoice 取较晚者。
+     */
+    private String flowChoice;
 }

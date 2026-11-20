@@ -1,10 +1,12 @@
 package com.eric.base.sys.process.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.eric.base.common.exception.AuthorizationException;
 import com.eric.base.common.resolver.AuthorizationContext;
 import com.eric.base.common.setting.service.CommonSettingService;
 import com.eric.base.common.utils.UserUtil;
 import com.eric.base.sys.org.mapper.SysOrgUserMapper;
+import com.eric.base.sys.org.model.SysOrgRole;
 import com.eric.base.sys.org.model.SysOrgUser;
 import com.eric.base.sys.process.dao.SysProcessAuditNoteDao;
 import com.eric.base.sys.process.dao.SysProcessExampleDao;
@@ -25,6 +27,7 @@ import com.eric.base.sys.process.model.SysProcessTemplateNode;
 import com.eric.base.sys.process.model.SysProcessTemplateNodeConfigDo;
 import com.eric.base.sys.process.properties.SysProcessConstants;
 import com.eric.base.sys.process.request.SysProcessAdminOperateRequest;
+import com.eric.base.sys.process.request.SysProcessOperateRequest;
 import com.eric.base.sys.process.resolver.ProcessResolver;
 import com.eric.base.sys.process.response.SysProcessExampleDetailVo;
 import com.eric.base.sys.process.service.engine.ProcessFlowEngine;
@@ -65,7 +68,7 @@ import static org.mockito.Mockito.when;
  *
  * @author Eric
  * @date 2026/8/23
- * @description 覆盖流程流转引擎核心规则（依据 artificial/docs/设计文档/sys/process/流程核心业务.md「流程实例和流转」）：
+ * @description 覆盖流程流转引擎核心规则（依据 docs/设计文档/sys/process/流程核心业务.md「流程实例和流转」）：
  *              创建草稿快照、提交进入审批节点并创建工作项、单签/会审通过、驳回与重新提交（重新流转/转回本节点）、
  *              自动跳过重复审批人（含是否连续跳过）、起草人收回/废弃、管理员跳转/暂停/恢复/作废/办结、
  *              以及越权/非法状态拦截。
@@ -393,7 +396,11 @@ class SysProcessExampleServiceTest {
     @Test
     void submitRejectedWhenNotDrafter() {
         userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
-        assertThrows(IllegalArgumentException.class, () -> service.submit(EXAMPLE_ID, "请审批"));
+        // 身份不符（非起草人）升级为鉴权异常：FORBIDDEN + CS_PROCESS_OPERATE_FORBIDDEN 前缀（P17-BE-008）
+        AuthorizationException error = assertThrows(AuthorizationException.class,
+                () -> service.submit(EXAMPLE_ID, "请审批"));
+        assertEquals("FORBIDDEN", error.getCode());
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_FORBIDDEN));
     }
 
     /* ==================== 审批人通过（单签/会审） ==================== */
@@ -461,7 +468,11 @@ class SysProcessExampleServiceTest {
                 SysProcessConstants.WORKITEM_STATUS_PROCESSING));
         userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U2, "李四"));
 
-        assertThrows(IllegalArgumentException.class, () -> service.pass(EXAMPLE_ID, WI_U1, "同意"));
+        // 身份不符（非工作项处理人）升级为鉴权异常：FORBIDDEN + CS_PROCESS_OPERATE_FORBIDDEN 前缀（P17-BE-008）
+        AuthorizationException error = assertThrows(AuthorizationException.class,
+                () -> service.pass(EXAMPLE_ID, WI_U1, "同意"));
+        assertEquals("FORBIDDEN", error.getCode());
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_FORBIDDEN));
     }
 
     /* ==================== 驳回与重新提交 ==================== */
@@ -722,6 +733,429 @@ class SysProcessExampleServiceTest {
     void adminJumpRequiresContent() {
         assertThrows(IllegalArgumentException.class,
                 () -> service.adminOperate(operate(SysProcessConstants.ADMIN_OPERATE_FINISH, null, null)));
+    }
+
+    /* ==================== 统一审批操作通道（operation/operate，P17-BE-008） ==================== */
+
+    private static final String NODE_MANUAL_ID = "12345678901234567890123456789013";
+    private static final String NODE_END7_ID = "12345678901234567890123456789014";
+    private static final String NODE_END8_ID = "12345678901234567890123456789015";
+
+    /** 人工决策节点配置：流向决策来源含起草节点（N2）与审批节点3（N3），默认流向 N7 */
+    private static final String CONFIG_MANUAL =
+            "{\"defaultFlowKey\":\"N7\",\"flowDecisions\":[\"N2\",\"N3\"]}";
+
+    private SysProcessOperateRequest op(String operateType) {
+        SysProcessOperateRequest request = new SysProcessOperateRequest();
+        request.setExampleId(EXAMPLE_ID);
+        request.setOperateType(operateType);
+        return request;
+    }
+
+    /** 装配含人工决策节点的实例图：N1(START)→N2(DRAFT)→N3(APPROVE)→N6(MANUAL)→N7/N8(END) */
+    private void setUpManualGraph() {
+        exampleNodes.clear();
+        exampleNodes.addAll(List.of(
+                exampleNode("12345678901234567890123456789091", 1, "开始节点", "START",
+                        SysProcessConstants.NODE_STATUS_FINISH, null),
+                exampleNode("12345678901234567890123456789092", 2, "草稿节点", "DRAFT",
+                        SysProcessConstants.NODE_STATUS_FINISH, null),
+                exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE", SysProcessConstants.NODE_STATUS_WAITING, CONFIG_SINGLE),
+                exampleNode(NODE_MANUAL_ID, 6, "人工决策节点", "MANUAL",
+                        SysProcessConstants.NODE_STATUS_WAITING, CONFIG_MANUAL),
+                exampleNode(NODE_END7_ID, 7, "结束节点7", "END", SysProcessConstants.NODE_STATUS_WAITING, null),
+                exampleNode(NODE_END8_ID, 8, "结束节点8", "END", SysProcessConstants.NODE_STATUS_WAITING, null)));
+        when(exampleLineDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(manualFlowLines());
+    }
+
+    /** 人工决策图连线：N1→N2→N3→N6，N6 双出边至 N7/N8 */
+    private static List<SysProcessExampleLine> manualFlowLines() {
+        List<SysProcessExampleLine> lines = new ArrayList<>();
+        lines.add(exampleLine("L1", "N1", "N2"));
+        lines.add(exampleLine("L2", "N2", "N3"));
+        lines.add(exampleLine("L3", "N3", "N6"));
+        lines.add(exampleLine("L4", "N6", "N7"));
+        lines.add(exampleLine("L5", "N6", "N8"));
+        return lines;
+    }
+
+    private static SysOrgUser userWithRoles(String id, String name, String... roleCodes) {
+        SysOrgUser user = user(id, name);
+        List<SysOrgRole> roles = new ArrayList<>();
+        for (String code : roleCodes) {
+            SysOrgRole role = new SysOrgRole();
+            role.setFieldCode(code);
+            roles.add(role);
+        }
+        user.setRoles(roles);
+        return user;
+    }
+
+    @Test
+    void operateLegacyUppercaseDrafterBackStaysBackwardCompatible() {
+        // 既有大写操作类型（audit 转发通道）分发逻辑不变，向后兼容
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(workitemDao.selectActiveByExample(EXAMPLE_ID)).thenReturn(List.of(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_PROCESSING)));
+
+        SysProcessExample result = service.operate(EXAMPLE_ID, SysProcessConstants.AUDIT_TYPE_DRAFTER_BACK,
+                null, "收回", null, null);
+
+        assertNotNull(result);
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_DRAFT, result.getFieldStatus());
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_DRAFTER_BACK.equals(n.getFieldHandleType())));
+    }
+
+    @Test
+    void operateDispatchesDrafterSubmit() {
+        SysProcessExample result = service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_DRAFTER_SUBMIT,
+                null, "请审批", null, null);
+
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_PROCESSING, result.getFieldStatus());
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_DRAFTER_SUBMIT.equals(n.getFieldHandleType())));
+        verify(workitemDao, times(2)).insert(argThat(w -> NODE3_ID.equals(w.getFieldNodeId())
+                && SysProcessConstants.WORKITEM_STATUS_PROCESSING.equals(w.getFieldStatus())));
+    }
+
+    @Test
+    void operateDispatchesDrafterCancel() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_RETURN);
+
+        SysProcessExample result = service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_DRAFTER_CANCEL,
+                null, "不要了", null, null);
+
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_ABANDON, result.getFieldStatus());
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_DRAFTER_ABANDON.equals(n.getFieldHandleType())));
+    }
+
+    @Test
+    void operateDispatchesDrafterRetract() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(workitemDao.selectActiveByExample(EXAMPLE_ID)).thenReturn(List.of(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_PROCESSING)));
+
+        SysProcessExample result = service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_DRAFTER_RETRACT,
+                null, null, null, null);
+
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_DRAFT, result.getFieldStatus());
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_DRAFTER_BACK.equals(n.getFieldHandleType())));
+    }
+
+    @Test
+    void operateDispatchesHandlerPass() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleNode node3 = exampleNodeAt(3);
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(node3);
+        when(workitemDao.selectById(WI_U1)).thenReturn(workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        when(workitemDao.selectListByNodeId(NODE3_ID)).thenReturn(List.of(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_FINISH),
+                workitem(WI_U2, NODE3_ID, U2, SysProcessConstants.WORKITEM_STATUS_PROCESSING)));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        SysProcessExample result = service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_HANDLER_PASS,
+                WI_U1, "同意", null, null);
+
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_FINISH, result.getFieldStatus());
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_HANDLER_PASS.equals(n.getFieldHandleType())));
+    }
+
+    @Test
+    void operateDispatchesHandlerRejectWithResumeMode() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleNode node3 = exampleNodeAt(3);
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(node3);
+        when(workitemDao.selectById(WI_U1)).thenReturn(workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        when(workitemDao.selectListByNodeId(NODE3_ID)).thenReturn(List.of(
+                workitem(WI_U2, NODE3_ID, U2, SysProcessConstants.WORKITEM_STATUS_PROCESSING)));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+        SysProcessOperateRequest request = op(SysProcessConstants.OPERATE_TYPE_HANDLER_REJECT);
+        request.setWorkitemId(WI_U1);
+        request.setRejectTargetKey("N2");
+        request.setResumeMode(SysProcessConstants.RESUME_MODE_BACK_TO_NODE);
+        request.setContent("金额不对");
+
+        SysProcessExample result = service.operate(request);
+
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_RETURN, result.getFieldStatus());
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_HANDLER_RETURN.equals(n.getFieldHandleType())));
+        verify(workitemDao).update(argThat(w -> WI_U1.equals(w.getFieldId())
+                && null != w.getFieldConfig() && w.getFieldConfig().contains("backToNode")));
+    }
+
+    @Test
+    void operateDispatchesAdminAbandonWithProcessAdminRole() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(nodeDao.selectByExampleAndType(EXAMPLE_ID, SysProcessConstants.NODE_TYPE_END))
+                .thenReturn(exampleNodeAt(5));
+        userUtil.when(UserUtil::getCurrentUser)
+                .thenReturn(userWithRoles(U1, "张三", SysProcessConstants.ROLE_SYS_PROCESS_EXAMPLE_ADMIN));
+
+        SysProcessExample result = service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_ADMIN_ABANDON,
+                null, "作废", null, null);
+
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_ABANDON, result.getFieldStatus());
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_ADMIN_ABANDON.equals(n.getFieldHandleType())));
+    }
+
+    @Test
+    void operateDispatchesAdminJumpWithExtraAdminRole() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(nodeDao.selectById(NODE4_ID)).thenReturn(exampleNodeAt(4));
+        when(workitemDao.selectActiveByExample(EXAMPLE_ID)).thenReturn(List.of(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_PROCESSING)));
+        userUtil.when(UserUtil::getCurrentUser)
+                .thenReturn(userWithRoles(U1, "张三", "SYS_ORG_BIZ_ADMIN"));
+
+        SysProcessExample result = service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_ADMIN_JUMP,
+                null, "跳过节点3", null, NODE4_ID, "SYS_ORG_BIZ_ADMIN");
+
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_ADMIN_JUMP.equals(n.getFieldHandleType())));
+        // 跳转目标为审批节点：进入该节点重新创建工作项
+        verify(workitemDao, times(2)).insert(argThat(w -> NODE4_ID.equals(w.getFieldNodeId())));
+        assertNotNull(result);
+    }
+
+    @Test
+    void operateAdminAbandonForbiddenWithoutAdminRole() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        AuthorizationException error = assertThrows(AuthorizationException.class,
+                () -> service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_ADMIN_ABANDON,
+                        null, "作废", null, null));
+        assertEquals("FORBIDDEN", error.getCode());
+        assertTrue(error.getMessage().contains("无流程管理员权限"));
+    }
+
+    @Test
+    void operateAdminJumpRequiresTargetNodeId() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        userUtil.when(UserUtil::getCurrentUser)
+                .thenReturn(userWithRoles(U1, "张三", SysProcessConstants.ROLE_SYS_PROCESS_EXAMPLE_ADMIN));
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_ADMIN_JUMP,
+                        null, "跳转", null, null));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(error.getMessage().contains("targetNodeId"));
+    }
+
+    @Test
+    void operateHandlerPassRequiresWorkitemId() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_HANDLER_PASS,
+                        null, "同意", null, null));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(error.getMessage().contains("workitemId"));
+    }
+
+    @Test
+    void operateHandlerRejectRequiresRejectTargetKeyAndResumeMode() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+        SysProcessOperateRequest missingKey = op(SysProcessConstants.OPERATE_TYPE_HANDLER_REJECT);
+        missingKey.setWorkitemId(WI_U1);
+        missingKey.setResumeMode(SysProcessConstants.RESUME_MODE_RESTART);
+        IllegalArgumentException keyError = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(missingKey));
+        assertTrue(keyError.getMessage().contains("rejectTargetKey"));
+
+        SysProcessOperateRequest missingMode = op(SysProcessConstants.OPERATE_TYPE_HANDLER_REJECT);
+        missingMode.setWorkitemId(WI_U1);
+        missingMode.setRejectTargetKey("N2");
+        IllegalArgumentException modeError = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(missingMode));
+        assertTrue(modeError.getMessage().contains("resumeMode"));
+    }
+
+    @Test
+    void operateUnknownTypeFails() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(EXAMPLE_ID, "foo_bar", null, null, null, null));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_TYPE_INVALID));
+        assertTrue(error.getMessage().contains("非法的流程操作类型"));
+    }
+
+    @Test
+    void operateNotYetImplementedTypesFail() {
+        List<String> pending = List.of(
+                SysProcessConstants.OPERATE_TYPE_DRAFTER_EXPEDITE,
+                SysProcessConstants.OPERATE_TYPE_HANDLER_CC,
+                SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER,
+                SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER_RETRACT,
+                SysProcessConstants.OPERATE_TYPE_PROCESSED_RETRACT,
+                SysProcessConstants.OPERATE_TYPE_PROCESSED_EXPEDITE,
+                SysProcessConstants.OPERATE_TYPE_ADMIN_CHANGE_HANDLER);
+        for (String type : pending) {
+            IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                    () -> service.operate(EXAMPLE_ID, type, null, null, null, null),
+                    "操作类型 " + type + " 应提示暂未开放");
+            assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_TYPE_INVALID),
+                    "操作类型 " + type + " 错误前缀不符");
+            assertTrue(error.getMessage().contains("操作类型暂未开放"), "操作类型 " + type + " 提示语不符");
+        }
+    }
+
+    @Test
+    void operateMissingExampleIdOrOperateTypeFails() {
+        SysProcessOperateRequest missingExample = new SysProcessOperateRequest();
+        missingExample.setOperateType(SysProcessConstants.OPERATE_TYPE_DRAFTER_SUBMIT);
+        IllegalArgumentException exampleError = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(missingExample));
+        assertTrue(exampleError.getMessage().contains("exampleId"));
+
+        SysProcessOperateRequest missingType = new SysProcessOperateRequest();
+        missingType.setExampleId(EXAMPLE_ID);
+        IllegalArgumentException typeError = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(missingType));
+        assertTrue(typeError.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(typeError.getMessage().contains("operateType"));
+    }
+
+    @Test
+    void operateExampleNotFoundFails() {
+        when(exampleDao.selectById("not-exist-example-id")).thenReturn(null);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.operate("not-exist-example-id", SysProcessConstants.OPERATE_TYPE_DRAFTER_SUBMIT,
+                        null, null, null, null));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_EXAMPLE_NOT_FOUND));
+    }
+
+    @Test
+    void operateDrafterSubmitForbiddenForNonDrafter() {
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        AuthorizationException error = assertThrows(AuthorizationException.class,
+                () -> service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_DRAFTER_SUBMIT,
+                        null, null, null, null));
+        assertEquals("FORBIDDEN", error.getCode());
+        assertTrue(error.getMessage().contains("仅流程起草人可执行该操作"));
+    }
+
+    @Test
+    void operateHandlerPassForbiddenForNonHandler() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        when(workitemDao.selectById(WI_U1)).thenReturn(workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U2, "李四"));
+
+        AuthorizationException error = assertThrows(AuthorizationException.class,
+                () -> service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_HANDLER_PASS,
+                        WI_U1, "同意", null, null));
+        assertEquals("FORBIDDEN", error.getCode());
+        assertTrue(error.getMessage().contains("仅工作项处理人可执行审批操作"));
+    }
+
+    @Test
+    void operateStateConflictPrefixCarriedByOperateChannel() {
+        // 状态前置条件失败：DRAFT 状态执行 drafter_retract（仅 PROCESSING 可收回）→ STATE_CONFLICT 前缀
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(EXAMPLE_ID, SysProcessConstants.OPERATE_TYPE_DRAFTER_RETRACT,
+                        null, null, null, null));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_STATE_CONFLICT));
+    }
+
+    @Test
+    void operateHandlerPassWithValidFlowChoiceSavesWorkitemConfigAndFollowsChoice() {
+        setUpManualGraph();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        // 内存捕获留痕与工作项列表：引擎通过（enterManual）需读取 HANDLER_PASS 留痕与工作项 flowChoice
+        List<SysProcessAuditNote> auditNotes = new ArrayList<>();
+        when(auditNoteDao.insert(any(SysProcessAuditNote.class))).thenAnswer(invocation -> {
+            auditNotes.add(invocation.getArgument(0));
+            return 1;
+        });
+        when(auditNoteDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(auditNotes);
+        SysProcessExampleWorkitem passed = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        when(workitemDao.selectById(WI_U1)).thenReturn(passed);
+        when(workitemDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(List.of(passed));
+        when(workitemDao.selectListByNodeId(NODE3_ID)).thenReturn(List.of(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_FINISH),
+                workitem(WI_U2, NODE3_ID, U2, SysProcessConstants.WORKITEM_STATUS_PROCESSING)));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+        // flowChoice 为 v1_7 新增参数，经请求体（SysProcessOperateRequest）承载
+        SysProcessOperateRequest request = op(SysProcessConstants.OPERATE_TYPE_HANDLER_PASS);
+        request.setWorkitemId(WI_U1);
+        request.setContent("同意");
+        request.setFlowChoice("N8");
+
+        SysProcessExample result = service.operate(request);
+
+        // flowChoice 落库到工作项 field_config（保留既有字段），引擎按人工流向进入 N8（END）→ FINISH；
+        // WI_U1 共 update 两次：finishWorkitem（置 FINISH）与 flowChoice 配置回写
+        verify(workitemDao, times(2)).update(argThat(w -> WI_U1.equals(w.getFieldId())
+                && null != w.getFieldConfig() && w.getFieldConfig().contains("\"flowChoice\":\"N8\"")));
+        verify(nodeDao).update(argThat(n -> NODE_MANUAL_ID.equals(n.getFieldId())
+                && SysProcessConstants.NODE_STATUS_FINISH.equals(n.getFieldStatus())));
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_FINISH, result.getFieldStatus());
+    }
+
+    @Test
+    void operateHandlerPassWithInvalidFlowChoiceFails() {
+        setUpManualGraph();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        when(workitemDao.selectById(WI_U1)).thenReturn(workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+        SysProcessOperateRequest request = op(SysProcessConstants.OPERATE_TYPE_HANDLER_PASS);
+        request.setWorkitemId(WI_U1);
+        request.setContent("同意");
+        request.setFlowChoice("N9");
+
+        // N9 不是人工决策节点（N6）的实际出边目标 → CS_PROCESS_NODE_TARGET_INVALID，且不产生任何流转写操作
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(request));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_NODE_TARGET_INVALID));
+        verify(auditNoteDao, never()).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_HANDLER_PASS.equals(n.getFieldHandleType())));
+    }
+
+    @Test
+    void operateDrafterSubmitWithFlowChoiceWritesDraftRuntime() {
+        setUpManualGraph();
+        // 起草节点为决策来源（flowDecisions 含 N2）：提交携带 flowChoice → 写入起草节点运行态
+        SysProcessOperateRequest request = op(SysProcessConstants.OPERATE_TYPE_DRAFTER_SUBMIT);
+        request.setContent("请审批");
+        request.setFlowChoice("N8");
+
+        SysProcessExample result = service.operate(request);
+
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_PROCESSING, result.getFieldStatus());
+        verify(nodeDao).update(argThat(n -> 2 == n.getFieldNodeNo()
+                && null != n.getFieldRuntime() && n.getFieldRuntime().contains("\"flowChoice\":\"N8\"")));
+        verify(workitemDao, times(2)).insert(argThat(w -> NODE3_ID.equals(w.getFieldNodeId())));
+    }
+
+    @Test
+    void operateDrafterSubmitWithInvalidFlowChoiceFails() {
+        setUpManualGraph();
+        SysProcessOperateRequest request = op(SysProcessConstants.OPERATE_TYPE_DRAFTER_SUBMIT);
+        request.setContent("请审批");
+        request.setFlowChoice("N9");
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(request));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_NODE_TARGET_INVALID));
+        verify(auditNoteDao, never()).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_DRAFTER_SUBMIT.equals(n.getFieldHandleType())));
     }
 
     /* ==================== 详情 / 面板 ==================== */

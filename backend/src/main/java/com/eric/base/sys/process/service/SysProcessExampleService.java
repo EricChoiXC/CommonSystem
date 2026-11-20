@@ -22,6 +22,7 @@ import com.eric.base.sys.process.model.SysProcessAuditNote;
 import com.eric.base.sys.process.model.SysProcessExample;
 import com.eric.base.sys.process.model.SysProcessExampleLine;
 import com.eric.base.sys.process.model.SysProcessExampleNode;
+import com.eric.base.sys.process.model.SysProcessExampleNodeRuntimeDo;
 import com.eric.base.sys.process.model.SysProcessExampleWorkitem;
 import com.eric.base.sys.process.model.SysProcessExampleWorkitemConfigDo;
 import com.eric.base.sys.process.model.SysProcessTemplate;
@@ -32,6 +33,7 @@ import com.eric.base.sys.process.properties.SysProcessConstants;
 import com.eric.base.sys.process.properties.SysProcessTemplateProperties;
 import com.eric.base.sys.process.request.SysProcessAdminOperateRequest;
 import com.eric.base.sys.process.request.SysProcessExampleQuery;
+import com.eric.base.sys.process.request.SysProcessOperateRequest;
 import com.eric.base.sys.process.resolver.ProcessResolver;
 import com.eric.base.sys.process.service.engine.ProcessFlowEngine;
 import com.eric.base.sys.process.service.engine.ProcessFlowGraph;
@@ -84,6 +86,12 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.AUTO_CONT
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUTO_CONTINUE_SKIP_YES;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUTO_SKIP_SYSTEM;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUTO_SKIP_YES;
+import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_EXAMPLE_NOT_FOUND;
+import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_NODE_TARGET_INVALID;
+import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_OPERATE_FORBIDDEN;
+import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING;
+import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_OPERATE_STATE_CONFLICT;
+import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_OPERATE_TYPE_INVALID;
 import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_STATUS_ABANDON;
 import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_STATUS_DRAFT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_STATUS_FINISH;
@@ -101,6 +109,21 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_STAT
 import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_TYPE_APPROVE;
 import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_TYPE_DRAFT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_TYPE_END;
+import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_TYPE_MANUAL;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_ADMIN_ABANDON;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_ADMIN_CHANGE_HANDLER;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_ADMIN_JUMP;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_DRAFTER_CANCEL;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_DRAFTER_EXPEDITE;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_DRAFTER_RETRACT;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_DRAFTER_SUBMIT;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_HANDLER_CC;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_HANDLER_PASS;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_HANDLER_REJECT;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER_RETRACT;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_PROCESSED_EXPEDITE;
+import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_PROCESSED_RETRACT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.RESUME_MODE_BACK_TO_NODE;
 import static com.eric.base.sys.process.properties.SysProcessConstants.RESUME_MODE_RESTART;
 import static com.eric.base.sys.process.properties.SysProcessConstants.SETTING_PROCESS_AUTO_CONTINUE_PASS;
@@ -118,7 +141,7 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.WORKITEM_
  * @author Eric
  * @date 2026/8/23
  * @description 承载「流程实例」页面的后端能力与流程流转核心规则
- *              （依据 artificial/docs/设计文档/sys/process/流程核心业务.md「流程实例和流转」）：
+ *              （依据 docs/设计文档/sys/process/流程核心业务.md「流程实例和流转」）：
  *              <ul>
  *              <li>创建/提交：由实例所属模块负责创建（保存 DRAFT、提交 PROCESSING 并开始流转），
  *                  生成 DRAFT_SUBMIT 审批记录；</li>
@@ -281,27 +304,58 @@ public class SysProcessExampleService {
 
     /**
      * 提交流程（提交操作）：仅创建人可在 DRAFT / RETURN 状态提交；
-     * 生成 DRAFT_SUBMIT 审批记录，草稿节点完成，进入流转。
+     * 生成 DRAFTER_SUBMIT 审批记录，草稿节点完成，进入流转。
      * RETURN 状态重新提交时按驳回工作项保存的「重新提交后流转方式」决定重新流转或转回本节点。
      *
      * @return 提交后的流程实例详情
      */
     @Transactional
     public SysProcessExampleDetailVo submit(String exampleId, String content) {
+        return submit(exampleId, content, null);
+    }
+
+    /**
+     * 提交流程（提交操作，可携带人工决策流向）：语义同 {@link #submit(String, String)}，
+     * flowChoice 可选（D6 人工决策流向，drafter_submit）：起草节点为某人工决策节点
+     * flowDecisions 的决策来源时，可指定该决策节点流向（须为其出边目标之一，否则
+     * {@code CS_PROCESS_NODE_TARGET_INVALID}）；落库到起草节点运行态（后提交覆盖先提交）。
+     *
+     * @param exampleId 流程实例 id
+     * @param content   审批意见（可空）
+     * @param flowChoice 人工决策流向（目标节点 key，可空）
+     * @return 提交后的流程实例详情
+     */
+    @Transactional
+    public SysProcessExampleDetailVo submit(String exampleId, String content, String flowChoice) {
         SysProcessExample example = requireExample(exampleId);
         requireDrafter(example);
         if (!EXAMPLE_STATUS_DRAFT.equals(example.getFieldStatus())
                 && !EXAMPLE_STATUS_RETURN.equals(example.getFieldStatus())) {
-            throw new IllegalArgumentException("仅草稿或驳回状态的流程可提交");
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅草稿或驳回状态的流程可提交");
+        }
+        SysProcessExampleNode draftNode = nodeDao.selectByExampleAndType(example.getFieldId(), NODE_TYPE_DRAFT);
+        if (StringUtil.isNotEmpty(flowChoice)) {
+            // 人工决策流向校验（D6 提交侧）：当前节点=起草节点，须为某决策节点的流向决策来源且为目标出边之一
+            requireFlowChoiceValid(example.getFieldId(),
+                    null == draftNode ? SysProcessConstants.FIXED_NODE_KEY_DRAFT : ProcessFlowGraph.nodeKey(draftNode),
+                    flowChoice);
         }
         SysOrgUser current = requireCurrentUser();
         addAudit(example.getFieldId(), null, current.getFieldId(),
                 AUDIT_TYPE_DRAFTER_SUBMIT, trimToNull(content));
         // 草稿节点完成（图遍历下由引擎按连线进入后继节点）
-        SysProcessExampleNode draftNode = nodeDao.selectByExampleAndType(example.getFieldId(), NODE_TYPE_DRAFT);
         if (null != draftNode && !NODE_STATUS_FINISH.equals(draftNode.getFieldStatus())) {
             draftNode.setFieldStatus(NODE_STATUS_FINISH);
             nodeDao.update(draftNode);
+        }
+        if (StringUtil.isNotEmpty(flowChoice) && null != draftNode) {
+            // flowChoice 落库到起草节点运行态（后提交覆盖先提交，引擎 MANUAL 读取）
+            SysProcessExampleNodeRuntimeDo runtime = flowSupport.parseNodeRuntime(draftNode.getFieldRuntime());
+            if (null == runtime) {
+                runtime = new SysProcessExampleNodeRuntimeDo();
+            }
+            runtime.setFlowChoice(flowChoice.trim());
+            flowSupport.saveNodeRuntime(draftNode, runtime);
         }
         example.setFieldStatus(EXAMPLE_STATUS_PROCESSING);
         exampleDao.update(example);
@@ -323,7 +377,7 @@ public class SysProcessExampleService {
         SysProcessExample example = requireExample(exampleId);
         requireDrafter(example);
         if (!EXAMPLE_STATUS_PROCESSING.equals(example.getFieldStatus())) {
-            throw new IllegalArgumentException("仅审批中的流程可收回");
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅审批中的流程可收回");
         }
         SysOrgUser current = requireCurrentUser();
         example.setFieldStatus(EXAMPLE_STATUS_DRAFT);
@@ -351,7 +405,7 @@ public class SysProcessExampleService {
         requireDrafter(example);
         if (!EXAMPLE_STATUS_DRAFT.equals(example.getFieldStatus())
                 && !EXAMPLE_STATUS_RETURN.equals(example.getFieldStatus())) {
-            throw new IllegalArgumentException("仅草稿或驳回状态的流程可废弃");
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅草稿或驳回状态的流程可废弃");
         }
         SysOrgUser current = requireCurrentUser();
         abandonExample(example, current.getFieldId(), AUDIT_TYPE_DRAFTER_ABANDON, content);
@@ -366,17 +420,47 @@ public class SysProcessExampleService {
      */
     @Transactional
     public void pass(String exampleId, String workitemId, String content) {
+        pass(exampleId, workitemId, content, null);
+    }
+
+    /**
+     * 审批人通过（可携带人工决策流向）：语义同 {@link #pass(String, String, String)}，
+     * flowChoice 可选（D6 人工决策流向，handler_pass）：被通过节点为某人工决策节点
+     * flowDecisions 的决策来源时，可指定该决策节点流向（须为其出边目标之一，否则
+     * {@code CS_PROCESS_NODE_TARGET_INVALID}）；落库到本工作项 field_config
+     * （保留既有 resumeMode / flowBranchKey，后提交覆盖先提交）。
+     *
+     * @param exampleId  流程实例 id
+     * @param workitemId 工作项 id（必填）
+     * @param content    审批意见
+     * @param flowChoice 人工决策流向（目标节点 key，可空）
+     */
+    @Transactional
+    public void pass(String exampleId, String workitemId, String content, String flowChoice) {
         SysProcessExample example = requireExample(exampleId);
         if (!EXAMPLE_STATUS_PROCESSING.equals(example.getFieldStatus())) {
-            throw new IllegalArgumentException("仅审批中的流程可执行审批操作");
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅审批中的流程可执行审批操作");
         }
         SysProcessExampleWorkitem workitem = requireProcessingWorkitem(example.getFieldId(), workitemId);
         SysOrgUser current = requireCurrentUser();
+        SysProcessExampleNode node = requireNode(workitem.getFieldNodeId());
+        if (StringUtil.isNotEmpty(flowChoice)) {
+            // 人工决策流向校验（D6）：当前节点须为某决策节点的流向决策来源且为目标出边之一
+            requireFlowChoiceValid(example.getFieldId(), ProcessFlowGraph.nodeKey(node), flowChoice);
+        }
         finishWorkitem(workitem);
         addAudit(example.getFieldId(), workitem.getFieldId(), current.getFieldId(),
                 AUDIT_TYPE_HANDLER_PASS, trimToNull(content));
-
-        SysProcessExampleNode node = requireNode(workitem.getFieldNodeId());
+        if (StringUtil.isNotEmpty(flowChoice)) {
+            // flowChoice 落库到本工作项配置（先读回再写，保留 resumeMode / flowBranchKey）
+            SysProcessExampleWorkitemConfigDo config = flowSupport.parseWorkitemConfig(workitem.getFieldConfig());
+            if (null == config) {
+                config = new SysProcessExampleWorkitemConfigDo();
+            }
+            config.setFlowChoice(flowChoice.trim());
+            workitem.setFieldConfig(flowSupport.writeJson(config));
+            workitemDao.update(workitem);
+        }
         if (isNodePassed(node, workitem.getFieldId())) {
             // 节点标记完成（通过语义），随后由引擎沿出边继续流转
             node.setFieldStatus(NODE_STATUS_FINISH);
@@ -398,11 +482,12 @@ public class SysProcessExampleService {
     public void reject(String exampleId, String workitemId, String content, String resumeMode) {
         if (StringUtil.isEmpty(resumeMode)
                 || (!RESUME_MODE_RESTART.equals(resumeMode) && !RESUME_MODE_BACK_TO_NODE.equals(resumeMode))) {
-            throw new IllegalArgumentException("请选择重新提交后流转方式（重新流转或转回本节点）");
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING
+                    + "：请选择重新提交后流转方式（重新流转或转回本节点）");
         }
         SysProcessExample example = requireExample(exampleId);
         if (!EXAMPLE_STATUS_PROCESSING.equals(example.getFieldStatus())) {
-            throw new IllegalArgumentException("仅审批中的流程可执行审批操作");
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅审批中的流程可执行审批操作");
         }
         SysProcessExampleWorkitem workitem = requireProcessingWorkitem(example.getFieldId(), workitemId);
         SysOrgUser current = requireCurrentUser();
@@ -466,13 +551,13 @@ public class SysProcessExampleService {
      * 业务文档审批面板操作转发：接收面板提交内容，按操作类型转发引擎对应方法，
      * 然后返回操作后的流程实例，供调用方按流程最终状态回写业务状态。
      * <p>各业务模块的 audit 接口（如 /backend/{module}/{model}/audit）复用本方法，
-     * 面板操作类型值域与审批记录类型一致（{@link SysProcessConstants#AUDIT_TYPE_*}）。</p>
+     * 面板操作类型值域与审批记录类型一致（既有大写 {@link SysProcessConstants#AUDIT_TYPE_*}），
+     * v1_7 起同步扩展 14 类小写操作类型与新参数（rejectTargetKey / flowChoice / transferToIds /
+     * changeToId / resumeMode / ccToIds），旧调用不传新参数时按原语义执行（向后兼容）。</p>
      *
      * @param exampleId       流程实例 id
-     * @param operateType     操作类型：HANDLER_PASS / HANDLER_RETURN / DRAFTER_BACK /
-     *                        DRAFTER_ABANDON / ADMIN_JUMP / ADMIN_FINISH / ADMIN_ABANDON /
-     *                        ADMIN_PAUSE / ADMIN_RESUME
-     * @param workitemId      工作项 id（通过/驳回必填）
+     * @param operateType     操作类型：既有大写 AUDIT_TYPE_* / 14 类小写操作标识
+     * @param workitemId      工作项 id（通过/驳回等审批人类操作必填）
      * @param content         审批意见
      * @param resumeMode      驳回后重新提交流转方式（restart / backToNode，驳回时必填）
      * @param targetNodeId    跳转节点 id（管理员跳转必填）
@@ -483,22 +568,96 @@ public class SysProcessExampleService {
     public SysProcessExample operate(String exampleId, String operateType, String workitemId,
                                      String content, String resumeMode, String targetNodeId,
                                      String... extraAdminRoles) {
-        String example = requireText(exampleId, "exampleId");
-        String type = requireText(operateType, "operateType");
-        requireExample(example);
-        switch (type) {
-            case AUDIT_TYPE_HANDLER_PASS -> pass(example, workitemId, content);
-            case AUDIT_TYPE_HANDLER_RETURN -> reject(example, workitemId, content, resumeMode);
-            case AUDIT_TYPE_DRAFTER_BACK -> back(example, content);
-            case AUDIT_TYPE_DRAFTER_ABANDON -> abandonByDrafter(example, content);
-            case AUDIT_TYPE_ADMIN_JUMP -> adminOperate(example, ADMIN_OPERATE_JUMP, targetNodeId, content, extraAdminRoles);
-            case AUDIT_TYPE_ADMIN_FINISH -> adminOperate(example, ADMIN_OPERATE_FINISH, null, content, extraAdminRoles);
-            case AUDIT_TYPE_ADMIN_ABANDON -> adminOperate(example, ADMIN_OPERATE_ABANDON, null, content, extraAdminRoles);
-            case AUDIT_TYPE_ADMIN_PAUSE -> adminOperate(example, ADMIN_OPERATE_PAUSE, null, content, extraAdminRoles);
-            case AUDIT_TYPE_ADMIN_RESUME -> adminOperate(example, ADMIN_OPERATE_RESUME, null, content, extraAdminRoles);
-            default -> throw new IllegalArgumentException("非法的流程操作类型: " + type);
+        SysProcessOperateRequest request = new SysProcessOperateRequest();
+        request.setExampleId(exampleId);
+        request.setOperateType(operateType);
+        request.setWorkitemId(workitemId);
+        request.setContent(content);
+        request.setResumeMode(resumeMode);
+        request.setTargetNodeId(targetNodeId);
+        return operate(request, extraAdminRoles);
+    }
+
+    /**
+     * 流程审批统一操作（扩展实现）：按操作类型分发引擎对应方法，返回操作后的流程实例。
+     * <p>分发口径（docs/设计文档/sys/process/流程v1_7接口清单.md §6.2 操作矩阵）：</p>
+     * <ul>
+     * <li>既有大写类型（业务模块 audit 转发通道）：HANDLER_PASS / HANDLER_RETURN /
+     *     DRAFTER_BACK / DRAFTER_ABANDON / ADMIN_JUMP / ADMIN_FINISH / ADMIN_ABANDON /
+     *     ADMIN_PAUSE / ADMIN_RESUME，分发逻辑不变（向后兼容）；</li>
+     * <li>14 类小写操作类型：drafter_submit / drafter_cancel / drafter_retract / handler_pass /
+     *     handler_reject / admin_abandon / admin_jump 本期接通真实引擎分发；
+     *     drafter_expedite / handler_cc / handler_transfer / handler_transfer_retract /
+     *     processed_retract / processed_expedite / admin_change_handler 暂未开放
+     *     （{@code CS_PROCESS_OPERATE_TYPE_INVALID}，后续任务逐个替换为真实分发）；</li>
+     * <li>未登记类型一律拒绝（{@code CS_PROCESS_OPERATE_TYPE_INVALID}）。</li>
+     * </ul>
+     * <p>本方法内完成操作人身份校验（起草人 / 当前处理人 / 已处理人 / 流程管理员，
+     * 见 §6.3）：身份不符抛 {@code AuthorizationException}（FORBIDDEN，
+     * {@code CS_PROCESS_OPERATE_FORBIDDEN} 前缀）；必填参数缺失抛
+     * {@code CS_PROCESS_OPERATE_PARAM_MISSING} 前缀；状态前置条件不满足抛
+     * {@code CS_PROCESS_OPERATE_STATE_CONFLICT} 前缀。</p>
+     *
+     * @param request         统一操作请求（exampleId / operateType 必填）
+     * @param extraAdminRoles 额外允许执行特权操作的业务角色（如模块管理员），可空
+     * @return 操作后的流程实例（非空）
+     */
+    @Transactional
+    public SysProcessExample operate(SysProcessOperateRequest request, String... extraAdminRoles) {
+        if (null == request) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING + "：请求体不能为空");
         }
-        return exampleDao.selectById(example);
+        String exampleId = requireOperateParam(request.getExampleId(), "exampleId");
+        String type = requireOperateParam(request.getOperateType(), "operateType");
+        String workitemId = trimToNull(request.getWorkitemId());
+        String content = request.getContent();
+        String resumeMode = trimToNull(request.getResumeMode());
+        String targetNodeId = trimToNull(request.getTargetNodeId());
+        String rejectTargetKey = trimToNull(request.getRejectTargetKey());
+        String flowChoice = trimToNull(request.getFlowChoice());
+        requireExample(exampleId);
+        switch (type) {
+            /* ==================== 既有大写类型（audit 转发通道，向后兼容） ==================== */
+            case AUDIT_TYPE_HANDLER_PASS -> pass(exampleId, workitemId, content);
+            case AUDIT_TYPE_HANDLER_RETURN -> reject(exampleId, workitemId, content, resumeMode);
+            case AUDIT_TYPE_DRAFTER_BACK -> back(exampleId, content);
+            case AUDIT_TYPE_DRAFTER_ABANDON -> abandonByDrafter(exampleId, content);
+            case AUDIT_TYPE_ADMIN_JUMP -> adminOperate(exampleId, ADMIN_OPERATE_JUMP, targetNodeId, content, extraAdminRoles);
+            case AUDIT_TYPE_ADMIN_FINISH -> adminOperate(exampleId, ADMIN_OPERATE_FINISH, null, content, extraAdminRoles);
+            case AUDIT_TYPE_ADMIN_ABANDON -> adminOperate(exampleId, ADMIN_OPERATE_ABANDON, null, content, extraAdminRoles);
+            case AUDIT_TYPE_ADMIN_PAUSE -> adminOperate(exampleId, ADMIN_OPERATE_PAUSE, null, content, extraAdminRoles);
+            case AUDIT_TYPE_ADMIN_RESUME -> adminOperate(exampleId, ADMIN_OPERATE_RESUME, null, content, extraAdminRoles);
+            /* ==================== 14 类小写操作类型（操作矩阵 §6.2） ==================== */
+            case OPERATE_TYPE_DRAFTER_SUBMIT -> submit(exampleId, content, flowChoice);
+            case OPERATE_TYPE_DRAFTER_CANCEL -> abandonByDrafter(exampleId, content);
+            case OPERATE_TYPE_DRAFTER_RETRACT -> back(exampleId, content);
+            case OPERATE_TYPE_HANDLER_PASS -> {
+                requireOperateParam(workitemId, "workitemId");
+                pass(exampleId, workitemId, content, flowChoice);
+            }
+            case OPERATE_TYPE_HANDLER_REJECT -> {
+                requireOperateParam(workitemId, "workitemId");
+                requireOperateParam(rejectTargetKey, "rejectTargetKey");
+                requireOperateParam(resumeMode, "resumeMode");
+                reject(exampleId, workitemId, content, resumeMode);
+            }
+            case OPERATE_TYPE_ADMIN_ABANDON -> adminOperate(exampleId, ADMIN_OPERATE_ABANDON, null, content, extraAdminRoles);
+            case OPERATE_TYPE_ADMIN_JUMP -> {
+                requireOperateParam(targetNodeId, "targetNodeId");
+                adminOperate(exampleId, ADMIN_OPERATE_JUMP, targetNodeId, content, extraAdminRoles);
+            }
+            /* ==================== 暂未开放（后续任务落地引擎分发） ==================== */
+            case OPERATE_TYPE_DRAFTER_EXPEDITE,
+                 OPERATE_TYPE_HANDLER_CC,
+                 OPERATE_TYPE_HANDLER_TRANSFER,
+                 OPERATE_TYPE_HANDLER_TRANSFER_RETRACT,
+                 OPERATE_TYPE_PROCESSED_RETRACT,
+                 OPERATE_TYPE_PROCESSED_EXPEDITE,
+                 OPERATE_TYPE_ADMIN_CHANGE_HANDLER ->
+                    throw new IllegalArgumentException(CS_PROCESS_OPERATE_TYPE_INVALID + "：操作类型暂未开放: " + type);
+            default -> throw new IllegalArgumentException(CS_PROCESS_OPERATE_TYPE_INVALID + "：非法的流程操作类型: " + type);
+        }
+        return exampleDao.selectById(exampleId);
     }
 
     /**
@@ -588,7 +747,7 @@ public class SysProcessExampleService {
      * <li>显式指定 templateId：必须存在、启用且 field_model_name 与 modelName 一致，否则启动失败；</li>
      * <li>未指定：取该分类默认模板（field_default=1 且启用），无默认模板则启动失败。</li>
      * </ul>
-     * 依据 artificial/docs/设计文档/sys/process/流程核心业务.md「默认模板」。
+     * 依据 docs/设计文档/sys/process/流程核心业务.md「默认模板」。
      *
      * @param modelName  模板所属模块（process_template 分类 key）
      * @param templateId 指定流程模板 id（可为空）
@@ -733,7 +892,7 @@ public class SysProcessExampleService {
      *     返回该节点配置 ops 中开启（true）的操作标识集合；其余情况返回空集（不允许任何操作标识）；</li>
      * <li>节点未配置 ops 或旧模板（field_node_config 无 ops 字段）视为未开启任何操作标识 → 空集（默认不允许）。</li>
      * </ul>
-     * 依据 artificial/docs/设计文档/sys/process/流程核心业务.md「审批中审批人特定操作业务」。
+     * 依据 docs/设计文档/sys/process/流程核心业务.md「审批中审批人特定操作业务」。
      *
      * @param modelName 模板分类（process_template 二级配置项，即业务单据 field_model_name）
      * @param modelId   业务单据 id
@@ -1036,12 +1195,12 @@ public class SysProcessExampleService {
         flowSupport.addAudit(exampleId, workitemId, handlerId, handleType, content);
     }
 
-    /** 校验并返回流程实例。 */
+    /** 校验并返回流程实例（不存在抛 CS_PROCESS_EXAMPLE_NOT_FOUND 前缀）。 */
     private SysProcessExample requireExample(String exampleId) {
         String id = requireText(exampleId, "fieldId");
         SysProcessExample example = exampleDao.selectById(id);
         if (null == example) {
-            throw new IllegalArgumentException("流程实例不存在或已删除");
+            throw new IllegalArgumentException(CS_PROCESS_EXAMPLE_NOT_FOUND + "：流程实例不存在或已删除");
         }
         return example;
     }
@@ -1062,21 +1221,68 @@ public class SysProcessExampleService {
             throw new IllegalArgumentException("工作项不存在");
         }
         if (!WORKITEM_STATUS_PROCESSING.equals(workitem.getFieldStatus())) {
-            throw new IllegalArgumentException("工作项已处理或不可处理");
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：工作项已处理或不可处理");
         }
         SysOrgUser current = requireCurrentUser();
         if (!current.getFieldId().equals(workitem.getFieldHandlerId())) {
-            throw new IllegalArgumentException("仅工作项处理人可执行审批操作");
+            throw new AuthorizationException("FORBIDDEN",
+                    CS_PROCESS_OPERATE_FORBIDDEN + "：仅工作项处理人可执行审批操作");
         }
         return workitem;
     }
 
-    /** 校验当前用户为流程创建人。 */
+    /** 校验当前用户为流程创建人（起草人身份，身份不符抛 FORBIDDEN）。 */
     private void requireDrafter(SysProcessExample example) {
         SysOrgUser current = requireCurrentUser();
         if (!current.getFieldId().equals(example.getFieldCreatorId())) {
-            throw new IllegalArgumentException("仅流程创建人可执行该操作");
+            throw new AuthorizationException("FORBIDDEN",
+                    CS_PROCESS_OPERATE_FORBIDDEN + "：仅流程起草人可执行该操作");
         }
+    }
+
+    /**
+     * 统一操作通道的必填参数校验：缺失抛 {@code CS_PROCESS_OPERATE_PARAM_MISSING：<参数名> 必填}。
+     */
+    private static String requireOperateParam(String value, String paramName) {
+        if (StringUtil.isEmpty(value)) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING + "：" + paramName + " 必填");
+        }
+        return value.trim();
+    }
+
+    /**
+     * 校验人工决策流向（D6，drafter_submit / handler_pass 携带 flowChoice 时）：
+     * 来源节点（起草人提交=起草节点 / 审批人通过=被通过节点）必须是某人工决策节点
+     * {@code flowDecisions} 的流向决策来源，且 flowChoice 是该决策节点实际出边目标键之一；
+     * 不满足抛 {@code CS_PROCESS_NODE_TARGET_INVALID}。
+     */
+    private void requireFlowChoiceValid(String exampleId, String sourceNodeKey, String flowChoice) {
+        String choice = flowChoice.trim();
+        List<SysProcessExampleLine> lines = exampleLineDao.selectListByExampleId(exampleId);
+        List<SysProcessExampleNode> nodes = nodeDao.selectListByExampleId(exampleId);
+        if (null != lines && null != nodes) {
+            // 决策节点出边目标键集合（按 fromKey 索引）
+            Map<String, Set<String>> targetsByFromKey = new HashMap<>();
+            for (SysProcessExampleLine line : lines) {
+                targetsByFromKey.computeIfAbsent(line.getFieldFromKey(), key -> new LinkedHashSet<>())
+                        .add(line.getFieldToKey());
+            }
+            for (SysProcessExampleNode node : nodes) {
+                if (!NODE_TYPE_MANUAL.equals(node.getFieldNodeType())) {
+                    continue;
+                }
+                SysProcessTemplateNodeConfigDo config = parseNodeConfig(node.getFieldNodeConfig());
+                if (null == config || null == config.getFlowDecisions()
+                        || !config.getFlowDecisions().contains(sourceNodeKey)) {
+                    continue;
+                }
+                if (targetsByFromKey.getOrDefault(ProcessFlowGraph.nodeKey(node), Set.of()).contains(choice)) {
+                    return;
+                }
+            }
+        }
+        throw new IllegalArgumentException(CS_PROCESS_NODE_TARGET_INVALID + "：人工决策流向 "
+                + choice + " 不是人工决策节点的可流出方向");
     }
 
     private SysOrgUser requireCurrentUser() {

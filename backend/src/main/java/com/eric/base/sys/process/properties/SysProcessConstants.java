@@ -11,7 +11,7 @@ import java.util.Map;
  * @date 2026/8/21
  * @description 流程模块接口标识（resolver 鉴权使用）、角色编码与公共配置项元信息，
  *              供 Controller / Resolver / Service 静态引用。
- *              权限与公共配置依据 artificial/docs/设计文档/sys/process/流程核心业务.md。
+ *              权限与公共配置依据 docs/设计文档/sys/process/流程核心业务.md。
  */
 public class SysProcessConstants {
 
@@ -54,6 +54,15 @@ public class SysProcessConstants {
     /** 流程实例特权操作（跳转/终审通过/作废/暂停/恢复，仅 SYS_PROCESS_EXAMPLE_ADMIN） */
     public static final String ACTION_PROCESS_EXAMPLE_ADMIN_OPERATE = "sys.process.example.adminOperate";
 
+    /** 统一审批操作接口（14 类审批操作，另需引擎内操作人身份校验） */
+    public static final String ACTION_PROCESS_EXAMPLE_OPERATE = "sys.process.example.operate";
+    /** 流程监控列表（仅 SYS_PROCESS_EXAMPLE_ADMIN；Controller 由 P17-BE-015 落地） */
+    public static final String ACTION_PROCESS_EXAMPLE_MONITOR_LIST = "sys.process.example.monitorList";
+    /** 流程管理员统计（仅 SYS_PROCESS_EXAMPLE_ADMIN；Controller 由 Wave 4 落地） */
+    public static final String ACTION_PROCESS_STATISTIC_ADMIN = "sys.process.statistic.admin";
+    /** 我的流程统计（登录且启用即可，准入 SYS_PROCESS_MY_VIEWER；Controller 由 Wave 4 落地） */
+    public static final String ACTION_PROCESS_STATISTIC_MY = "sys.process.statistic.my";
+
     /* ==================== 角色编码 ==================== */
 
     /** 流程管理员：拥有流程模块所有操作权限 */
@@ -68,6 +77,8 @@ public class SysProcessConstants {
     public static final String ROLE_SYS_PROCESS_EXAMPLE_VIEWER = "SYS_PROCESS_EXAMPLE_VIEWER";
     /** 流程模块公共配置维护员：维护流程模块公共配置 */
     public static final String ROLE_SYS_PROCESS_SETTING_ADMIN = "SYS_PROCESS_SETTING_ADMIN";
+    /** 我的流程查看者：访问审批一级菜单「我发起的 / 我参与的 / 我的流程统计」（默认全员授予口径见权限分册） */
+    public static final String ROLE_SYS_PROCESS_MY_VIEWER = "SYS_PROCESS_MY_VIEWER";
 
     /* ==================== 流程公共配置项 ==================== */
 
@@ -98,7 +109,7 @@ public class SysProcessConstants {
 
     /**
      * 公共配置中文描述（页面仅显示中文描述与值），key = "${field_type}.${field_key}"。
-     * 顺序与 artificial/docs/设计文档/sys/process/流程核心业务.md「流程公共配置」保持一致。
+     * 顺序与 docs/设计文档/sys/process/流程核心业务.md「流程公共配置」保持一致。
      */
     public static final Map<String, String> SETTING_DESC = buildSettingDesc();
 
@@ -264,6 +275,51 @@ public class SysProcessConstants {
 
     /** 审批操作标识：通过（审批节点 operations 必须包含且仅包含一个该操作） */
     public static final String OPERATE_TYPE_HANDLER_PASS = "handler_pass";
+
+    /* ==================== 统一审批操作类型（operation/operate 的 operateType，14 类操作矩阵） ==================== */
+
+    /** 操作类型：起草人提交（DRAFT / RETURN，flowChoice 可选） */
+    public static final String OPERATE_TYPE_DRAFTER_SUBMIT = "drafter_submit";
+    /** 操作类型：起草人取消（DRAFT / RETURN，D2 并入废弃语义） */
+    public static final String OPERATE_TYPE_DRAFTER_CANCEL = "drafter_cancel";
+    /** 操作类型：起草人收回（PROCESSING） */
+    public static final String OPERATE_TYPE_DRAFTER_RETRACT = "drafter_retract";
+    /** 操作类型：起草人催办（PROCESSING；引擎分发由 P17-BE-011 落地） */
+    public static final String OPERATE_TYPE_DRAFTER_EXPEDITE = "drafter_expedite";
+    // 操作类型 handler_pass（审批人通过）已在「模板保存侧取值」定义，此处直接复用
+    /** 操作类型：审批人拒绝（PROCESSING；驳回目标校验由 P17-BE-009 落地） */
+    public static final String OPERATE_TYPE_HANDLER_REJECT = "handler_reject";
+    /** 操作类型：审批人抄送（PROCESSING；引擎分发由 P17-BE-012 落地） */
+    public static final String OPERATE_TYPE_HANDLER_CC = "handler_cc";
+    /** 操作类型：审批人转办（PROCESSING；引擎分发由 P17-BE-010 落地） */
+    public static final String OPERATE_TYPE_HANDLER_TRANSFER = "handler_transfer";
+    /** 操作类型：转办收回（PROCESSING；引擎分发由 P17-BE-010 落地） */
+    public static final String OPERATE_TYPE_HANDLER_TRANSFER_RETRACT = "handler_transfer_retract";
+    /** 操作类型：已审批人收回（PROCESSING；引擎分发由 P17-BE-010 落地） */
+    public static final String OPERATE_TYPE_PROCESSED_RETRACT = "processed_retract";
+    /** 操作类型：已审批人催办（PROCESSING；引擎分发由 P17-BE-011 落地） */
+    public static final String OPERATE_TYPE_PROCESSED_EXPEDITE = "processed_expedite";
+    /** 操作类型：管理员废弃（PROCESSING / RETURN / DRAFT / PAUSE） */
+    public static final String OPERATE_TYPE_ADMIN_ABANDON = "admin_abandon";
+    /** 操作类型：管理员跳转（PROCESSING / RETURN） */
+    public static final String OPERATE_TYPE_ADMIN_JUMP = "admin_jump";
+    /** 操作类型：管理员更换审批人（PROCESSING；引擎分发由 P17-BE-013 落地） */
+    public static final String OPERATE_TYPE_ADMIN_CHANGE_HANDLER = "admin_change_handler";
+
+    /* ==================== 业务错误码前缀（异常 message 前缀承载，见流程v1_7接口清单.md §10） ==================== */
+
+    /** 操作类型不在 14 类取值内或暂未开放 */
+    public static final String CS_PROCESS_OPERATE_TYPE_INVALID = "CS_PROCESS_OPERATE_TYPE_INVALID";
+    /** 操作类型对应的必填参数缺失 */
+    public static final String CS_PROCESS_OPERATE_PARAM_MISSING = "CS_PROCESS_OPERATE_PARAM_MISSING";
+    /** 流程状态不满足该操作前置条件 */
+    public static final String CS_PROCESS_OPERATE_STATE_CONFLICT = "CS_PROCESS_OPERATE_STATE_CONFLICT";
+    /** 操作人身份不符（AuthorizationException FORBIDDEN 语义） */
+    public static final String CS_PROCESS_OPERATE_FORBIDDEN = "CS_PROCESS_OPERATE_FORBIDDEN";
+    /** 跳转/驳回/人工流向目标节点非法或不满足范围约束 */
+    public static final String CS_PROCESS_NODE_TARGET_INVALID = "CS_PROCESS_NODE_TARGET_INVALID";
+    /** 流程实例不存在或已删除 */
+    public static final String CS_PROCESS_EXAMPLE_NOT_FOUND = "CS_PROCESS_EXAMPLE_NOT_FOUND";
 
     /* ==================== 流程实例状态（sys_process_example.field_status） ==================== */
 
