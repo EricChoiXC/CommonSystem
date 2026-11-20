@@ -63,7 +63,7 @@ public class SysProcessConstants {
 
     /** 统一审批操作接口（14 类审批操作，另需引擎内操作人身份校验） */
     public static final String ACTION_PROCESS_EXAMPLE_OPERATE = "sys.process.example.operate";
-    /** 流程监控列表（仅 SYS_PROCESS_EXAMPLE_ADMIN；Controller 由 P17-BE-015 落地） */
+    /** 流程监控列表（仅 SYS_PROCESS_EXAMPLE_ADMIN） */
     public static final String ACTION_PROCESS_EXAMPLE_MONITOR_LIST = "sys.process.example.monitorList";
     /** 流程管理员统计（仅 SYS_PROCESS_EXAMPLE_ADMIN；Controller 由 Wave 4 落地） */
     public static final String ACTION_PROCESS_STATISTIC_ADMIN = "sys.process.statistic.admin";
@@ -379,6 +379,15 @@ public class SysProcessConstants {
                 || EXAMPLE_STATUS_PAUSE.equals(status)
                 || EXAMPLE_STATUS_RETURN.equals(status);
     }
+
+    /* ==================== 流程实例列表数据范围（list scope，v1_7 P17-BE-015） ==================== */
+
+    /** 列表数据范围：admin（默认全量，与既有列表一致；scope 缺省或非法值一律按此处理，归一在 Service 层） */
+    public static final String EXAMPLE_SCOPE_ADMIN = "admin";
+    /** 列表数据范围：myCreated（我发起的；Mapper 强制注入本人过滤 field_creator_id = 会话用户，不信任请求体） */
+    public static final String EXAMPLE_SCOPE_MY_CREATED = "myCreated";
+    /** 列表数据范围：myJoined（我参与的；Mapper 强制注入本人过滤，当前用户作为审批人或已审批人，工作项含历史全部状态） */
+    public static final String EXAMPLE_SCOPE_MY_JOINED = "myJoined";
 
     /* ==================== 流程实例节点状态（sys_process_example_node.field_status） ==================== */
 

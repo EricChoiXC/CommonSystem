@@ -53,4 +53,7 @@ public class SysProcessExampleVo {
 
     /** 当前节点名称 */
     private String currentNodeName;
+
+    /** 是否异常实例（存在 SYSTEM_ERROR 审批留痕或状态 PAUSE，二者取或；仅 monitorList 透出，list 行为 null） */
+    private Boolean exceptionFlag;
 }

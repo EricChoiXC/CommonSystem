@@ -105,6 +105,9 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCES
 import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING;
 import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_OPERATE_STATE_CONFLICT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_OPERATE_TYPE_INVALID;
+import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_SCOPE_ADMIN;
+import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_SCOPE_MY_CREATED;
+import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_SCOPE_MY_JOINED;
 import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_STATUS_ABANDON;
 import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_STATUS_DRAFT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_STATUS_FINISH;
@@ -190,7 +193,11 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.WORKITEM_
  *                  发被驳回待办（起草人，标题消费 notify_refuse_subject）、管理员终审通过后按
  *                  引擎 enterEnd 同口径发办结待阅（起草人待阅始终发送，审批人待阅受
  *                  finish_notify_handler 控制）；</li>
- *              <li>列表/详情/审批面板：流程实例分页查询、实例+节点+工作项+审批记录详情、
+ *              <li>列表/详情/审批面板：流程实例分页查询（v1_7 扩展数据范围 scope：
+ *                  admin 默认全量 / myCreated 我发起的 / myJoined 我参与的，缺省或非法值
+ *                  归一为 admin，my* 维度由 Mapper 强制注入会话用户本人过滤条件）、
+ *                  流程监控列表（v1_7 新增 monitorList，管理员全量视图，支持在途/异常筛选）、
+ *                  实例+节点+工作项+审批记录详情、
  *                  可嵌入审批组件的面板数据；面板按钮集按「节点 operations 配置 ∩ 用户身份 ∩
  *                  状态前置」计算（v1_7 升级为按钮对象数组，P17-BE-013），与 nodeOps
  *                  业务标识并存（语义不变）。</li>
@@ -1514,18 +1521,84 @@ public class SysProcessExampleService {
     /**
      * 流程实例列表分页查询：所属模块固定、流程名称（模板名）/编号模糊、
      * 发起人名称模糊、创建时间区间与流程状态筛选；仅创建时间单条件排序。
+     * <p>v1_7 数据范围 scope（P17-BE-015，依据 docs/设计文档/sys/process/流程v1_7接口清单.md §5.2）：
+     * {@code admin}（默认全量，与既有列表一致）/ {@code myCreated}（我发起的）/
+     * {@code myJoined}（我参与的，当前用户作为审批人或已审批人）；缺省或非法值一律按 admin 处理，
+     * my* 维度由 Mapper 强制注入本人过滤条件——用户标识只取自会话（{@link UserUtil}），
+     * 不信任请求体传入的任何用户字段，越权数据零泄露。</p>
      */
     public List<SysProcessExampleVo> list(SysProcessExampleQuery query, Pages pages,
                                           String sortField, String sortOrder) {
-        return exampleDao.selectListSorted(query, normalizePages(pages),
+        SysProcessExampleQuery scoped = applyScope(query);
+        return exampleDao.selectListSorted(scoped, normalizePages(pages),
+                normalizeSortField(sortField), normalizeSortOrder(sortOrder), resolveScopeUserId(scoped));
+    }
+
+    /**
+     * 流程实例列表总数（与 {@link #list} 过滤条件一致——含 scope 本人过滤，供分页 metadata.total 使用）
+     */
+    public long count(SysProcessExampleQuery query) {
+        SysProcessExampleQuery scoped = applyScope(query);
+        return exampleDao.selectCount(scoped, resolveScopeUserId(scoped));
+    }
+
+    /**
+     * 流程监控列表分页查询（v1_7 新增，P17-BE-015，依据 docs/设计文档/sys/process/流程v1_7接口清单.md §5.6）：
+     * 管理员全量视图，<b>不做本人数据过滤</b>（忽略任何 scope）；支持在途筛选
+     * （inFlightOnly：PROCESSING / RETURN / PAUSE）与异常筛选（exceptionOnly：存在
+     * SYSTEM_ERROR 审批留痕或状态 PAUSE，二者取或，Q-03 定稿口径）；仅创建时间单条件排序。
+     */
+    public List<SysProcessExampleVo> monitorList(SysProcessExampleQuery query, Pages pages,
+                                                 String sortField, String sortOrder) {
+        return exampleDao.selectMonitorList(applyMonitorScope(query), normalizePages(pages),
                 normalizeSortField(sortField), normalizeSortOrder(sortOrder));
     }
 
     /**
-     * 流程实例列表总数（与 {@link #list} 过滤条件一致，供分页 metadata.total 使用）
+     * 流程监控列表总数（与 {@link #monitorList} 过滤条件一致，供分页 metadata.total 使用）
      */
-    public long count(SysProcessExampleQuery query) {
-        return exampleDao.selectCount(query);
+    public long monitorCount(SysProcessExampleQuery query) {
+        return exampleDao.selectMonitorCount(applyMonitorScope(query));
+    }
+
+    /**
+     * 归一列表数据范围 scope（P17-BE-015）：缺省 / 空 / 非法值一律按
+     * {@link SysProcessConstants#EXAMPLE_SCOPE_ADMIN admin} 处理，myCreated / myJoined 保留
+     * （归一结果回写到 query，list 与 count 重复调用幂等）。
+     * <p>请求体不承载用户标识：my* 维度的过滤用户由 {@link #resolveScopeUserId} 从会话注入。</p>
+     */
+    private static SysProcessExampleQuery applyScope(SysProcessExampleQuery query) {
+        SysProcessExampleQuery scoped = null == query ? new SysProcessExampleQuery() : query;
+        String scope = null == scoped.getScope() ? null : scoped.getScope().trim();
+        if (!EXAMPLE_SCOPE_MY_CREATED.equals(scope) && !EXAMPLE_SCOPE_MY_JOINED.equals(scope)) {
+            scoped.setScope(EXAMPLE_SCOPE_ADMIN);
+        } else {
+            scoped.setScope(scope);
+        }
+        return scoped;
+    }
+
+    /**
+     * my* 数据范围对应的会话用户 id（admin / 其他范围返回 null）：用户标识只取自会话
+     * （{@link UserUtil}），请求体无任何用户字段可传（越权数据零泄露口径）；未登录返回 null，
+     * Mapper 的本人过滤条件比对 NULL 恒不成立，结果为空（不泄露任何数据）。
+     */
+    private String resolveScopeUserId(SysProcessExampleQuery query) {
+        if (!EXAMPLE_SCOPE_MY_CREATED.equals(query.getScope())
+                && !EXAMPLE_SCOPE_MY_JOINED.equals(query.getScope())) {
+            return null;
+        }
+        return currentUserIdOrNull();
+    }
+
+    /**
+     * 归一监控列表查询（P17-BE-015）：管理员全量视图，忽略任何 scope（不做本人数据过滤）；
+     * 在途 / 异常筛选（inFlightOnly / exceptionOnly）由 Mapper 按布尔标记承担。
+     */
+    private static SysProcessExampleQuery applyMonitorScope(SysProcessExampleQuery query) {
+        SysProcessExampleQuery scoped = null == query ? new SysProcessExampleQuery() : query;
+        scoped.setScope(EXAMPLE_SCOPE_ADMIN);
+        return scoped;
     }
 
     /**

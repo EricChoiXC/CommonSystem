@@ -31,6 +31,7 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PR
 import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_LIST;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_LOAD;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_MODELS;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_MONITOR_LIST;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_PANEL;
 
 /**
@@ -41,7 +42,7 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PR
  * @description 后台管理-流程管理-流程实例的后端入口（依据 docs/设计文档/sys/process/流程核心业务.md「流程实例和流转」）：
  *              <ul>
  *              <li>查看类操作（list/load/panel）：SYS_PROCESS_EXAMPLE_VIEWER 及以上；</li>
- *              <li>特权操作（adminOperate）：仅 SYS_PROCESS_EXAMPLE_ADMIN。</li>
+ *              <li>特权操作（adminOperate）与流程监控列表（monitorList，v1_7 新增）：仅 SYS_PROCESS_EXAMPLE_ADMIN。</li>
  *              </ul>
  *              流程的创建/提交/审批由实例所属业务模块调用 {@link SysProcessExampleService} 完成，
  *              本 Controller 不暴露（依据「流程创建和提交」「流程审批面板」）。所有接口执行核心业务逻辑前
@@ -49,7 +50,7 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PR
  */
 @RestController
 @RequestMapping("${project.request.prefix}/sys/process/example")
-@Tag(name = "流程-流程实例", description = "后台管理-流程管理-流程实例：所属模块、列表、详情、审批面板、特权操作；查看需 SYS_PROCESS_EXAMPLE_VIEWER 及以上，特权操作仅 SYS_PROCESS_EXAMPLE_ADMIN")
+@Tag(name = "流程-流程实例", description = "后台管理-流程管理-流程实例：所属模块、列表、详情、审批面板、特权操作、流程监控列表；查看需 SYS_PROCESS_EXAMPLE_VIEWER 及以上，特权操作与监控列表仅 SYS_PROCESS_EXAMPLE_ADMIN")
 public class SysProcessExampleController {
 
     private final SysProcessExampleService baseService;
@@ -81,17 +82,18 @@ public class SysProcessExampleController {
     /**
      * 流程实例列表：POST /backend/sys/process/example/list
      * 请求体为 { body: { fieldName, fieldCode, fieldModelName, fieldCreatorName,
-     *           fieldCreateTimeBegin, fieldCreateTimeEnd, fieldStatus }, pages: { pageNo, pageSize, needPage },
+     *           fieldCreateTimeBegin, fieldCreateTimeEnd, fieldStatus, scope }, pages: { pageNo, pageSize, needPage },
      *           sortField, sortOrder }，总数经 metadata.total 返回。
+     * v1_7 扩展数据范围 scope（P17-BE-015）：admin（默认全量）/ myCreated（我发起的）/
+     * myJoined（我参与的）；缺省或非法值一律按 admin 处理（归一在 Service 层），
+     * my* 维度由 Mapper 强制注入会话用户本人过滤条件（不信任请求体传入的用户标识）。
      *
      * @param request 列表请求（条件 + 分页 + 单条件排序），排序字段取 createTime
      * @return 统一响应，data 为流程实例列表，metadata.total 为总数
      */
     @PostMapping("/list")
     @Operation(summary = "流程实例列表", description = "鉴权动作 sys.process.example.list（SYS_PROCESS_EXAMPLE_VIEWER "
-            + "及以上）；请求体 { body: { fieldName, fieldCode, fieldModelName, fieldCreatorName, "
-            + "fieldCreateTimeBegin, fieldCreateTimeEnd, fieldStatus }, pages, sortField, sortOrder }，"
-            + "排序字段取 createTime")
+            + "及以上）；请求体 body.scope 取 admin/myCreated/myJoined，my* 强制本人数据过滤")
     public BaseResponse<List<SysProcessExampleVo>> list(@RequestBody SysProcessExampleRequest request) {
         authorizationHelper.authorize(baseResolver, new AuthorizationContext(ACTION_PROCESS_EXAMPLE_LIST));
         SysProcessExampleQuery query = null == request ? null : request.getBody();
@@ -100,6 +102,29 @@ public class SysProcessExampleController {
                 null == request ? null : request.getSortField(),
                 null == request ? null : request.getSortOrder());
         long total = baseService.count(query);
+        return BaseResponse.success(list, Map.of("total", total));
+    }
+
+    /**
+     * 流程监控列表：POST /backend/sys/process/example/monitorList（v1_7 新增，P17-BE-015）
+     * 请求体同列表（body 含列表筛选字段 + inFlightOnly / exceptionOnly 监控筛选 + pages / sortField / sortOrder），
+     * 总数经 metadata.total 返回。管理员全量视图（不做本人数据过滤），行内透出 exceptionFlag（是否异常实例：
+     * 存在 SYSTEM_ERROR 审批留痕或状态 PAUSE）与当前节点名称。
+     *
+     * @param request 监控列表请求（条件 + 分页 + 单条件排序），排序字段取 createTime
+     * @return 统一响应，data 为流程实例列表，metadata.total 为总数
+     */
+    @PostMapping("/monitorList")
+    @Operation(summary = "流程监控列表", description = "鉴权动作 sys.process.example.monitorList（仅 "
+            + "SYS_PROCESS_EXAMPLE_ADMIN）；流程监控列表，支持在途/异常筛选")
+    public BaseResponse<List<SysProcessExampleVo>> monitorList(@RequestBody SysProcessExampleRequest request) {
+        authorizationHelper.authorize(baseResolver, new AuthorizationContext(ACTION_PROCESS_EXAMPLE_MONITOR_LIST));
+        SysProcessExampleQuery query = null == request ? null : request.getBody();
+        Pages pages = null == request ? null : request.getPages();
+        List<SysProcessExampleVo> list = baseService.monitorList(query, pages,
+                null == request ? null : request.getSortField(),
+                null == request ? null : request.getSortOrder());
+        long total = baseService.monitorCount(query);
         return BaseResponse.success(list, Map.of("total", total));
     }
 

@@ -47,6 +47,61 @@
         <result column="current_node_name" property="currentNodeName"/>
     </resultMap>
 
+    <!-- 监控 VO：列表 VO + 异常实例标记 exception_flag（仅 monitorList 透出） -->
+    <resultMap id="SysProcessExampleMonitorVoMap" type="com.eric.base.sys.process.response.SysProcessExampleVo"
+               extends="SysProcessExampleVoMap">
+        <result column="exception_flag" property="exceptionFlag"/>
+    </resultMap>
+
+    <!--
+        列表/监控共用筛选条件（selectCount / selectListSorted / selectMonitorCount / selectMonitorList
+        同构引用，保证分页 metadata.total 与列表过滤一致）。
+    -->
+    <sql id="ExampleQueryFilters">
+        <if test="query.fieldModelName != null and query.fieldModelName != ''">AND e.field_model_name = #{query.fieldModelName}</if>
+        <if test="query.fieldCode != null and query.fieldCode != ''">AND e.field_code LIKE CONCAT('%', #{query.fieldCode}, '%')</if>
+        <if test="query.fieldName != null and query.fieldName != ''">AND t.field_name LIKE CONCAT('%', #{query.fieldName}, '%')</if>
+        <if test="query.fieldCreatorName != null and query.fieldCreatorName != ''">AND u.field_name LIKE CONCAT('%', #{query.fieldCreatorName}, '%')</if>
+        <if test="query.fieldCreateTimeBegin != null">AND e.field_create_time &gt;= #{query.fieldCreateTimeBegin}</if>
+        <if test="query.fieldCreateTimeEnd != null">AND e.field_create_time &lt;= #{query.fieldCreateTimeEnd}</if>
+        <if test="query.fieldStatus != null and query.fieldStatus != ''">AND e.field_status = #{query.fieldStatus}</if>
+    </sql>
+
+    <!--
+        数据范围本人过滤（仅 list 通道，v1_7 P17-BE-015）：scope 归一在 Service 层，
+        myUserId 由 Service 从会话（UserUtil）注入，Mapper 不读会话、不信任请求体传入的用户标识；
+        admin/缺省（null）不拼任何条件，与既有列表行为完全一致。
+        myJoined 口径：当前用户作为审批人或已审批人（工作项含历史全部状态）。
+    -->
+    <sql id="ExampleScopeFilters">
+        <if test="query.scope == 'myCreated'">AND e.field_creator_id = #{myUserId}</if>
+        <if test="query.scope == 'myJoined'">AND EXISTS (SELECT 1 FROM sys_process_example_workitem w
+            WHERE w.field_example_id = e.field_id AND w.field_handler_id = #{myUserId})</if>
+    </sql>
+
+    <!-- 异常实例判定（Q-03 定稿口径：存在 SYSTEM_ERROR 审批留痕 或 状态为 PAUSE，二者取或） -->
+    <sql id="ExceptionInstanceCondition">
+        (e.field_status = 'PAUSE' OR EXISTS (SELECT 1 FROM sys_process_audit_note an
+        WHERE an.field_example_id = e.field_id AND an.field_handle_type = 'SYSTEM_ERROR'))
+    </sql>
+
+    <!-- 监控专属筛选（仅 monitorList 通道）：在途/异常筛选，缺省 false 不拼条件 -->
+    <sql id="ExampleMonitorFilters">
+        <if test="query.inFlightOnly">AND e.field_status IN ('PROCESSING', 'RETURN', 'PAUSE')</if>
+        <if test="query.exceptionOnly">AND <include refid="ExceptionInstanceCondition"/></if>
+    </sql>
+
+    <!-- 列表 VO 列（list 与 monitorList 共用；当前节点名称=当前处理中的实例节点名关联子查询） -->
+    <sql id="VoSelectColumns">
+        e.field_id, e.field_template_id, e.field_template_version, e.field_model_id, e.field_model_name,
+        e.field_code, e.field_creator_id, u.field_name AS field_creator_name,
+        t.field_name AS field_name,
+        e.field_create_time, e.field_finish_time, e.field_status,
+        (SELECT en.field_node_name FROM sys_process_example_node en
+        WHERE en.field_example_id = e.field_id AND en.field_status = 'PROCESSING'
+        ORDER BY en.field_node_no ASC LIMIT 1) AS current_node_name
+    </sql>
+
     <insert id="insert" parameterType="com.eric.base.sys.process.model.SysProcessExample">
         INSERT INTO sys_process_example (
         <include refid="BaseColumns"/>
@@ -124,46 +179,76 @@
         WHERE field_id = #{fieldId}
     </select>
 
-    <!-- 列表总数（与 selectListSorted 过滤条件一致，供分页 metadata.total 使用） -->
+    <!-- 列表总数（与 selectListSorted 过滤条件一致，供分页 metadata.total 使用；含 scope 本人过滤） -->
     <select id="selectCount" resultType="long">
         SELECT COUNT(*)
         FROM sys_process_example e
         LEFT JOIN sys_process_template t ON t.field_id = e.field_template_id
         LEFT JOIN sys_org_element u ON u.field_id = e.field_creator_id AND u.field_org_type = 3
         <where>
-            <if test="query.fieldModelName != null and query.fieldModelName != ''">AND e.field_model_name = #{query.fieldModelName}</if>
-            <if test="query.fieldCode != null and query.fieldCode != ''">AND e.field_code LIKE CONCAT('%', #{query.fieldCode}, '%')</if>
-            <if test="query.fieldName != null and query.fieldName != ''">AND t.field_name LIKE CONCAT('%', #{query.fieldName}, '%')</if>
-            <if test="query.fieldCreatorName != null and query.fieldCreatorName != ''">AND u.field_name LIKE CONCAT('%', #{query.fieldCreatorName}, '%')</if>
-            <if test="query.fieldCreateTimeBegin != null">AND e.field_create_time &gt;= #{query.fieldCreateTimeBegin}</if>
-            <if test="query.fieldCreateTimeEnd != null">AND e.field_create_time &lt;= #{query.fieldCreateTimeEnd}</if>
-            <if test="query.fieldStatus != null and query.fieldStatus != ''">AND e.field_status = #{query.fieldStatus}</if>
+            <include refid="ExampleQueryFilters"/>
+            <include refid="ExampleScopeFilters"/>
         </where>
     </select>
 
     <!--
-        列表分页查询：过滤条件与 selectCount 一致；
+        列表分页查询：过滤条件与 selectCount 一致（含 scope 本人过滤，Service 注入 myUserId）；
         当前节点名称为关联子查询（当前处理中的实例节点名），排序字段经 <choose> 白名单映射。
     -->
     <select id="selectListSorted" resultMap="SysProcessExampleVoMap">
-        SELECT e.field_id, e.field_template_id, e.field_template_version, e.field_model_id, e.field_model_name,
-               e.field_code, e.field_creator_id, u.field_name AS field_creator_name,
-               t.field_name AS field_name,
-               e.field_create_time, e.field_finish_time, e.field_status,
-               (SELECT en.field_node_name FROM sys_process_example_node en
-                WHERE en.field_example_id = e.field_id AND en.field_status = 'PROCESSING'
-                ORDER BY en.field_node_no ASC LIMIT 1) AS current_node_name
+        SELECT
+        <include refid="VoSelectColumns"/>
         FROM sys_process_example e
         LEFT JOIN sys_process_template t ON t.field_id = e.field_template_id
         LEFT JOIN sys_org_element u ON u.field_id = e.field_creator_id AND u.field_org_type = 3
         <where>
-            <if test="query.fieldModelName != null and query.fieldModelName != ''">AND e.field_model_name = #{query.fieldModelName}</if>
-            <if test="query.fieldCode != null and query.fieldCode != ''">AND e.field_code LIKE CONCAT('%', #{query.fieldCode}, '%')</if>
-            <if test="query.fieldName != null and query.fieldName != ''">AND t.field_name LIKE CONCAT('%', #{query.fieldName}, '%')</if>
-            <if test="query.fieldCreatorName != null and query.fieldCreatorName != ''">AND u.field_name LIKE CONCAT('%', #{query.fieldCreatorName}, '%')</if>
-            <if test="query.fieldCreateTimeBegin != null">AND e.field_create_time &gt;= #{query.fieldCreateTimeBegin}</if>
-            <if test="query.fieldCreateTimeEnd != null">AND e.field_create_time &lt;= #{query.fieldCreateTimeEnd}</if>
-            <if test="query.fieldStatus != null and query.fieldStatus != ''">AND e.field_status = #{query.fieldStatus}</if>
+            <include refid="ExampleQueryFilters"/>
+            <include refid="ExampleScopeFilters"/>
+        </where>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'createTime'">e.field_create_time</when>
+            <otherwise>e.field_create_time</otherwise>
+        </choose>
+        <choose>
+            <when test="sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 监控列表总数（v1_7 P17-BE-015 新增，仅管理员；与 selectMonitorList 过滤条件一致，不做本人数据过滤） -->
+    <select id="selectMonitorCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_process_example e
+        LEFT JOIN sys_process_template t ON t.field_id = e.field_template_id
+        LEFT JOIN sys_org_element u ON u.field_id = e.field_creator_id AND u.field_org_type = 3
+        <where>
+            <include refid="ExampleQueryFilters"/>
+            <include refid="ExampleMonitorFilters"/>
+        </where>
+    </select>
+
+    <!--
+        监控列表分页查询（v1_7 P17-BE-015 新增，仅管理员全量视图）：过滤条件与 selectMonitorCount 一致
+        （基础筛选 + 在途/异常筛选，不拼 scope 本人过滤）；行内透出 exceptionFlag（异常实例标记）与当前节点名称；
+        排序与分页规则与 selectListSorted 一致。
+    -->
+    <select id="selectMonitorList" resultMap="SysProcessExampleMonitorVoMap">
+        SELECT
+        <include refid="VoSelectColumns"/>
+        , CASE WHEN
+        <include refid="ExceptionInstanceCondition"/>
+        THEN 1 ELSE 0 END AS exception_flag
+        FROM sys_process_example e
+        LEFT JOIN sys_process_template t ON t.field_id = e.field_template_id
+        LEFT JOIN sys_org_element u ON u.field_id = e.field_creator_id AND u.field_org_type = 3
+        <where>
+            <include refid="ExampleQueryFilters"/>
+            <include refid="ExampleMonitorFilters"/>
         </where>
         ORDER BY
         <choose>
