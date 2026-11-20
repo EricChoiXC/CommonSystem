@@ -1286,7 +1286,10 @@ public class SysProcessExampleService {
             case AUDIT_TYPE_ADMIN_RESUME -> adminOperate(exampleId, ADMIN_OPERATE_RESUME, null, content, extraAdminRoles);
             /* ==================== 14 类小写操作类型（操作矩阵 §6.2） ==================== */
             case OPERATE_TYPE_DRAFTER_SUBMIT -> submit(exampleId, content, flowChoice);
-            case OPERATE_TYPE_DRAFTER_CANCEL -> abandonByDrafter(exampleId, content);
+            case OPERATE_TYPE_DRAFTER_CANCEL -> {
+                requireOperateParam(content, "content");
+                abandonByDrafter(exampleId, content);
+            }
             case OPERATE_TYPE_DRAFTER_RETRACT -> back(exampleId, content);
             case OPERATE_TYPE_HANDLER_PASS -> {
                 requireOperateParam(workitemId, "workitemId");
@@ -1296,11 +1299,16 @@ public class SysProcessExampleService {
                 requireOperateParam(workitemId, "workitemId");
                 requireOperateParam(rejectTargetKey, "rejectTargetKey");
                 requireOperateParam(resumeMode, "resumeMode");
+                requireOperateParam(content, "content");
                 reject(exampleId, workitemId, content, rejectTargetKey, resumeMode);
             }
-            case OPERATE_TYPE_ADMIN_ABANDON -> adminOperate(exampleId, ADMIN_OPERATE_ABANDON, null, content, extraAdminRoles);
+            case OPERATE_TYPE_ADMIN_ABANDON -> {
+                requireOperateParam(content, "content");
+                adminOperate(exampleId, ADMIN_OPERATE_ABANDON, null, content, extraAdminRoles);
+            }
             case OPERATE_TYPE_ADMIN_JUMP -> {
                 requireOperateParam(targetNodeId, "targetNodeId");
+                requireOperateParam(content, "content");
                 adminOperate(exampleId, ADMIN_OPERATE_JUMP, targetNodeId, content, extraAdminRoles);
             }
             /* ==================== 转办 / 转办收回 / 已审批人收回（P17-BE-010） ==================== */
@@ -1502,7 +1510,8 @@ public class SysProcessExampleService {
     public void requireProcessAdmin(String... extraRoles) {
         SysOrgUser user = UserUtil.getCurrentUser();
         if (null == user || null == user.getRoles()) {
-            throw new AuthorizationException("FORBIDDEN", "无流程管理员权限");
+            throw new AuthorizationException("FORBIDDEN",
+                    CS_PROCESS_OPERATE_FORBIDDEN + "：无流程管理员权限");
         }
         List<String> allowed = new ArrayList<>(List.of(ROLE_ADMIN,
                 SysProcessConstants.ROLE_SYS_PROCESS_ADMIN,
@@ -1512,7 +1521,8 @@ public class SysProcessExampleService {
         }
         boolean ok = user.getRoles().stream().map(SysOrgRole::getFieldCode).anyMatch(allowed::contains);
         if (!ok) {
-            throw new AuthorizationException("FORBIDDEN", "无流程管理员权限");
+            throw new AuthorizationException("FORBIDDEN",
+                    CS_PROCESS_OPERATE_FORBIDDEN + "：无流程管理员权限");
         }
     }
 
@@ -1842,7 +1852,8 @@ public class SysProcessExampleService {
                            String targetNodeKey, String content) {
         if (!EXAMPLE_STATUS_PROCESSING.equals(example.getFieldStatus())
                 && !EXAMPLE_STATUS_RETURN.equals(example.getFieldStatus())) {
-            throw new IllegalArgumentException("仅审批中或驳回状态的流程可跳转");
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT
+                    + "：仅审批中或驳回状态的流程可跳转");
         }
         // 目标节点解析：targetNodeId 优先；为空时按 targetNodeKey 匹配实例节点集合（key 非法拒绝）
         String resolvedNodeId = trimToNull(targetNodeId);
@@ -1983,7 +1994,8 @@ public class SysProcessExampleService {
                 && !EXAMPLE_STATUS_RETURN.equals(status)
                 && !EXAMPLE_STATUS_DRAFT.equals(status)
                 && !EXAMPLE_STATUS_PAUSE.equals(status)) {
-            throw new IllegalArgumentException("仅审批中、驳回、草稿或暂停状态的流程可作废");
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT
+                    + "：仅审批中、驳回、草稿或暂停状态的流程可作废");
         }
         addAudit(example.getFieldId(), null, operatorId, handleType, trimToNull(content));
         abandonActiveWorkitems(example.getFieldId());

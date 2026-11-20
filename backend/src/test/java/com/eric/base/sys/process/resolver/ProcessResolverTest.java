@@ -12,6 +12,25 @@ import org.mockito.MockedStatic;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_ADMIN_OPERATE;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_LIST;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_LOAD;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_MODELS;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_MONITOR_LIST;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_OPERATE;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_PANEL;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_MODULE_ENABLE;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_MODULE_LOAD;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_MODULE_LIST;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_MODULE_MODELS;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_MODULE_SAVE;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_MODULE_SET_DEFAULT;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_MODULE_UPDATE;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_SETTING_LIST;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_SETTING_RESET;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_SETTING_SAVE;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_STATISTIC_ADMIN;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_STATISTIC_MY;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ROLE_SYS_PROCESS_EXAMPLE_ADMIN;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ROLE_SYS_PROCESS_EXAMPLE_VIEWER;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ROLE_SYS_PROCESS_MY_VIEWER;
@@ -19,6 +38,7 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.ROLE_SYS_
 import static com.eric.base.sys.process.properties.SysProcessConstants.ROLE_SYS_PROCESS_SETTING_ADMIN;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ROLE_SYS_PROCESS_TEMPLATE_ADMIN;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ROLE_SYS_PROCESS_TEMPLATE_VIEWER;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mockStatic;
@@ -164,5 +184,125 @@ class ProcessResolverTest {
         assertFalse(resolver.resolve("sys.process.other.list"));
         assertFalse(resolver.resolve(""));
         assertFalse(resolver.resolve((String) null));
+    }
+
+    /* ==================== v1_7 权限矩阵（P17-QA-002：19 ACTION × 10 角色集逐格断言） ==================== */
+
+    /** 19 项 ACTION 全集（setting 3 + module 7 + example 7 + statistic 2，见权限分册 §3.1） */
+    private static final List<String> MATRIX_ACTIONS = List.of(
+            ACTION_PROCESS_SETTING_LIST, ACTION_PROCESS_SETTING_SAVE, ACTION_PROCESS_SETTING_RESET,
+            ACTION_PROCESS_MODULE_MODELS, ACTION_PROCESS_MODULE_LIST, ACTION_PROCESS_MODULE_LOAD,
+            ACTION_PROCESS_MODULE_SAVE, ACTION_PROCESS_MODULE_UPDATE, ACTION_PROCESS_MODULE_ENABLE,
+            ACTION_PROCESS_MODULE_SET_DEFAULT,
+            ACTION_PROCESS_EXAMPLE_MODELS, ACTION_PROCESS_EXAMPLE_LIST, ACTION_PROCESS_EXAMPLE_LOAD,
+            ACTION_PROCESS_EXAMPLE_PANEL, ACTION_PROCESS_EXAMPLE_OPERATE,
+            ACTION_PROCESS_EXAMPLE_ADMIN_OPERATE, ACTION_PROCESS_EXAMPLE_MONITOR_LIST,
+            ACTION_PROCESS_STATISTIC_ADMIN, ACTION_PROCESS_STATISTIC_MY);
+
+    /** 模板写操作后缀（仅 TEMPLATE_ADMIN） */
+    private static final List<String> MODULE_WRITE_ACTIONS = List.of(
+            ACTION_PROCESS_MODULE_SAVE, ACTION_PROCESS_MODULE_UPDATE,
+            ACTION_PROCESS_MODULE_ENABLE, ACTION_PROCESS_MODULE_SET_DEFAULT);
+
+    /** 实例特权动作后缀（仅 EXAMPLE_ADMIN） */
+    private static final List<String> EXAMPLE_ADMIN_ONLY_ACTIONS = List.of(
+            ACTION_PROCESS_EXAMPLE_ADMIN_OPERATE, ACTION_PROCESS_EXAMPLE_MONITOR_LIST);
+
+    /** 权限矩阵角色集 key（与断言表 expectedResolve 一一对应） */
+    private static final List<String> MATRIX_ROLES = List.of(
+            "SYS_ADMIN", "SYS_PROCESS_ADMIN", "SYS_PROCESS_TEMPLATE_ADMIN", "SYS_PROCESS_TEMPLATE_VIEWER",
+            "SYS_PROCESS_EXAMPLE_ADMIN", "SYS_PROCESS_EXAMPLE_VIEWER", "SYS_PROCESS_SETTING_ADMIN",
+            "SYS_PROCESS_MY_VIEWER", "PLAIN_USER", "DISABLED_USER");
+
+    /**
+     * 权限矩阵期望表（判定口径以权限分册 §3.1 / §3.2 为准）：
+     * SYS_ADMIN 由 BaseResolver 自动放行（全 19 项）；SYS_PROCESS_ADMIN 为流程模块入口统一放行
+     * （全 19 项，其中 statistic.my 经「登录即可」口径通过）；模板写操作仅 TEMPLATE_ADMIN、
+     * 读操作 ADMIN/VIEWER；example 特权动作（adminOperate/monitorList）仅 EXAMPLE_ADMIN、
+     * 其余（含 operate）ADMIN/VIEWER；statistic.admin 仅 EXAMPLE_ADMIN、statistic.my 登录即可；
+     * setting 仅 SETTING_ADMIN；未启用用户全部拒绝。
+     */
+    private static boolean expectedResolve(String action, String roleKey) {
+        return switch (roleKey) {
+            case "SYS_ADMIN", "SYS_PROCESS_ADMIN" -> true;
+            case "SYS_PROCESS_TEMPLATE_ADMIN" ->
+                    action.startsWith("sys.process.module.") || action.endsWith(".my");
+            case "SYS_PROCESS_TEMPLATE_VIEWER" ->
+                    (action.startsWith("sys.process.module.") && !MODULE_WRITE_ACTIONS.contains(action))
+                            || action.endsWith(".my");
+            case "SYS_PROCESS_EXAMPLE_ADMIN" ->
+                    action.startsWith("sys.process.example.") || action.endsWith(".my")
+                            || action.endsWith(".admin");
+            case "SYS_PROCESS_EXAMPLE_VIEWER" ->
+                    (action.startsWith("sys.process.example.") && !EXAMPLE_ADMIN_ONLY_ACTIONS.contains(action))
+                            || action.endsWith(".my");
+            case "SYS_PROCESS_SETTING_ADMIN" ->
+                    action.startsWith("sys.process.setting.") || action.endsWith(".my");
+            case "SYS_PROCESS_MY_VIEWER", "PLAIN_USER" -> action.endsWith(".my");
+            case "DISABLED_USER" -> false;
+            default -> throw new IllegalArgumentException("unknown matrix role: " + roleKey);
+        };
+    }
+
+    private void loginMatrixRole(String roleKey) {
+        switch (roleKey) {
+            case "SYS_ADMIN" -> login(com.eric.base.common.properties.CommonProperties.ROLE_ADMIN);
+            case "SYS_PROCESS_ADMIN" -> login(ROLE_SYS_PROCESS_ADMIN);
+            case "SYS_PROCESS_TEMPLATE_ADMIN" -> login(ROLE_SYS_PROCESS_TEMPLATE_ADMIN);
+            case "SYS_PROCESS_TEMPLATE_VIEWER" -> login(ROLE_SYS_PROCESS_TEMPLATE_VIEWER);
+            case "SYS_PROCESS_EXAMPLE_ADMIN" -> login(ROLE_SYS_PROCESS_EXAMPLE_ADMIN);
+            case "SYS_PROCESS_EXAMPLE_VIEWER" -> login(ROLE_SYS_PROCESS_EXAMPLE_VIEWER);
+            case "SYS_PROCESS_SETTING_ADMIN" -> login(ROLE_SYS_PROCESS_SETTING_ADMIN);
+            case "SYS_PROCESS_MY_VIEWER" -> login(ROLE_SYS_PROCESS_MY_VIEWER);
+            case "PLAIN_USER" -> login();
+            case "DISABLED_USER" -> {
+                login(ROLE_SYS_PROCESS_EXAMPLE_VIEWER, ROLE_SYS_PROCESS_MY_VIEWER);
+                UserUtil.getCurrentUser().setFieldEnable(false);
+            }
+            default -> throw new IllegalArgumentException("unknown matrix role: " + roleKey);
+        }
+    }
+
+    @Test
+    @DisplayName("[resolver: v1_7 权限矩阵] 19 ACTION × 10 角色集逐格断言放行/拒绝（190 格）")
+    void permissionMatrix() {
+        for (String roleKey : MATRIX_ROLES) {
+            loginMatrixRole(roleKey);
+            for (String action : MATRIX_ACTIONS) {
+                boolean expected = expectedResolve(action, roleKey);
+                assertEquals(expected, resolver.resolve(action),
+                        "权限矩阵格 " + roleKey + " × " + action);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("[resolver: 判定顺序负向] 伪造特权后缀 / 未登记 statistic 子动作 / 未登记前缀一律拒绝")
+    void negativeOrderingCases() {
+        // 伪造 .monitorList / .adminOperate 后缀的复合动作：example 分支先判后缀 → 查看者被拒
+        login(ROLE_SYS_PROCESS_EXAMPLE_VIEWER);
+        assertFalse(resolver.resolve("sys.process.example.list.monitorList"),
+                "伪造 monitorList 后缀的复合动作按特权后缀判定，查看者拒绝");
+        assertFalse(resolver.resolve("sys.process.example.list.adminOperate"),
+                "伪造 adminOperate 后缀的复合动作按特权后缀判定，查看者拒绝");
+        // .operate 属「其余」后缀：查看者放行（口径回归）
+        assertTrue(resolver.resolve("sys.process.example.list.operate"));
+
+        // statistic 分支：未登记子动作按最小授权拒绝（即使管理员）；.my 登录即可不受影响
+        login(ROLE_SYS_PROCESS_EXAMPLE_ADMIN);
+        assertFalse(resolver.resolve("sys.process.statistic.other"), "未登记 statistic 子动作拒绝");
+        assertFalse(resolver.resolve("sys.process.statistic.admin.extra"), "伪造复合子动作拒绝");
+        assertFalse(resolver.resolve("sys.process.statistic.my.other"), "伪造 .my 复合子动作拒绝");
+        assertTrue(resolver.resolve("sys.process.statistic.my"));
+
+        // 未登记前缀：无流程管理员特权的角色一律拒绝（最小授权；SYS_PROCESS_ADMIN 在入口统一放行属既有设计，
+        // 见 ProcessResolver 类注释与 processAdminBypassesAllActions 用例）
+        login(ROLE_SYS_PROCESS_EXAMPLE_ADMIN);
+        assertFalse(resolver.resolve("sys.process.other.list"));
+        assertFalse(resolver.resolve("sys.process.other.example.operate"));
+        // 无角色普通用户：仅 .my 放行
+        login();
+        assertFalse(resolver.resolve("sys.process.example.operate"));
+        assertTrue(resolver.resolve("sys.process.statistic.my"));
     }
 }
