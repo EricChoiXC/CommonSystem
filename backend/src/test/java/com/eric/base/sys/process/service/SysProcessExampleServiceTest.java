@@ -2772,6 +2772,29 @@ class SysProcessExampleServiceTest {
         assertEquals(1, detail.getAuditNotes().size());
     }
 
+    /**
+     * 回归（P17-INT-002 联调发现并修复）：详情/面板的工作项行须透出
+     * {@code fieldFromWorkitemId}（接口清单 §5.3 workitems[] 契约字段，转办/收回来源追溯），
+     * 无来源时为 null。
+     */
+    @Test
+    void loadDetailCarriesFromWorkitemIdForTransferredWorkitem() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem transferred = workitem(WI_U2, NODE3_ID, U2,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        transferred.setFieldFromWorkitemId(WI_U1);
+        when(workitemDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(List.of(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_ABANDON),
+                transferred));
+        when(auditNoteDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(List.of());
+
+        SysProcessExampleDetailVo detail = service.load(EXAMPLE_ID);
+
+        assertEquals(2, detail.getWorkitems().size());
+        assertNull(detail.getWorkitems().get(0).getFieldFromWorkitemId());
+        assertEquals(WI_U1, detail.getWorkitems().get(1).getFieldFromWorkitemId());
+    }
+
     /* ==================== 审批面板按钮集（P17-BE-013，operations 升级为按钮对象数组） ==================== */
 
     /** v1_7 审批操作明细配置：通过（含操作名/默认意见）+ 拒绝（空操作名取默认名）/抄送/转办 + 驳回目标（含未流经节点 N3） */

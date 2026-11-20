@@ -2660,6 +2660,8 @@ public class SysProcessExampleService {
             vo.setFieldFinishTime(workitem.getFieldFinishTime());
             vo.setFieldStatus(workitem.getFieldStatus());
             vo.setResumeMode(parseResumeMode(workitem.getFieldConfig()));
+            // v1_7 转办/收回来源工作项透出（接口清单 §5.3 workitems[] 契约字段，P17-INT-002 联调补齐）
+            vo.setFieldFromWorkitemId(workitem.getFieldFromWorkitemId());
             return vo;
         }).toList();
     }
