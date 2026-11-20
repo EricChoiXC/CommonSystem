@@ -1324,15 +1324,21 @@ public class ProcessFlowEngine {
         return true;
     }
 
-    /** 节点全部工作项是否均已完成 */
+    /**
+     * 节点全部工作项是否均已完成（ABANDON（转办弃置）工作项视为终态不阻塞，P17-BE-010：
+     * 转办后原序位由被转办人工作项承接，原工作项不再计入会签等待）。
+     */
     private static boolean allWorkitemsFinished(List<SysProcessExampleWorkitem> workitems) {
         if (null == workitems || workitems.isEmpty()) {
             return true;
         }
         for (SysProcessExampleWorkitem workitem : workitems) {
-            if (!SysProcessConstants.WORKITEM_STATUS_FINISH.equals(workitem.getFieldStatus())) {
-                return false;
+            String status = workitem.getFieldStatus();
+            if (SysProcessConstants.WORKITEM_STATUS_FINISH.equals(status)
+                    || SysProcessConstants.WORKITEM_STATUS_ABANDON.equals(status)) {
+                continue;
             }
+            return false;
         }
         return true;
     }

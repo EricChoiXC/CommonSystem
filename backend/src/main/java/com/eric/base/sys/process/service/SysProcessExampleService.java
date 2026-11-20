@@ -70,6 +70,7 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.ADMIN_OPE
 import static com.eric.base.sys.process.properties.SysProcessConstants.ADMIN_OPERATE_PAUSE;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ADMIN_OPERATE_RESUME;
 import static com.eric.base.sys.process.properties.SysProcessConstants.APPROVE_MODE_COUNTERSIGN;
+import static com.eric.base.sys.process.properties.SysProcessConstants.APPROVE_MODE_SERIAL;
 import static com.eric.base.sys.process.properties.SysProcessConstants.APPROVE_MODE_SINGLE;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_ADMIN_ABANDON;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_ADMIN_FINISH;
@@ -83,6 +84,9 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYP
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_PASS;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_REJECT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_RETURN;
+import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_TRANSFER;
+import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_TRANSFER_RETRACT;
+import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_PROCESSED_RETRACT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUTO_CONTINUE_SKIP_SYSTEM;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUTO_CONTINUE_SKIP_YES;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUTO_SKIP_SYSTEM;
@@ -150,6 +154,9 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.WORKITEM_
  *              <li>审批人通过/驳回：单签一人通过即通过节点、会审需全员通过；
  *                  驳回按「节点配置 rejectTargets ∩ 已流经节点」校验目标（空默认起草节点）转 RETURN，
  *                  留痕 HANDLER_REJECT，目标与「重新提交后流转方式」保存到驳回者工作项配置；</li>
+ *              <li>审批人转办/转办收回/已审批人收回（v1_7 新增，P17-BE-010）：转办为被转办人生成
+ *                  from_workitem_id 关联的新工作项（被转办人视为该序位实际处理人）、转办收回沿
+ *                  from_workitem_id 链整链回退到原审批人、节点未流出时已办结工作项可收回到本人；</li>
  *              <li>审批人解析：按节点「审批来源」解析——组织架构直接取配置审批人，表单字段读取文档实体
  *                  对应字段值解析出组织架构（岗位/用户）作为审批人，结果为空时跳过节点；</li>
  *              <li>自动跳过：按公共配置（auto_handle_pass / auto_handle_pass_drafter / auto_continue_pass）
@@ -470,6 +477,14 @@ public class SysProcessExampleService {
             finishRemainingWorkitems(node.getFieldId(), workitem.getFieldId());
             log.info("process example node passed: example={}, node={}", example.getFieldId(), node.getFieldNodeName());
             flowEngine.pass(example, ProcessFlowGraph.nodeKey(node), node.getFieldNodeName(), workitem.getFieldId());
+        } else if (isSerialApproveNode(node)) {
+            // 串行（P17-BE-010 补齐 Service 通道串行推进）：不在此判定通过、不置节点 FINISH，
+            // 交引擎推进下一序位（advanceApprove 生成下一顺序人工作项；队列走完时由引擎置节点 FINISH 并沿出边流转）
+            if (NODE_STATUS_FINISH.equals(node.getFieldStatus())) {
+                // 串行队列已走完（节点已流出）：在途工作项为历史残留（如收回后未重新处理），不可再审批
+                throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：节点已办结，工作项不可再审批");
+            }
+            flowEngine.pass(example, ProcessFlowGraph.nodeKey(node), node.getFieldNodeName(), workitem.getFieldId());
         }
         log.info("process example workitem passed: example={}, workitem={}", example.getFieldId(), workitem.getFieldId());
     }
@@ -624,6 +639,276 @@ public class SysProcessExampleService {
                 || NODE_STATUS_REJECT.equals(node.getFieldStatus()));
     }
 
+    /* ==================== 审批人转办 / 转办收回 / 已审批人收回（P17-BE-010） ==================== */
+
+    /**
+     * 审批人转办（handler_transfer，P17-BE-010）：当前处理人将 PROCESSING 工作项转办给一个或多个被转办人。
+     * <ul>
+     * <li>原工作项转 ABANDON（记完成时间）；按 transferToIds 顺序逐人生成新工作项：处理人/期望处理人
+     *     =被转办人（视为该序位实际处理人）、状态 PROCESSING、{@code field_from_workitem_id=原工作项 id}
+     *     （链路 A→B 可逐级追溯）、{@code field_config} 继承原工作项配置（保留 resumeMode / flowChoice /
+     *     flowBranchKey——并行分支内转办时 flowBranchKey 必须继承，保证 JOIN 汇聚归属不乱）；</li>
+     * <li>转办仅替换「人」不重排审批：单签/会签下新工作项视为原序位的工作项（节点通过判定按工作项状态
+     *     自然成立）；串行模式转办时本序位即最新工作项（串行「上一人通过后才生成下一人待办」），
+     *     被转办人通过后由引擎照常推进下一序位，不涉及后续序位；</li>
+     * <li>不影响节点/流程状态（仍 PROCESSING）；留痕 {@link SysProcessConstants#AUDIT_TYPE_HANDLER_TRANSFER}
+     *     一条（workitemId=原工作项 id，转办给多人亦只留痕一条）。</li>
+     * </ul>
+     * 转办目标用户经用户表按 id 校验须存在（允许禁用状态，对齐审批人解析语义），不存在的目标拒绝。
+     *
+     * @param exampleId     流程实例 id（必填）
+     * @param workitemId    原工作项 id（必填，须为当前处理人 PROCESSING 工作项）
+     * @param transferToIds 被转办用户 id（';' 分隔或多值，去重保序，必填）
+     * @param content       转办意见（必填）
+     */
+    @Transactional
+    public void transfer(String exampleId, String workitemId, String transferToIds, String content) {
+        SysProcessExample example = requireExample(exampleId);
+        if (!EXAMPLE_STATUS_PROCESSING.equals(example.getFieldStatus())) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅审批中的流程可执行转办");
+        }
+        requireOperateParam(workitemId, "workitemId");
+        if (StringUtil.isEmpty(content)) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING + "：content 必填");
+        }
+        SysProcessExampleWorkitem workitem = requireProcessingWorkitem(example.getFieldId(), workitemId);
+        List<String> targets = parseTransferToIds(transferToIds);
+        requireTransferTargetsExist(targets);
+        SysOrgUser current = requireCurrentUser();
+        Date now = new Date();
+        // 原工作项弃置（记完成时间）；新工作项按被转办人顺序逐人生成（config 继承原工作项）
+        workitem.setFieldStatus(WORKITEM_STATUS_ABANDON);
+        workitem.setFieldFinishTime(now);
+        workitemDao.update(workitem);
+        for (String targetId : targets) {
+            workitemDao.insert(buildTransferWorkitem(example, workitem, targetId, workitem.getFieldId()));
+        }
+        addAudit(example.getFieldId(), workitem.getFieldId(), current.getFieldId(),
+                AUDIT_TYPE_HANDLER_TRANSFER, content.trim());
+        log.info("process workitem transferred: example={}, workitem={}, to={}",
+                example.getFieldId(), workitem.getFieldId(), String.join(";", targets));
+    }
+
+    /**
+     * 转办收回（handler_transfer_retract，P17-BE-010）：转办发起人（原审批人）在被转办工作项
+     * 仍 PROCESSING 时收回，链路回退到本人（A→B→收回→A）。
+     * <ul>
+     * <li>入参 workitemId = 原工作项 id（转办发起人持有的已 ABANDON 工作项）；身份校验：当前用户必须为
+     *     原工作项 {@code field_handler_id}（不符抛 FORBIDDEN）；</li>
+     * <li>前置：原工作项状态 ABANDON，且沿 {@code field_from_workitem_id} 链存在仍 PROCESSING 的
+     *     被转办工作项；链上任一被转办工作项已处理（FINISH / PAUSE）抛 STATE_CONFLICT；</li>
+     * <li>动作：整链仍 PROCESSING 的被转办工作项置 ABANDON（多代链 A→B→C 中 B 已在转办时弃置）；
+     *     为原审批人生成新工作项（PROCESSING、from_workitem_id 回链最新一代仍 PROCESSING 的被转办
+     *     工作项，一次转办多人并列时回链原工作项 id，链路均可经 from_workitem_id 逐级回溯；
+     *     config 继承原工作项）；会签/串行下恢复的是原序位工作项，节点通过判定不变；</li>
+     * <li>留痕 {@link SysProcessConstants#AUDIT_TYPE_HANDLER_TRANSFER_RETRACT}（workitemId=原工作项 id）。</li>
+     * </ul>
+     *
+     * @param exampleId  流程实例 id（必填）
+     * @param workitemId 原工作项 id（必填，须为转办发起人的已 ABANDON 工作项）
+     * @param content    收回意见（必填）
+     */
+    @Transactional
+    public void transferRetract(String exampleId, String workitemId, String content) {
+        SysProcessExample example = requireExample(exampleId);
+        if (!EXAMPLE_STATUS_PROCESSING.equals(example.getFieldStatus())) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅审批中的流程可执行转办收回");
+        }
+        requireOperateParam(workitemId, "workitemId");
+        if (StringUtil.isEmpty(content)) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING + "：content 必填");
+        }
+        SysProcessExampleWorkitem original = workitemDao.selectById(workitemId.trim());
+        if (null == original || !example.getFieldId().equals(original.getFieldExampleId())) {
+            throw new IllegalArgumentException("工作项不存在");
+        }
+        SysOrgUser current = requireCurrentUser();
+        if (!current.getFieldId().equals(original.getFieldHandlerId())) {
+            throw new AuthorizationException("FORBIDDEN",
+                    CS_PROCESS_OPERATE_FORBIDDEN + "：仅转办发起人可收回");
+        }
+        if (!WORKITEM_STATUS_ABANDON.equals(original.getFieldStatus())) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：工作项未处于转办状态，无法收回");
+        }
+        // 沿 from_workitem_id 链收集被转办工作项（按代分层）：任一已处理（FINISH/PAUSE）即不可收回
+        List<List<SysProcessExampleWorkitem>> levels = transferDescendantLevels(example.getFieldId(),
+                original.getFieldId());
+        if (levels.isEmpty()) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：未找到被转办工作项，无法收回");
+        }
+        List<SysProcessExampleWorkitem> processing = new ArrayList<>();
+        for (List<SysProcessExampleWorkitem> level : levels) {
+            for (SysProcessExampleWorkitem descendant : level) {
+                if (WORKITEM_STATUS_PROCESSING.equals(descendant.getFieldStatus())) {
+                    processing.add(descendant);
+                } else if (!WORKITEM_STATUS_ABANDON.equals(descendant.getFieldStatus())) {
+                    throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT
+                            + "：被转办工作项已处理，无法收回");
+                }
+            }
+        }
+        if (processing.isEmpty()) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：被转办工作项已处理，无法收回");
+        }
+        // 新工作项回链：最新一代仍 PROCESSING 的被转办工作项唯一时回链它（A→B→C 回链 C），
+        // 并列多目标时回链原工作项 id（均能经 from_workitem_id 逐级回溯整链）
+        String fromWorkitemId = original.getFieldId();
+        for (int i = levels.size() - 1; i >= 0; i--) {
+            List<SysProcessExampleWorkitem> levelProcessing = new ArrayList<>();
+            for (SysProcessExampleWorkitem descendant : levels.get(i)) {
+                if (WORKITEM_STATUS_PROCESSING.equals(descendant.getFieldStatus())) {
+                    levelProcessing.add(descendant);
+                }
+            }
+            if (!levelProcessing.isEmpty()) {
+                if (1 == levelProcessing.size()) {
+                    fromWorkitemId = levelProcessing.get(0).getFieldId();
+                }
+                break;
+            }
+        }
+        // 整链置 ABANDON（多代链中间代已在转办时弃置，此处弃置全部仍 PROCESSING 的后代）
+        Date now = new Date();
+        for (SysProcessExampleWorkitem descendant : processing) {
+            descendant.setFieldStatus(WORKITEM_STATUS_ABANDON);
+            descendant.setFieldFinishTime(now);
+            workitemDao.update(descendant);
+        }
+        // 为原审批人生成新工作项（恢复原序位：config 继承原工作项）
+        workitemDao.insert(buildTransferWorkitem(example, original, original.getFieldHandlerId(), fromWorkitemId));
+        addAudit(example.getFieldId(), original.getFieldId(), current.getFieldId(),
+                AUDIT_TYPE_HANDLER_TRANSFER_RETRACT, content.trim());
+        log.info("process workitem transfer retracted: example={}, workitem={}",
+                example.getFieldId(), original.getFieldId());
+    }
+
+    /**
+     * 已审批人收回（processed_retract，P17-BE-010）：已处理人将本人已办结（FINISH）工作项收回到本人
+     * （重新持 PROCESSING 工作项），仅限正常流转场景。
+     * <ul>
+     * <li>身份：当前用户必须为该工作项 {@code field_handler_id} 且工作项属于本实例（不符抛 FORBIDDEN）；</li>
+     * <li>前置：流程 PROCESSING、工作项状态 FINISH、工作项所属节点仍 PROCESSING（节点尚未流出；
+     *     节点已 FINISH / PASS / REJECT 抛 STATE_CONFLICT——不得用于已流过的后续节点）；</li>
+     * <li>动作：该工作项重新置 PROCESSING（处理人不变；完成时间保留不影响重新处理——工作项动态更新
+     *     按非空字段落库）；收回后按节点 approveMode 自然参与节点通过判定（会签需其重新通过；单签/串行
+     *     由引擎按在途工作项与队列口径继续推进）；后续节点 skipMode prev/any 的「已审批人」集合不做
+     *     追溯性重算（见「审批操作矩阵」实现补充）；</li>
+     * <li>留痕 {@link SysProcessConstants#AUDIT_TYPE_PROCESSED_RETRACT}（workitemId=被收回工作项 id）。</li>
+     * </ul>
+     *
+     * @param exampleId  流程实例 id（必填）
+     * @param workitemId 被收回工作项 id（必填，须为当前用户已办结工作项）
+     * @param content    收回意见（必填）
+     */
+    @Transactional
+    public void processedRetract(String exampleId, String workitemId, String content) {
+        SysProcessExample example = requireExample(exampleId);
+        if (!EXAMPLE_STATUS_PROCESSING.equals(example.getFieldStatus())) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅审批中的流程可收回已办结工作项");
+        }
+        requireOperateParam(workitemId, "workitemId");
+        if (StringUtil.isEmpty(content)) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING + "：content 必填");
+        }
+        SysProcessExampleWorkitem workitem = workitemDao.selectById(workitemId.trim());
+        if (null == workitem || !example.getFieldId().equals(workitem.getFieldExampleId())) {
+            throw new IllegalArgumentException("工作项不存在");
+        }
+        SysOrgUser current = requireCurrentUser();
+        if (!current.getFieldId().equals(workitem.getFieldHandlerId())) {
+            throw new AuthorizationException("FORBIDDEN",
+                    CS_PROCESS_OPERATE_FORBIDDEN + "：仅工作项处理人可收回已办结工作项");
+        }
+        if (!WORKITEM_STATUS_FINISH.equals(workitem.getFieldStatus())) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅已办结工作项可收回");
+        }
+        SysProcessExampleNode node = requireNode(workitem.getFieldNodeId());
+        if (!NODE_STATUS_PROCESSING.equals(node.getFieldStatus())) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：节点已办结，无法收回");
+        }
+        // 收回到本人：工作项重新置 PROCESSING（处理人不变；完成时间保留不影响重新处理）
+        workitem.setFieldStatus(WORKITEM_STATUS_PROCESSING);
+        workitemDao.update(workitem);
+        addAudit(example.getFieldId(), workitem.getFieldId(), current.getFieldId(),
+                AUDIT_TYPE_PROCESSED_RETRACT, content.trim());
+        log.info("process workitem processed retracted: example={}, workitem={}",
+                example.getFieldId(), workitem.getFieldId());
+    }
+
+    /** 解析转办目标用户 id 列表（';' 分隔或多值，去重保序）；为空抛 CS_PROCESS_OPERATE_PARAM_MISSING。 */
+    private List<String> parseTransferToIds(String transferToIds) {
+        Set<String> parsed = parseHandlerIds(transferToIds);
+        if (parsed.isEmpty()) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING + "：transferToIds 必填");
+        }
+        return new ArrayList<>(parsed);
+    }
+
+    /** 校验转办目标用户存在（按 id 查用户表；允许禁用状态，对齐审批人解析语义），不存在的目标拒绝。 */
+    private void requireTransferTargetsExist(List<String> targets) {
+        for (String targetId : targets) {
+            if (null == userMapper.selectById(targetId)) {
+                throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING
+                        + "：转办目标用户不存在: " + targetId);
+            }
+        }
+    }
+
+    /**
+     * 构造转办/转办收回生成的新工作项：处理人与期望处理人=目标人（被转办人/原审批人视为该序位
+     * 实际处理人）、状态 PROCESSING、{@code field_from_workitem_id} 关联来源工作项、
+     * {@code field_config} 继承来源工作项配置（保留 resumeMode / flowChoice / flowBranchKey）。
+     */
+    private SysProcessExampleWorkitem buildTransferWorkitem(SysProcessExample example,
+                                                            SysProcessExampleWorkitem source,
+                                                            String targetHandlerId, String fromWorkitemId) {
+        SysProcessExampleWorkitem created = new SysProcessExampleWorkitem();
+        created.initFieldId();
+        created.setFieldExampleId(example.getFieldId());
+        created.setFieldNodeId(source.getFieldNodeId());
+        created.setFieldHandlerId(targetHandlerId);
+        created.setFieldExpectHandlerId(targetHandlerId);
+        created.setFieldCreateTime(new Date());
+        created.setFieldStatus(WORKITEM_STATUS_PROCESSING);
+        // 配置继承来源工作项（先读回原 config 再写，保留 resumeMode / flowChoice / flowBranchKey）
+        created.setFieldConfig(source.getFieldConfig());
+        created.setFieldFromWorkitemId(fromWorkitemId);
+        return created;
+    }
+
+    /**
+     * 收集原工作项沿 {@code field_from_workitem_id} 链的全部被转办后代（按代分层，广度优先）：
+     * 实例工作项一次读取建「来源→子代」索引后逐层下探，支持转办链 A→B→C 与一次转办多人（并列子代）。
+     */
+    private List<List<SysProcessExampleWorkitem>> transferDescendantLevels(String exampleId,
+                                                                           String originWorkitemId) {
+        List<SysProcessExampleWorkitem> all = workitemDao.selectListByExampleId(exampleId);
+        Map<String, List<SysProcessExampleWorkitem>> childrenByFrom = new HashMap<>();
+        if (null != all) {
+            for (SysProcessExampleWorkitem item : all) {
+                if (StringUtil.isNotEmpty(item.getFieldFromWorkitemId())) {
+                    childrenByFrom.computeIfAbsent(item.getFieldFromWorkitemId(), key -> new ArrayList<>()).add(item);
+                }
+            }
+        }
+        List<List<SysProcessExampleWorkitem>> levels = new ArrayList<>();
+        List<SysProcessExampleWorkitem> current =
+                childrenByFrom.getOrDefault(originWorkitemId, List.of());
+        Set<String> visited = new HashSet<>();
+        visited.add(originWorkitemId);
+        while (!current.isEmpty()) {
+            List<SysProcessExampleWorkitem> next = new ArrayList<>();
+            for (SysProcessExampleWorkitem item : current) {
+                if (visited.add(item.getFieldId())) {
+                    next.addAll(childrenByFrom.getOrDefault(item.getFieldId(), List.of()));
+                }
+            }
+            levels.add(current);
+            current = next;
+        }
+        return levels;
+    }
+
     /* ==================== 管理员特权操作 ==================== */
 
     /**
@@ -694,9 +979,9 @@ public class SysProcessExampleService {
      *     DRAFTER_BACK / DRAFTER_ABANDON / ADMIN_JUMP / ADMIN_FINISH / ADMIN_ABANDON /
      *     ADMIN_PAUSE / ADMIN_RESUME，分发逻辑不变（向后兼容）；</li>
      * <li>14 类小写操作类型：drafter_submit / drafter_cancel / drafter_retract / handler_pass /
-     *     handler_reject / admin_abandon / admin_jump 本期接通真实引擎分发；
-     *     drafter_expedite / handler_cc / handler_transfer / handler_transfer_retract /
-     *     processed_retract / processed_expedite / admin_change_handler 暂未开放
+     *     handler_reject / handler_transfer / handler_transfer_retract / processed_retract /
+     *     admin_abandon / admin_jump 接通真实引擎分发（转办/收回由 P17-BE-010 落地）；
+     *     drafter_expedite / handler_cc / processed_expedite / admin_change_handler 暂未开放
      *     （{@code CS_PROCESS_OPERATE_TYPE_INVALID}，后续任务逐个替换为真实分发）；</li>
      * <li>未登记类型一律拒绝（{@code CS_PROCESS_OPERATE_TYPE_INVALID}）。</li>
      * </ul>
@@ -754,12 +1039,23 @@ public class SysProcessExampleService {
                 requireOperateParam(targetNodeId, "targetNodeId");
                 adminOperate(exampleId, ADMIN_OPERATE_JUMP, targetNodeId, content, extraAdminRoles);
             }
+            /* ==================== 转办 / 转办收回 / 已审批人收回（P17-BE-010） ==================== */
+            case OPERATE_TYPE_HANDLER_TRANSFER -> {
+                requireOperateParam(workitemId, "workitemId");
+                requireOperateParam(request.getTransferToIds(), "transferToIds");
+                transfer(exampleId, workitemId, request.getTransferToIds(), content);
+            }
+            case OPERATE_TYPE_HANDLER_TRANSFER_RETRACT -> {
+                requireOperateParam(workitemId, "workitemId");
+                transferRetract(exampleId, workitemId, content);
+            }
+            case OPERATE_TYPE_PROCESSED_RETRACT -> {
+                requireOperateParam(workitemId, "workitemId");
+                processedRetract(exampleId, workitemId, content);
+            }
             /* ==================== 暂未开放（后续任务落地引擎分发） ==================== */
             case OPERATE_TYPE_DRAFTER_EXPEDITE,
                  OPERATE_TYPE_HANDLER_CC,
-                 OPERATE_TYPE_HANDLER_TRANSFER,
-                 OPERATE_TYPE_HANDLER_TRANSFER_RETRACT,
-                 OPERATE_TYPE_PROCESSED_RETRACT,
                  OPERATE_TYPE_PROCESSED_EXPEDITE,
                  OPERATE_TYPE_ADMIN_CHANGE_HANDLER ->
                     throw new IllegalArgumentException(CS_PROCESS_OPERATE_TYPE_INVALID + "：操作类型暂未开放: " + type);
@@ -1250,14 +1546,22 @@ public class SysProcessExampleService {
 
     /* ==================== 私有工具方法 ==================== */
 
-    /** 审批节点是否已通过：单签任一通过即通过；会审需全部工作项完成。 */
+    /**
+     * 审批节点是否已通过（非串行）：单签任一通过即通过；会审需全部工作项完成
+     * （ABANDON（转办弃置）工作项不阻塞通过判定，P17-BE-010）。串行不在此判定：
+     * 通过后交引擎推进下一序位（见 {@link #pass}）。
+     */
     private boolean isNodePassed(SysProcessExampleNode node, String passedWorkitemId) {
         SysProcessTemplateNodeConfigDo config = parseNodeConfig(node.getFieldNodeConfig());
         String approveMode = null == config || StringUtil.isEmpty(config.getApproveMode())
                 ? APPROVE_MODE_SINGLE : config.getApproveMode();
+        if (APPROVE_MODE_SERIAL.equals(approveMode)) {
+            return false;
+        }
         if (APPROVE_MODE_COUNTERSIGN.equals(approveMode)) {
             for (SysProcessExampleWorkitem workitem : workitemDao.selectListByNodeId(node.getFieldId())) {
                 if (!WORKITEM_STATUS_FINISH.equals(workitem.getFieldStatus())
+                        && !WORKITEM_STATUS_ABANDON.equals(workitem.getFieldStatus())
                         && !passedWorkitemId.equals(workitem.getFieldId())) {
                     return false;
                 }
@@ -1267,11 +1571,18 @@ public class SysProcessExampleService {
         return true;
     }
 
-    /** 将该节点其他（未完成）工作项置为完成。 */
+    /** 审批节点是否串行模式（{@code approveMode=serial}）。 */
+    private boolean isSerialApproveNode(SysProcessExampleNode node) {
+        SysProcessTemplateNodeConfigDo config = parseNodeConfig(node.getFieldNodeConfig());
+        return null != config && APPROVE_MODE_SERIAL.equals(config.getApproveMode());
+    }
+
+    /** 将该节点其他（未完成）工作项置为完成（ABANDON（转办弃置）工作项保持终态不复活）。 */
     private void finishRemainingWorkitems(String nodeId, String exceptWorkitemId) {
         Date now = new Date();
         for (SysProcessExampleWorkitem workitem : workitemDao.selectListByNodeId(nodeId)) {
             if (!WORKITEM_STATUS_FINISH.equals(workitem.getFieldStatus())
+                    && !WORKITEM_STATUS_ABANDON.equals(workitem.getFieldStatus())
                     && !exceptWorkitemId.equals(workitem.getFieldId())) {
                 workitem.setFieldStatus(WORKITEM_STATUS_FINISH);
                 workitem.setFieldFinishTime(now);

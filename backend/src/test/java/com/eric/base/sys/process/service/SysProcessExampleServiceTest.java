@@ -1213,12 +1213,10 @@ class SysProcessExampleServiceTest {
 
     @Test
     void operateNotYetImplementedTypesFail() {
+        // P17-BE-010 已接通 handler_transfer / handler_transfer_retract / processed_retract，不再列入待开放清单
         List<String> pending = List.of(
                 SysProcessConstants.OPERATE_TYPE_DRAFTER_EXPEDITE,
                 SysProcessConstants.OPERATE_TYPE_HANDLER_CC,
-                SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER,
-                SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER_RETRACT,
-                SysProcessConstants.OPERATE_TYPE_PROCESSED_RETRACT,
                 SysProcessConstants.OPERATE_TYPE_PROCESSED_EXPEDITE,
                 SysProcessConstants.OPERATE_TYPE_ADMIN_CHANGE_HANDLER);
         for (String type : pending) {
@@ -1378,6 +1376,567 @@ class SysProcessExampleServiceTest {
         assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_NODE_TARGET_INVALID));
         verify(auditNoteDao, never()).insert(argThat(n ->
                 SysProcessConstants.AUDIT_TYPE_DRAFTER_SUBMIT.equals(n.getFieldHandleType())));
+    }
+
+    /* ==================== 转办 / 转办收回 / 已审批人收回（P17-BE-010） ==================== */
+
+    private static final String U3 = "12345678901234567890123456789006";
+    private static final String WI_TRANSFERRED = "12345678901234567890123456789030";
+    private static final String WI_CHAIN_B = "12345678901234567890123456789031";
+    private static final String WI_CHAIN_C = "12345678901234567890123456789032";
+    private static final String NODE_FORK_ID = "12345678901234567890123456789016";
+    private static final String NODE_BR1_ID = "12345678901234567890123456789017";
+    private static final String NODE_BR2_ID = "12345678901234567890123456789018";
+    private static final String NODE_JOIN_ID = "12345678901234567890123456789019";
+    private static final String NODE_END9_ID = "12345678901234567890123456789020";
+
+    /** 串行审批节点配置：U1→U2 依次审批（autoSkip=no 隔离自动跳过干扰） */
+    private static final String CONFIG_SERIAL =
+            "{\"handlerIds\":\"" + U1 + ";" + U2 + "\",\"handlerNames\":\"张三;李四\","
+                    + "\"approveMode\":\"serial\",\"triggerType\":\"fixed\","
+                    + "\"autoSkip\":\"no\",\"autoContinueSkip\":\"system\"}";
+    private static final String CONFIG_BRANCH_A =
+            "{\"handlerIds\":\"" + U1 + "\",\"approveMode\":\"single\",\"autoSkip\":\"no\"}";
+    private static final String CONFIG_BRANCH_B =
+            "{\"handlerIds\":\"" + U2 + "\",\"approveMode\":\"single\",\"autoSkip\":\"no\"}";
+    private static final String CONFIG_FORK = "{\"joinMode\":\"all\",\"noBranchMode\":\"continue\"}";
+
+    /** 内存工作项仓库：insert 捕获 + 按 example/node 查询读同一份列表（对齐 FlowEngineFixture 口径） */
+    private final List<SysProcessExampleWorkitem> liveWorkitems = new ArrayList<>();
+    private final List<SysProcessExampleWorkitem> insertedWorkitems = new ArrayList<>();
+
+    private void captureWorkitems() {
+        liveWorkitems.clear();
+        insertedWorkitems.clear();
+        when(workitemDao.insert(any(SysProcessExampleWorkitem.class))).thenAnswer(invocation -> {
+            SysProcessExampleWorkitem workitem = invocation.getArgument(0);
+            if (null == workitem.getFieldCreateTime()) {
+                workitem.setFieldCreateTime(new java.util.Date());
+            }
+            liveWorkitems.add(workitem);
+            insertedWorkitems.add(workitem);
+            return 1;
+        });
+        when(workitemDao.selectListByExampleId(EXAMPLE_ID)).thenAnswer(invocation -> List.copyOf(liveWorkitems));
+        when(workitemDao.selectListByNodeId(anyString())).thenAnswer(invocation -> {
+            String nodeId = invocation.getArgument(0);
+            List<SysProcessExampleWorkitem> matched = new ArrayList<>();
+            for (SysProcessExampleWorkitem workitem : liveWorkitems) {
+                if (nodeId.equals(workitem.getFieldNodeId())) {
+                    matched.add(workitem);
+                }
+            }
+            return matched;
+        });
+    }
+
+    /** 取引擎/服务已插入的指定处理人工作项（仅捕获 insert 后生成的，不含预置工作项） */
+    private SysProcessExampleWorkitem insertedWorkitem(String handlerId) {
+        for (SysProcessExampleWorkitem workitem : insertedWorkitems) {
+            if (handlerId.equals(workitem.getFieldHandlerId())) {
+                return workitem;
+            }
+        }
+        throw new IllegalStateException("no inserted workitem for handler " + handlerId);
+    }
+
+    /** 装配并行分支实例图：N1(START)→N2(DRAFT)→N3(FORK)→[N4/N5 分支审批]→N6(JOIN)→N7(END) */
+    private void setUpParallelGraph() {
+        exampleNodes.clear();
+        exampleNodes.addAll(List.of(
+                exampleNode("12345678901234567890123456789091", 1, "开始节点", "START",
+                        SysProcessConstants.NODE_STATUS_FINISH, null),
+                exampleNode("12345678901234567890123456789092", 2, "草稿节点", "DRAFT",
+                        SysProcessConstants.NODE_STATUS_FINISH, null),
+                exampleNode(NODE_FORK_ID, 3, "并行开始", "FORK",
+                        SysProcessConstants.NODE_STATUS_WAITING, CONFIG_FORK),
+                exampleNode(NODE_BR1_ID, 4, "分支A审批", "APPROVE",
+                        SysProcessConstants.NODE_STATUS_WAITING, CONFIG_BRANCH_A),
+                exampleNode(NODE_BR2_ID, 5, "分支B审批", "APPROVE",
+                        SysProcessConstants.NODE_STATUS_WAITING, CONFIG_BRANCH_B),
+                exampleNode(NODE_JOIN_ID, 6, "并行结束", "JOIN",
+                        SysProcessConstants.NODE_STATUS_WAITING, null),
+                exampleNode(NODE_END9_ID, 7, "结束节点", "END",
+                        SysProcessConstants.NODE_STATUS_WAITING, null)));
+        List<SysProcessExampleLine> lines = new ArrayList<>();
+        lines.add(exampleLine("L1", "N1", "N2"));
+        lines.add(exampleLine("L2", "N2", "N3"));
+        lines.add(exampleLine("L3", "N3", "N4"));
+        lines.add(exampleLine("L4", "N3", "N5"));
+        lines.add(exampleLine("L5", "N4", "N6"));
+        lines.add(exampleLine("L6", "N5", "N6"));
+        lines.add(exampleLine("L7", "N6", "N7"));
+        when(exampleLineDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(lines);
+        when(nodeDao.selectByExampleAndType(EXAMPLE_ID, SysProcessConstants.NODE_TYPE_DRAFT))
+                .thenReturn(exampleNodeAt(2));
+        when(nodeDao.selectByExampleAndType(EXAMPLE_ID, SysProcessConstants.NODE_TYPE_END))
+                .thenReturn(exampleNodeAt(7));
+    }
+
+    @Test
+    void transferSingleModeAbandonsOriginalAndTransfereeCanPassNode() {
+        captureWorkitems();
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem original = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        liveWorkitems.add(original);
+        when(workitemDao.selectById(WI_U1)).thenReturn(original);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        service.transfer(EXAMPLE_ID, WI_U1, U2, "转办给李四");
+
+        // 原工作项 ABANDON（记完成时间）+ 新工作项关联 from_workitem_id
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_ABANDON, original.getFieldStatus());
+        assertNotNull(original.getFieldFinishTime());
+        SysProcessExampleWorkitem transferred = insertedWorkitem(U2);
+        assertEquals(WI_U1, transferred.getFieldFromWorkitemId());
+        assertEquals(NODE3_ID, transferred.getFieldNodeId());
+        assertEquals(U2, transferred.getFieldHandlerId());
+        assertEquals(U2, transferred.getFieldExpectHandlerId());
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_PROCESSING, transferred.getFieldStatus());
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_HANDLER_TRANSFER.equals(n.getFieldHandleType())
+                        && WI_U1.equals(n.getFieldWorkitemId())
+                        && U1.equals(n.getFieldHandlerId())
+                        && "转办给李四".equals(n.getFieldContent())));
+        // 被转办人可通过并推进节点（单签通过即节点完成，流转到下一节点后经自动跳过办结）
+        when(workitemDao.selectById(transferred.getFieldId())).thenReturn(transferred);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U2, "李四"));
+
+        service.pass(EXAMPLE_ID, transferred.getFieldId(), "同意");
+
+        assertEquals(SysProcessConstants.NODE_STATUS_FINISH, exampleNodeAt(3).getFieldStatus());
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_FINISH, example.getFieldStatus());
+    }
+
+    @Test
+    void transferCountersignKeepsBothPositionsAndNodePassesAfterTransfereeApproves() {
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_PROCESSING, CONFIG_COUNTERSIGN));
+        captureWorkitems();
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem wiU1 = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        SysProcessExampleWorkitem wiU2 = workitem(WI_U2, NODE3_ID, U2,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        liveWorkitems.add(wiU1);
+        liveWorkitems.add(wiU2);
+        when(workitemDao.selectById(WI_U1)).thenReturn(wiU1);
+        when(workitemDao.selectById(WI_U2)).thenReturn(wiU2);
+        when(userMapper.selectById(U3)).thenReturn(user(U3, "王五"));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        service.transfer(EXAMPLE_ID, WI_U1, U3, "转办给王五");
+
+        // 会签多工作项并存：U2 原工作项与被转办人新工作项均 PROCESSING
+        SysProcessExampleWorkitem transferred = insertedWorkitem(U3);
+        assertEquals(WI_U1, transferred.getFieldFromWorkitemId());
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_PROCESSING, wiU2.getFieldStatus());
+
+        // 被转办人先通过：U2 未通过，节点保持审批中
+        when(workitemDao.selectById(transferred.getFieldId())).thenReturn(transferred);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U3, "王五"));
+        service.pass(EXAMPLE_ID, transferred.getFieldId(), "同意");
+        assertEquals(SysProcessConstants.NODE_STATUS_PROCESSING, exampleNodeAt(3).getFieldStatus());
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_PROCESSING, example.getFieldStatus());
+
+        // U2 通过：转办弃置的原工作项（ABANDON）不阻塞会签通过判定，节点完成并流转办结
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U2, "李四"));
+        service.pass(EXAMPLE_ID, WI_U2, "同意");
+        assertEquals(SysProcessConstants.NODE_STATUS_FINISH, exampleNodeAt(3).getFieldStatus());
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_ABANDON, wiU1.getFieldStatus(),
+                "转办弃置的原工作项保持 ABANDON，不随节点通过复活为 FINISH");
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_FINISH, example.getFieldStatus());
+    }
+
+    @Test
+    void transferSerialCurrentPositionCreatesNextPositionAfterTransfereePasses() {
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_WAITING, CONFIG_SERIAL));
+        captureWorkitems();
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        when(userMapper.selectById(U3)).thenReturn(user(U3, "王五"));
+        // 提交进入串行节点：仅生成首序位（U1）工作项
+        service.submit(EXAMPLE_ID, "请审批");
+        SysProcessExampleWorkitem first = insertedWorkitem(U1);
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_PROCESSING, first.getFieldStatus());
+        when(workitemDao.selectById(first.getFieldId())).thenReturn(first);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        service.transfer(EXAMPLE_ID, first.getFieldId(), U3, "转办给王五");
+
+        // 当前序位转办：原序位工作项 ABANDON，被转办人新工作项承接（视为该序位实际处理人）
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_ABANDON, first.getFieldStatus());
+        SysProcessExampleWorkitem transferred = insertedWorkitem(U3);
+        assertEquals(first.getFieldId(), transferred.getFieldFromWorkitemId());
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_PROCESSING, transferred.getFieldStatus());
+
+        // 被转办人通过后引擎照常推进下一序位（U2 工作项生成，节点保持审批中）
+        when(workitemDao.selectById(transferred.getFieldId())).thenReturn(transferred);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U3, "王五"));
+        service.pass(EXAMPLE_ID, transferred.getFieldId(), "同意");
+
+        SysProcessExampleWorkitem second = insertedWorkitem(U2);
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_PROCESSING, second.getFieldStatus());
+        assertEquals(SysProcessConstants.NODE_STATUS_PROCESSING, exampleNodeAt(3).getFieldStatus());
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_PROCESSING, example.getFieldStatus());
+    }
+
+    @Test
+    void transferToMultipleUsersCreatesWorkitemPerTargetWithSingleAudit() {
+        captureWorkitems();
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem original = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        liveWorkitems.add(original);
+        when(workitemDao.selectById(WI_U1)).thenReturn(original);
+        when(userMapper.selectById(U3)).thenReturn(user(U3, "王五"));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        service.transfer(EXAMPLE_ID, WI_U1, U2 + ";" + U2 + ";" + U3 + ";;", "转办给多人");
+
+        // 去重保序逐人生成新工作项，均关联原工作项；转办给多人留痕一条
+        SysProcessExampleWorkitem toU2 = insertedWorkitem(U2);
+        SysProcessExampleWorkitem toU3 = insertedWorkitem(U3);
+        assertEquals(WI_U1, toU2.getFieldFromWorkitemId());
+        assertEquals(WI_U1, toU3.getFieldFromWorkitemId());
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_PROCESSING, toU2.getFieldStatus());
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_PROCESSING, toU3.getFieldStatus());
+        assertEquals(2, insertedWorkitems.size());
+        verify(auditNoteDao, times(1)).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_HANDLER_TRANSFER.equals(n.getFieldHandleType())));
+    }
+
+    @Test
+    void transferRejectsMissingContentBlankTargetsOrUnknownTargetUser() {
+        captureWorkitems();
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem original = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        liveWorkitems.add(original);
+        when(workitemDao.selectById(WI_U1)).thenReturn(original);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        // 意见必填
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.transfer(EXAMPLE_ID, WI_U1, U2, "  "));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(error.getMessage().contains("content"));
+        // transferToIds 空（含纯分隔符）拒绝
+        error = assertThrows(IllegalArgumentException.class,
+                () -> service.transfer(EXAMPLE_ID, WI_U1, " ; ;", "转办"));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(error.getMessage().contains("transferToIds"));
+        // 不存在的转办目标用户拒绝（未注册用户桩默认返回 null）
+        error = assertThrows(IllegalArgumentException.class,
+                () -> service.transfer(EXAMPLE_ID, WI_U1, "no-such-user", "转办"));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(error.getMessage().contains("转办目标用户不存在"));
+        // 流程非审批中拒绝
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_DRAFT);
+        error = assertThrows(IllegalArgumentException.class,
+                () -> service.transfer(EXAMPLE_ID, WI_U1, U2, "转办"));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_STATE_CONFLICT));
+    }
+
+    @Test
+    void operateDispatchesHandlerTransferAndRequiresParams() {
+        captureWorkitems();
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem original = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        liveWorkitems.add(original);
+        when(workitemDao.selectById(WI_U1)).thenReturn(original);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        // workitemId / transferToIds 缺失：PARAM_MISSING（证明已接通真实分发而非暂未开放）
+        SysProcessOperateRequest missingWorkitem = op(SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER);
+        missingWorkitem.setTransferToIds(U2);
+        missingWorkitem.setContent("转办");
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(missingWorkitem));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(error.getMessage().contains("workitemId"));
+
+        SysProcessOperateRequest missingTargets = op(SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER);
+        missingTargets.setWorkitemId(WI_U1);
+        missingTargets.setContent("转办");
+        error = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(missingTargets));
+        assertTrue(error.getMessage().contains("transferToIds"));
+
+        // 真实分发：转办成功（原工作项 ABANDON + 新工作项 + HANDLER_TRANSFER 留痕）
+        SysProcessOperateRequest request = op(SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER);
+        request.setWorkitemId(WI_U1);
+        request.setTransferToIds(U2);
+        request.setContent("转办给李四");
+        SysProcessExample result = service.operate(request);
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_PROCESSING, result.getFieldStatus());
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_ABANDON, original.getFieldStatus());
+        assertEquals(WI_U1, insertedWorkitem(U2).getFieldFromWorkitemId());
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_HANDLER_TRANSFER.equals(n.getFieldHandleType())));
+    }
+
+    @Test
+    void operateTransferRetractAndProcessedRetractRequireWorkitemId() {
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+        // 两类收回操作经 operate 通道分发：workitemId 缺失 → PARAM_MISSING（非「暂未开放」）
+        for (String type : List.of(SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER_RETRACT,
+                SysProcessConstants.OPERATE_TYPE_PROCESSED_RETRACT)) {
+            IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                    () -> service.operate(EXAMPLE_ID, type, null, "收回", null, null),
+                    "操作类型 " + type + " 应已接通真实分发");
+            assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING),
+                    "操作类型 " + type + " 错误前缀不符");
+            assertTrue(error.getMessage().contains("workitemId"));
+        }
+    }
+
+    @Test
+    void transferRetractAbandonsTransferredWorkitemAndRestoresOriginalHandler() {
+        captureWorkitems();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem original = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_ABANDON);
+        original.setFieldConfig("{\"flowBranchKey\":\"N3\"}");
+        SysProcessExampleWorkitem transferred = workitem(WI_TRANSFERRED, NODE3_ID, U2,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        transferred.setFieldFromWorkitemId(WI_U1);
+        liveWorkitems.add(original);
+        liveWorkitems.add(transferred);
+        when(workitemDao.selectById(WI_U1)).thenReturn(original);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        service.transferRetract(EXAMPLE_ID, WI_U1, "收回转办");
+
+        // 被转办工作项 ABANDON，为原审批人生成新工作项（PROCESSING、from 关联被收回工作项、config 继承）
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_ABANDON, transferred.getFieldStatus());
+        assertNotNull(transferred.getFieldFinishTime());
+        SysProcessExampleWorkitem restored = insertedWorkitem(U1);
+        assertEquals(WI_TRANSFERRED, restored.getFieldFromWorkitemId());
+        assertEquals(NODE3_ID, restored.getFieldNodeId());
+        assertEquals(U1, restored.getFieldHandlerId());
+        assertEquals(U1, restored.getFieldExpectHandlerId());
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_PROCESSING, restored.getFieldStatus());
+        assertEquals("{\"flowBranchKey\":\"N3\"}", restored.getFieldConfig());
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_HANDLER_TRANSFER_RETRACT.equals(n.getFieldHandleType())
+                        && WI_U1.equals(n.getFieldWorkitemId())
+                        && "收回转办".equals(n.getFieldContent())));
+    }
+
+    @Test
+    void transferRetractFollowsChainAndAbandonsWholeChain() {
+        captureWorkitems();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        // 转办链 A(U1)→B(U2)→C(U3)：B 已在转办时弃置，C 仍 PROCESSING
+        SysProcessExampleWorkitem original = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_ABANDON);
+        SysProcessExampleWorkitem chainB = workitem(WI_CHAIN_B, NODE3_ID, U2,
+                SysProcessConstants.WORKITEM_STATUS_ABANDON);
+        chainB.setFieldFromWorkitemId(WI_U1);
+        SysProcessExampleWorkitem chainC = workitem(WI_CHAIN_C, NODE3_ID, U3,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        chainC.setFieldFromWorkitemId(WI_CHAIN_B);
+        liveWorkitems.add(original);
+        liveWorkitems.add(chainB);
+        liveWorkitems.add(chainC);
+        when(workitemDao.selectById(WI_U1)).thenReturn(original);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        service.transferRetract(EXAMPLE_ID, WI_U1, "整链收回");
+
+        // 整链 ABANDON，新工作项回链最新一代（C），链路可逐级回溯 A→B→C→收回→A
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_ABANDON, chainB.getFieldStatus());
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_ABANDON, chainC.getFieldStatus());
+        SysProcessExampleWorkitem restored = insertedWorkitem(U1);
+        assertEquals(WI_CHAIN_C, restored.getFieldFromWorkitemId());
+        assertEquals(WI_CHAIN_B, chainC.getFieldFromWorkitemId());
+        assertEquals(WI_U1, chainB.getFieldFromWorkitemId());
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_PROCESSING, restored.getFieldStatus());
+    }
+
+    @Test
+    void transferRetractFailsWhenTransferredWorkitemAlreadyProcessed() {
+        captureWorkitems();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem original = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_ABANDON);
+        SysProcessExampleWorkitem transferred = workitem(WI_TRANSFERRED, NODE3_ID, U2,
+                SysProcessConstants.WORKITEM_STATUS_FINISH);
+        transferred.setFieldFromWorkitemId(WI_U1);
+        liveWorkitems.add(original);
+        liveWorkitems.add(transferred);
+        when(workitemDao.selectById(WI_U1)).thenReturn(original);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.transferRetract(EXAMPLE_ID, WI_U1, "收回"));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_STATE_CONFLICT));
+        assertTrue(error.getMessage().contains("被转办工作项已处理"));
+        verify(workitemDao, never()).insert(any(SysProcessExampleWorkitem.class));
+    }
+
+    @Test
+    void transferRetractForbiddenForNonInitiator() {
+        captureWorkitems();
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem original = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_ABANDON);
+        SysProcessExampleWorkitem transferred = workitem(WI_TRANSFERRED, NODE3_ID, U2,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        transferred.setFieldFromWorkitemId(WI_U1);
+        liveWorkitems.add(original);
+        liveWorkitems.add(transferred);
+        when(workitemDao.selectById(WI_U1)).thenReturn(original);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U2, "李四"));
+
+        AuthorizationException error = assertThrows(AuthorizationException.class,
+                () -> service.transferRetract(EXAMPLE_ID, WI_U1, "收回"));
+        assertEquals("FORBIDDEN", error.getCode());
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_FORBIDDEN));
+        assertTrue(error.getMessage().contains("仅转办发起人可收回"));
+    }
+
+    @Test
+    void processedRetractRestoresFinishedWorkitemWhenNodeStillProcessing() {
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_PROCESSING, CONFIG_COUNTERSIGN));
+        captureWorkitems();
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem wiU1 = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_FINISH);
+        wiU1.setFieldFinishTime(new java.util.Date());
+        SysProcessExampleWorkitem wiU2 = workitem(WI_U2, NODE3_ID, U2,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        liveWorkitems.add(wiU1);
+        liveWorkitems.add(wiU2);
+        when(workitemDao.selectById(WI_U1)).thenReturn(wiU1);
+        when(workitemDao.selectById(WI_U2)).thenReturn(wiU2);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        service.processedRetract(EXAMPLE_ID, WI_U1, "收回重审");
+
+        // 会签未齐（节点仍 PROCESSING）：本人已办结工作项重新置 PROCESSING（处理人不变）+ 留痕
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_PROCESSING, wiU1.getFieldStatus());
+        assertEquals(U1, wiU1.getFieldHandlerId());
+        assertEquals(SysProcessConstants.NODE_STATUS_PROCESSING, exampleNodeAt(3).getFieldStatus());
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_PROCESSING, example.getFieldStatus());
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_PROCESSED_RETRACT.equals(n.getFieldHandleType())
+                        && WI_U1.equals(n.getFieldWorkitemId())
+                        && "收回重审".equals(n.getFieldContent())));
+
+        // 收回后重新通过按 approveMode 自然参与节点通过判定：U1 先通过仍需等待 U2
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+        service.pass(EXAMPLE_ID, WI_U1, "再次同意");
+        assertEquals(SysProcessConstants.NODE_STATUS_PROCESSING, exampleNodeAt(3).getFieldStatus());
+
+        // U2 通过后会签完成，节点流出并办结
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U2, "李四"));
+        service.pass(EXAMPLE_ID, WI_U2, "同意");
+        assertEquals(SysProcessConstants.NODE_STATUS_FINISH, exampleNodeAt(3).getFieldStatus());
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_FINISH, example.getFieldStatus());
+    }
+
+    @Test
+    void processedRetractRejectsWhenNodeLeftOrWorkitemNotFinished() {
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_FINISH, CONFIG_COUNTERSIGN));
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem wiU1 = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_FINISH);
+        when(workitemDao.selectById(WI_U1)).thenReturn(wiU1);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        // 节点已流出（FINISH）：不得用于已流过的节点
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.processedRetract(EXAMPLE_ID, WI_U1, "收回"));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_STATE_CONFLICT));
+        assertTrue(error.getMessage().contains("节点已办结"));
+
+        // 流程非审批中
+        exampleNodeAt(3).setFieldStatus(SysProcessConstants.NODE_STATUS_PROCESSING);
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_RETURN);
+        error = assertThrows(IllegalArgumentException.class,
+                () -> service.processedRetract(EXAMPLE_ID, WI_U1, "收回"));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_STATE_CONFLICT));
+
+        // 工作项非已办结（仍 PROCESSING 无需收回）
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        wiU1.setFieldStatus(SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        error = assertThrows(IllegalArgumentException.class,
+                () -> service.processedRetract(EXAMPLE_ID, WI_U1, "收回"));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_STATE_CONFLICT));
+        assertTrue(error.getMessage().contains("仅已办结工作项可收回"));
+    }
+
+    @Test
+    void processedRetractForbiddenForNonHandler() {
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_PROCESSING, CONFIG_COUNTERSIGN));
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem wiU1 = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_FINISH);
+        when(workitemDao.selectById(WI_U1)).thenReturn(wiU1);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U2, "李四"));
+
+        AuthorizationException error = assertThrows(AuthorizationException.class,
+                () -> service.processedRetract(EXAMPLE_ID, WI_U1, "收回"));
+        assertEquals("FORBIDDEN", error.getCode());
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_FORBIDDEN));
+        assertTrue(error.getMessage().contains("仅工作项处理人"));
+    }
+
+    @Test
+    void transferInParallelBranchInheritsFlowBranchKeyAndJoinSucceeds() {
+        setUpParallelGraph();
+        captureWorkitems();
+        when(nodeDao.selectById(NODE_BR1_ID)).thenReturn(exampleNodeAt(4));
+        when(nodeDao.selectById(NODE_BR2_ID)).thenReturn(exampleNodeAt(5));
+        when(userMapper.selectById(U3)).thenReturn(user(U3, "王五"));
+        // 提交进入并行分支：两个分支各生成工作项（flowBranchKey 记录分支归属）
+        service.submit(EXAMPLE_ID, "请审批");
+        SysProcessExampleWorkitem branchA = insertedWorkitem(U1);
+        SysProcessExampleWorkitem branchB = insertedWorkitem(U2);
+        assertTrue(branchA.getFieldConfig().contains("\"flowBranchKey\":\"N4\""));
+        assertTrue(branchB.getFieldConfig().contains("\"flowBranchKey\":\"N5\""));
+        when(workitemDao.selectById(branchA.getFieldId())).thenReturn(branchA);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        service.transfer(EXAMPLE_ID, branchA.getFieldId(), U3, "分支内转办");
+
+        // 分支内转办：flowBranchKey 随原工作项配置继承，保证 JOIN 汇聚归属不乱
+        SysProcessExampleWorkitem transferred = insertedWorkitem(U3);
+        assertEquals(branchA.getFieldId(), transferred.getFieldFromWorkitemId());
+        assertTrue(transferred.getFieldConfig().contains("\"flowBranchKey\":\"N4\""));
+
+        // 被转办人通过：分支 A 到达 JOIN（按继承的 flowBranchKey 归属），等待分支 B
+        when(workitemDao.selectById(transferred.getFieldId())).thenReturn(transferred);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U3, "王五"));
+        service.pass(EXAMPLE_ID, transferred.getFieldId(), "同意");
+        assertEquals(SysProcessConstants.NODE_STATUS_PROCESSING, exampleNodeAt(6).getFieldStatus());
+        List<SysProcessExampleNode> joinNodes = exampleNodes;
+        SysProcessExampleNode joinNode = joinNodes.get(5);
+        assertTrue(joinNode.getFieldRuntime().contains("\"arrivedBranchKeys\":[\"N4\"]"),
+                "分支 A 经被转办人通过后到达 JOIN: " + joinNode.getFieldRuntime());
+
+        // 分支 B 通过后全部汇聚，JOIN 流出并办结
+        when(workitemDao.selectById(branchB.getFieldId())).thenReturn(branchB);
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U2, "李四"));
+        service.pass(EXAMPLE_ID, branchB.getFieldId(), "同意");
+        assertEquals(SysProcessConstants.NODE_STATUS_FINISH, exampleNodeAt(6).getFieldStatus());
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_FINISH, example.getFieldStatus());
     }
 
     /* ==================== 详情 / 面板 ==================== */

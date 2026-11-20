@@ -387,6 +387,21 @@ public class SysProcessConstants {
     public static final String AUDIT_TYPE_HANDLER_REJECT = "HANDLER_REJECT";
     /** 处理人驳回（历史类型）：仅存量历史数据使用，v1_7 起新操作统一写 {@link #AUDIT_TYPE_HANDLER_REJECT} */
     public static final String AUDIT_TYPE_HANDLER_RETURN = "HANDLER_RETURN";
+    /**
+     * 审批人转办（v1_7 新增，P17-BE-010）：原工作项 ABANDON，为被转办人生成
+     * {@code field_from_workitem_id} 关联的新工作项，被转办人视为该序位实际处理人。
+     */
+    public static final String AUDIT_TYPE_HANDLER_TRANSFER = "HANDLER_TRANSFER";
+    /**
+     * 转办收回（v1_7 新增，P17-BE-010）：被转办工作项仍 PROCESSING 时原审批人收回，
+     * 转办链仍 PROCESSING 的被转办工作项整链 ABANDON，并为原审批人生成新工作项（链路回退可逐级追溯）。
+     */
+    public static final String AUDIT_TYPE_HANDLER_TRANSFER_RETRACT = "HANDLER_TRANSFER_RETRACT";
+    /**
+     * 已审批人收回（v1_7 新增，P17-BE-010）：工作项所属节点仍 PROCESSING 时，
+     * 已办结（FINISH）工作项收回到本人（重新持 PROCESSING 工作项），仅限正常流转场景。
+     */
+    public static final String AUDIT_TYPE_PROCESSED_RETRACT = "PROCESSED_RETRACT";
     /** 自动跳过（重复审批人/起草人自动跳过时的留痕） */
     public static final String AUDIT_TYPE_AUTO_PASS = "AUTO_PASS";
     /** 管理员暂停 */
