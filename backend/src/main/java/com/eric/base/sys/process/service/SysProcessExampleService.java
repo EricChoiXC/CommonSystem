@@ -7,9 +7,6 @@ import com.eric.base.common.resolver.AuthorizationContext;
 import com.eric.base.common.setting.service.CommonSettingService;
 import com.eric.base.common.utils.StringUtil;
 import com.eric.base.common.utils.UserUtil;
-import com.eric.base.sys.notify.enums.SysNotifyType;
-import com.eric.base.sys.notify.model.SysNotifyTodo;
-import com.eric.base.sys.notify.service.SysNotifyTodoService;
 import com.eric.base.sys.org.mapper.SysOrgUserMapper;
 import com.eric.base.sys.org.model.SysOrgRole;
 import com.eric.base.sys.org.model.SysOrgUser;
@@ -42,6 +39,7 @@ import com.eric.base.sys.process.service.engine.ProcessFlowEngine;
 import com.eric.base.sys.process.service.engine.ProcessFlowGraph;
 import com.eric.base.sys.process.service.engine.ProcessFlowResult;
 import com.eric.base.sys.process.service.engine.ProcessFlowSupport;
+import com.eric.base.sys.process.service.engine.ProcessNotifySender;
 import com.eric.base.sys.process.response.SysProcessAuditNoteVo;
 import com.eric.base.sys.process.response.SysProcessExampleDetailVo;
 import com.eric.base.sys.process.response.SysProcessExampleNodeVo;
@@ -85,6 +83,7 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYP
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_DRAFTER_BACK;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_DRAFTER_EXPEDITE;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_DRAFTER_SUBMIT;
+import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_CC;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_PASS;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_REJECT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_HANDLER_RETURN;
@@ -102,7 +101,6 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCES
 import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING;
 import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_OPERATE_STATE_CONFLICT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.CS_PROCESS_OPERATE_TYPE_INVALID;
-import static com.eric.base.sys.process.properties.SysProcessConstants.DEFAULT_NOTIFY_EXPEDITE_SUBJECT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_STATUS_ABANDON;
 import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_STATUS_DRAFT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.EXAMPLE_STATUS_FINISH;
@@ -121,8 +119,6 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_TYPE
 import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_TYPE_DRAFT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_TYPE_END;
 import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_TYPE_MANUAL;
-import static com.eric.base.sys.process.properties.SysProcessConstants.NOTIFY_PLACEHOLDER_CREATOR_NAME;
-import static com.eric.base.sys.process.properties.SysProcessConstants.NOTIFY_PLACEHOLDER_EXAMPLE_NAME;
 import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_ADMIN_ABANDON;
 import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_ADMIN_CHANGE_HANDLER;
 import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_ADMIN_JUMP;
@@ -139,7 +135,6 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_T
 import static com.eric.base.sys.process.properties.SysProcessConstants.OPERATE_TYPE_PROCESSED_RETRACT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.RESUME_MODE_BACK_TO_NODE;
 import static com.eric.base.sys.process.properties.SysProcessConstants.RESUME_MODE_RESTART;
-import static com.eric.base.sys.process.properties.SysProcessConstants.SETTING_NOTIFY_EXPEDITE_SUBJECT;
 import static com.eric.base.sys.process.properties.SysProcessConstants.SETTING_PROCESS_AUTO_CONTINUE_PASS;
 import static com.eric.base.sys.process.properties.SysProcessConstants.SETTING_PROCESS_AUTO_HANDLE_PASS;
 import static com.eric.base.sys.process.properties.SysProcessConstants.SETTING_PROCESS_AUTO_HANDLE_PASS_DRAFTER;
@@ -166,9 +161,15 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.WORKITEM_
  *              <li>审批人转办/转办收回/已审批人收回（v1_7 新增，P17-BE-010）：转办为被转办人生成
  *                  from_workitem_id 关联的新工作项（被转办人视为该序位实际处理人）、转办收回沿
  *                  from_workitem_id 链整链回退到原审批人、节点未流出时已办结工作项可收回到本人；</li>
+ *              <li>审批人抄送（v1_7 新增，P17-BE-012）：当前处理人在途抄送其他用户（ccToIds
+ *                  地址本多选），逐人发 READ 待阅（标题消费 notify_cc_subject），留痕 HANDLER_CC，
+ *                  不改变工作项/节点/流程状态；</li>
  *              <li>起草人/已审批人催办（v1_7 新增，P17-BE-011）：向当前节点全部 PROCESSING 工作项
  *                  处理人发催办待阅（READ，标题消费公共配置 notify_expedite_subject），
- *                  留痕 DRAFTER_EXPEDITE / PROCESSED_EXPEDITE，不改流程/节点/工作项状态；</li>
+ *                  留痕 DRAFTER_EXPEDITE / PROCESSED_EXPEDITE，不改流程/节点/工作项状态；
+ *                  抄送与催办的 READ 待阅发送统一经共享组件
+ *                  {@link com.eric.base.sys.process.service.engine.ProcessNotifySender} 收口
+ *                  （P17-BE-014 通知收口载体）；</li>
  *              <li>审批人解析：按节点「审批来源」解析——组织架构直接取配置审批人，表单字段读取文档实体
  *                  对应字段值解析出组织架构（岗位/用户）作为审批人，结果为空时跳过节点；</li>
  *              <li>自动跳过：按公共配置（auto_handle_pass / auto_handle_pass_drafter / auto_continue_pass）
@@ -194,7 +195,7 @@ public class SysProcessExampleService {
     private final SysProcessTemplateLineDao templateLineDao;
     private final CommonSettingService settingService;
     private final SysOrgUserMapper userMapper;
-    private final SysNotifyTodoService notifyTodoService;
+    private final ProcessNotifySender notifySender;
     private final ProcessResolver resolver;
     private final SysProcessDocumentFieldService documentFieldService;
     private final ObjectMapper objectMapper;
@@ -211,7 +212,7 @@ public class SysProcessExampleService {
                                     SysProcessTemplateLineDao templateLineDao,
                                     CommonSettingService settingService,
                                     SysOrgUserMapper userMapper,
-                                    SysNotifyTodoService notifyTodoService,
+                                    ProcessNotifySender notifySender,
                                     ProcessResolver resolver,
                                     SysProcessDocumentFieldService documentFieldService,
                                     ObjectMapper objectMapper,
@@ -227,7 +228,7 @@ public class SysProcessExampleService {
         this.templateLineDao = templateLineDao;
         this.settingService = settingService;
         this.userMapper = userMapper;
-        this.notifyTodoService = notifyTodoService;
+        this.notifySender = notifySender;
         this.resolver = resolver;
         this.documentFieldService = documentFieldService;
         this.objectMapper = objectMapper;
@@ -688,7 +689,7 @@ public class SysProcessExampleService {
         }
         SysProcessExampleWorkitem workitem = requireProcessingWorkitem(example.getFieldId(), workitemId);
         List<String> targets = parseTransferToIds(transferToIds);
-        requireTransferTargetsExist(targets);
+        requireUserTargetsExist(targets, "转办目标用户");
         SysOrgUser current = requireCurrentUser();
         Date now = new Date();
         // 原工作项弃置（记完成时间）；新工作项按被转办人顺序逐人生成（config 继承原工作项）
@@ -850,6 +851,55 @@ public class SysProcessExampleService {
                 example.getFieldId(), workitem.getFieldId());
     }
 
+    /* ==================== 审批人抄送（P17-BE-012） ==================== */
+
+    /**
+     * 审批人抄送（handler_cc，P17-BE-012）：当前处理人将本工作项所在在途节点的内容抄送给
+     * 显式指定的用户（地址本多选结果 ccToIds），逐人发送 READ 待阅
+     * （标题消费公共配置 {@code notify_cc_subject}，经共享组件
+     * {@link ProcessNotifySender#sendCcRead} 发送），生成
+     * {@link SysProcessConstants#AUDIT_TYPE_HANDLER_CC HANDLER_CC} 审批记录。
+     * <ul>
+     * <li>身份：当前用户必须为 workitemId 对应工作项的处理人
+     *     （{@link #requireProcessingWorkitem} 既有语义，不符抛 FORBIDDEN）；</li>
+     * <li>状态：流程 PROCESSING，工作项 PROCESSING 且所属节点在途（PROCESSING；
+     *     抄送是在途告知，节点已流出后不可再发起，不符抛 STATE_CONFLICT）；</li>
+     * <li>动作：<b>不改变工作项/节点/流程状态</b>（抄送不是审批动作）；收件人 = ccToIds
+     *     （';' 分隔去重保序，不排除发起人——抄送对象为显式指定），逐人经用户表校验存在
+     *     （允许禁用状态，对齐转办目标校验语义）；待阅内容 = 审批意见；</li>
+     * <li>留痕：HANDLER_CC 一条（workitemId=当前工作项 id，handlerId=发起人，content=审批意见）。</li>
+     * </ul>
+     *
+     * @param exampleId  流程实例 id（必填）
+     * @param workitemId 当前处理人持有的工作项 id（必填，须为 PROCESSING）
+     * @param ccToIds    抄送对象用户 id（';' 分隔或多值，去重保序，必填）
+     * @param content    审批意见（必填，写入待阅内容与留痕）
+     */
+    @Transactional
+    public void handlerCc(String exampleId, String workitemId, String ccToIds, String content) {
+        SysProcessExample example = requireExample(exampleId);
+        if (!EXAMPLE_STATUS_PROCESSING.equals(example.getFieldStatus())) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅审批中的流程可执行抄送");
+        }
+        requireOperateParam(workitemId, "workitemId");
+        if (StringUtil.isEmpty(content)) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING + "：content 必填");
+        }
+        SysProcessExampleWorkitem workitem = requireProcessingWorkitem(example.getFieldId(), workitemId);
+        SysProcessExampleNode node = requireNode(workitem.getFieldNodeId());
+        if (!NODE_STATUS_PROCESSING.equals(node.getFieldStatus())) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：节点已办结，无法抄送");
+        }
+        List<String> targets = parseCcToIds(ccToIds);
+        requireUserTargetsExist(targets, "抄送对象用户");
+        SysOrgUser current = requireCurrentUser();
+        notifySender.sendCcRead(example, content.trim(), targets);
+        addAudit(example.getFieldId(), workitem.getFieldId(), current.getFieldId(),
+                AUDIT_TYPE_HANDLER_CC, content.trim());
+        log.info("process workitem cc-ed by handler: example={}, workitem={}, to={}",
+                example.getFieldId(), workitem.getFieldId(), String.join(";", targets));
+    }
+
     /** 解析转办目标用户 id 列表（';' 分隔或多值，去重保序）；为空抛 CS_PROCESS_OPERATE_PARAM_MISSING。 */
     private List<String> parseTransferToIds(String transferToIds) {
         Set<String> parsed = parseHandlerIds(transferToIds);
@@ -859,12 +909,24 @@ public class SysProcessExampleService {
         return new ArrayList<>(parsed);
     }
 
-    /** 校验转办目标用户存在（按 id 查用户表；允许禁用状态，对齐审批人解析语义），不存在的目标拒绝。 */
-    private void requireTransferTargetsExist(List<String> targets) {
+    /**
+     * 解析抄送对象用户 id 列表（handler_cc 的 ccToIds，';' 分隔或多值，去重保序）；
+     * 为空抛 CS_PROCESS_OPERATE_PARAM_MISSING（语义同 {@link #parseTransferToIds}，参数名文案区分）。
+     */
+    private List<String> parseCcToIds(String ccToIds) {
+        Set<String> parsed = parseHandlerIds(ccToIds);
+        if (parsed.isEmpty()) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING + "：ccToIds 必填");
+        }
+        return new ArrayList<>(parsed);
+    }
+
+    /** 校验目标用户存在（按 id 查用户表；允许禁用状态，对齐审批人解析语义），不存在的目标拒绝。 */
+    private void requireUserTargetsExist(List<String> targets, String label) {
         for (String targetId : targets) {
             if (null == userMapper.selectById(targetId)) {
                 throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING
-                        + "：转办目标用户不存在: " + targetId);
+                        + "：" + label + "不存在: " + targetId);
             }
         }
     }
@@ -934,8 +996,9 @@ public class SysProcessExampleService {
      * <ul>
      * <li>身份：仅流程起草人（不符抛 FORBIDDEN，{@code CS_PROCESS_OPERATE_FORBIDDEN} 前缀）；</li>
      * <li>前置：流程 {@code PROCESSING}（否则 {@code CS_PROCESS_OPERATE_STATE_CONFLICT}）；</li>
-     * <li>通知：READ 待阅（标题消费公共配置 {@code notify_expedite_subject}，见
-     *     {@link #renderNotifySubject}），收件人排除发起人本人，收件人为空时仅留痕不发通知；</li>
+     * <li>通知：READ 待阅（标题消费公共配置 {@code notify_expedite_subject}，经共享组件
+     *     {@link ProcessNotifySender#sendExpediteRead} 发送），收件人排除发起人本人，
+     *     收件人为空时仅留痕不发通知；</li>
      * <li>事务：催办与通知同事务——通知发送失败视为催办失败整体抛出（对齐「任务在流转
      *     事务内同步执行」的既有风格，保证留痕与待阅一致）。</li>
      * </ul>
@@ -1034,80 +1097,21 @@ public class SysProcessExampleService {
     }
 
     /**
-     * 发送催办待阅（起草人催办 / 已审批人催办共用）：READ 待阅，标题按公共配置
-     * {@code notify.notify_expedite_subject} 渲染（见 {@link #renderNotifySubject}），
-     * 来源模块 {@link SysProcessConstants#MODEL_KEY_SYS_PROCESS}，modelId=实例 id，
-     * 链接=实例详情页（现状路由 {@code /processExample/detail/{id}}；Wave 3 审批中心
-     * 调整路由时同步更新），内容=催办意见；收件人为空时仅留痕不发通知。
-     * 通知经 {@link SysNotifyTodoService#send} 落库即「待阅可达」（SSE 推送由
-     * NotifySendEvent 事务提交后异步处理）；发送失败不在此捕获——催办与通知同事务
-     * 整体失败（见 {@link #drafterExpedite(String, String)}）。
+     * 发送催办待阅（起草人催办 / 已审批人催办共用）：READ 待阅发送收口到共享组件
+     * {@link ProcessNotifySender#sendExpediteRead}——标题按公共配置
+     * {@code notify.notify_expedite_subject} 渲染（缺失回退默认模板），来源模块
+     * {@link SysProcessConstants#MODEL_KEY_SYS_PROCESS}，modelId=实例 id，链接=实例详情页
+     * （现状路由 {@code /processExample/detail/{id}}；Wave 3 审批中心调整路由时同步更新），
+     * 内容=催办意见；收件人为空时仅留痕不发通知（空表由组件静默处理）。
+     * 通知落库即「待阅可达」（SSE 推送由 NotifySendEvent 事务提交后异步处理）；
+     * 发送失败不在此捕获——催办与通知同事务整体失败（见 {@link #drafterExpedite(String, String)}）。
      */
     private void sendExpediteNotify(SysProcessExample example, String initiatorId, String content) {
         List<String> recipients = resolveExpediteRecipients(example, initiatorId);
         if (recipients.isEmpty()) {
             return;
         }
-        SysNotifyTodo todo = new SysNotifyTodo();
-        todo.setFieldName(renderNotifySubject(expediteSubjectTemplate(), example));
-        todo.setFieldNotifyType(SysNotifyType.READ.getValue());
-        todo.setFieldModelName(SysProcessConstants.MODEL_KEY_SYS_PROCESS);
-        todo.setFieldModelId(example.getFieldId());
-        todo.setFieldUrl(SysProcessConstants.EXAMPLE_DETAIL_URL_PREFIX + example.getFieldId());
-        todo.setFieldContent(content);
-        notifyTodoService.send(todo, recipients);
-    }
-
-    /**
-     * 读取催办待阅标题模板：公共配置 {@code notify_expedite_subject}（notify 类型，
-     * 业务配置，可由「流程管理-公共配置」页维护），缺失或为空回退默认模板
-     * {@link SysProcessConstants#DEFAULT_NOTIFY_EXPEDITE_SUBJECT}（与 application.yml
-     * SETTING 默认值一致）。
-     */
-    private String expediteSubjectTemplate() {
-        String template = settingService.getValue(SysProcessConstants.SETTING_TYPE_NOTIFY,
-                SysProcessConstants.SETTING_NOTIFY_EXPEDITE_SUBJECT);
-        return StringUtil.isEmpty(template)
-                ? DEFAULT_NOTIFY_EXPEDITE_SUBJECT : template;
-    }
-
-    /**
-     * 通知标题模板渲染（P17-BE-011 产出，P17-BE-012 抄送 / P17-BE-014 通知收口复用）：
-     * 简单字符串替换占位符，不引入模板引擎。占位符口径与既有 {@code notify_handle_subject}
-     * 一致：
-     * <ul>
-     * <li>{@link SysProcessConstants#NOTIFY_PLACEHOLDER_CREATOR_NAME}：流程起草人姓名，
-     *     经用户表按 {@code example.fieldCreatorId} 查询 {@code field_name}，查不到回退空串；</li>
-     * <li>{@link SysProcessConstants#NOTIFY_PLACEHOLDER_EXAMPLE_NAME}：流程名称（模板名），
-     *     经模板表按 {@code example.fieldTemplateId} 查询 {@code field_name}，加载失败回退
-     *     流程编号（见 {@link #resolveExampleName}）。</li>
-     * </ul>
-     * 模板为空时返回空串。
-     *
-     * @param template 标题模板（可空）
-     * @param example  流程实例（占位符取值来源）
-     * @return 渲染后的标题
-     */
-    String renderNotifySubject(String template, SysProcessExample example) {
-        if (StringUtil.isEmpty(template)) {
-            return "";
-        }
-        String creatorName = resolveUserName(example.getFieldCreatorId());
-        return template.replace(NOTIFY_PLACEHOLDER_CREATOR_NAME,
-                        StringUtil.isEmpty(creatorName) ? "" : creatorName)
-                .replace(NOTIFY_PLACEHOLDER_EXAMPLE_NAME, resolveExampleName(example));
-    }
-
-    /**
-     * 流程名称（标题占位符 {@code ${fieldName}} 取值）：模板名（按实例模板 id 查模板
-     * {@code field_name}）；模板缺失或名称为空回退流程编号，再回退空串。
-     */
-    private String resolveExampleName(SysProcessExample example) {
-        SysProcessTemplate template = templateDao.selectById(example.getFieldTemplateId());
-        if (null != template && StringUtil.isNotEmpty(template.getFieldName())) {
-            return template.getFieldName();
-        }
-        return StringUtil.isEmpty(example.getFieldCode()) ? "" : example.getFieldCode();
+        notifySender.sendExpediteRead(example, content, recipients);
     }
 
     /* ==================== 管理员特权操作 ==================== */
@@ -1181,10 +1185,10 @@ public class SysProcessExampleService {
      *     ADMIN_PAUSE / ADMIN_RESUME，分发逻辑不变（向后兼容）；</li>
      * <li>14 类小写操作类型：drafter_submit / drafter_cancel / drafter_retract / handler_pass /
      *     handler_reject / handler_transfer / handler_transfer_retract / processed_retract /
-     *     drafter_expedite / processed_expedite（催办分发由 P17-BE-011 落地）/ admin_abandon /
-     *     admin_jump 接通真实引擎分发（转办/收回由 P17-BE-010 落地、催办由 P17-BE-011 落地）；
-     *     handler_cc / admin_change_handler 暂未开放
-     *     （{@code CS_PROCESS_OPERATE_TYPE_INVALID}，后续任务逐个替换为真实分发）；</li>
+     *     drafter_expedite / processed_expedite / handler_cc（催办分发由 P17-BE-011 落地、
+     *     抄送分发由 P17-BE-012 落地）/ admin_abandon / admin_jump 接通真实引擎分发
+     *     （转办/收回由 P17-BE-010 落地）；admin_change_handler 暂未开放
+     *     （{@code CS_PROCESS_OPERATE_TYPE_INVALID}，P17-BE-013 落地）；</li>
      * <li>未登记类型一律拒绝（{@code CS_PROCESS_OPERATE_TYPE_INVALID}）。</li>
      * </ul>
      * <p>本方法内完成操作人身份校验（起草人 / 当前处理人 / 已处理人 / 流程管理员，
@@ -1265,9 +1269,15 @@ public class SysProcessExampleService {
                 requireOperateParam(content, "content");
                 processedExpedite(exampleId, workitemId, content);
             }
+            /* ==================== 审批人抄送（P17-BE-012） ==================== */
+            case OPERATE_TYPE_HANDLER_CC -> {
+                requireOperateParam(workitemId, "workitemId");
+                requireOperateParam(request.getCcToIds(), "ccToIds");
+                requireOperateParam(content, "content");
+                handlerCc(exampleId, workitemId, request.getCcToIds(), content);
+            }
             /* ==================== 暂未开放（后续任务落地引擎分发） ==================== */
-            case OPERATE_TYPE_HANDLER_CC,
-                 OPERATE_TYPE_ADMIN_CHANGE_HANDLER ->
+            case OPERATE_TYPE_ADMIN_CHANGE_HANDLER ->
                     throw new IllegalArgumentException(CS_PROCESS_OPERATE_TYPE_INVALID + "：操作类型暂未开放: " + type);
             default -> throw new IllegalArgumentException(CS_PROCESS_OPERATE_TYPE_INVALID + "：非法的流程操作类型: " + type);
         }

@@ -1,6 +1,9 @@
 package com.eric.base.sys.process.service.engine;
 
+import com.eric.base.sys.notify.enums.SysNotifyType;
+import com.eric.base.sys.notify.model.SysNotifyTodo;
 import com.eric.base.sys.process.model.SysProcessExampleNode;
+import com.eric.base.sys.process.model.SysProcessTemplate;
 import com.eric.base.sys.process.properties.SysProcessConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +24,10 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.NODE_STAT
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -28,7 +35,8 @@ import static org.mockito.Mockito.when;
  *
  * @author Eric
  * @date 2026/11/19
- * @description P17-BE-003 交付物：覆盖 §3.3 节点语义——抄送节点解析抄送对象留痕并自动办结、
+ * @description P17-BE-003 交付物：覆盖 §3.3 节点语义——抄送节点解析抄送对象逐人发 READ 待阅、
+ *              留痕并自动办结（空抄送对象按跳过处理并留痕、公式源解析失败转流程异常，P17-BE-012）、
  *              机器人节点按流程任务执行（无实现 bean 时直接办结）、条件分支取首个 true 出边与默认兜底、
  *              人工决策按最近一次 flowChoice 或默认流向流出。
  */
@@ -44,12 +52,17 @@ class ProcessFlowEngineNodeTest2 {
     /* ==================== CC ==================== */
 
     @Test
-    @DisplayName("CC 抄送节点：解析抄送对象留痕 CC_AUTO，节点 FINISH 并沿出边继续")
+    @DisplayName("CC 抄送节点：逐人发 READ 待阅 + 留痕 CC_AUTO，节点 FINISH 并沿出边继续")
     void ccNodeRecordsAuditAndContinues() {
         fixture.node(3, "抄送节点", NODE_TYPE_CC,
                 FlowEngineFixture.ccConfig(FlowEngineFixture.U1 + ";" + FlowEngineFixture.U2));
         fixture.node(5, "结束节点", NODE_TYPE_END);
         fixture.line("N3", "N5");
+        // 标题模板取值：模板表命中 → ${fieldName}=模板名；notify_cc_subject 未配置 → 回退默认模板
+        SysProcessTemplate template = new SysProcessTemplate();
+        template.setFieldId(FlowEngineFixture.TEMPLATE_ID);
+        template.setFieldName("采购订单审批模板");
+        when(fixture.templateDao.selectById(FlowEngineFixture.TEMPLATE_ID)).thenReturn(template);
 
         ProcessFlowResult result = fixture.engine(null).enterFlow(fixture.example, "N3");
 
@@ -58,11 +71,22 @@ class ProcessFlowEngineNodeTest2 {
         assertEquals(1L, fixture.auditCount(SysProcessConstants.AUDIT_TYPE_CC_AUTO));
         assertTrue(fixture.auditContents(SysProcessConstants.AUDIT_TYPE_CC_AUTO).get(0)
                 .contains(FlowEngineFixture.U1));
+        // READ 待阅字段断言（P17-BE-012）：标题=notify_cc_subject 默认模板渲染、内容=「流程抄送：节点名」、
+        // 收件人=解析抄送对象（去重保序）、来源模块/modelId/链接与通知类型
+        verify(fixture.notifyTodoService).send(argThat(todo ->
+                        "您被抄送的流程：采购订单审批模板".equals(todo.getFieldName())
+                                && SysNotifyType.READ.getValue().equals(todo.getFieldNotifyType())
+                                && SysProcessConstants.MODEL_KEY_SYS_PROCESS.equals(todo.getFieldModelName())
+                                && FlowEngineFixture.EXAMPLE_ID.equals(todo.getFieldModelId())
+                                && ("/processExample/detail/" + FlowEngineFixture.EXAMPLE_ID).equals(todo.getFieldUrl())
+                                && "流程抄送：抄送节点".equals(todo.getFieldContent())),
+                argThat(ids -> ids.size() == 2 && ids.get(0).equals(FlowEngineFixture.U1)
+                        && ids.get(1).equals(FlowEngineFixture.U2)));
     }
 
     @Test
-    @DisplayName("CC 抄送对象为空：节点 FINISH 直接继续，不产生 CC_AUTO 留痕")
-    void ccNodeWithoutTargetsSkipsAudit() {
+    @DisplayName("CC 抄送对象为空：按跳过处理并留痕，节点 FINISH 继续，不发送 READ 待阅")
+    void ccNodeWithoutTargetsSkipsWithAudit() {
         fixture.node(3, "抄送节点", NODE_TYPE_CC, FlowEngineFixture.ccConfig(""));
         fixture.node(5, "结束节点", NODE_TYPE_END);
         fixture.line("N3", "N5");
@@ -70,7 +94,33 @@ class ProcessFlowEngineNodeTest2 {
         ProcessFlowResult result = fixture.engine(null).enterFlow(fixture.example, "N3");
 
         assertTrue(result.isFinished());
-        assertEquals(0L, fixture.auditCount(SysProcessConstants.AUDIT_TYPE_CC_AUTO));
+        assertEquals(NODE_STATUS_FINISH, fixture.statusOf("N3"));
+        // 空抄送对象按「跳过」处理并留痕（P17-BE-012 验收标准）
+        assertEquals(1L, fixture.auditCount(SysProcessConstants.AUDIT_TYPE_CC_AUTO));
+        assertEquals("抄送对象为空，节点跳过",
+                fixture.auditContents(SysProcessConstants.AUDIT_TYPE_CC_AUTO).get(0));
+        verify(fixture.notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
+    }
+
+    @Test
+    @DisplayName("CC 抄送对象公式源解析失败：转流程异常（实例 PAUSE + SYSTEM_ERROR 留痕）")
+    void ccNodeFormulaFailurePauses() {
+        fixture.node(3, "抄送节点", NODE_TYPE_CC,
+                "{\"ccSource\":\"formula\",\"ccFormula\":\"${fieldHandlerId}\"}");
+        fixture.node(5, "结束节点", NODE_TYPE_END);
+        fixture.line("N3", "N5");
+        when(fixture.handlerResolver.resolveCcIds(any(), any(), any())).thenThrow(
+                ProcessHandlerResolveException.resolveFailed("节点「抄送节点」的抄送对象公式执行失败: 变量缺失"));
+
+        ProcessFlowResult result = fixture.engine(null).enterFlow(fixture.example, "N3");
+
+        assertTrue(result.isPaused());
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_PAUSE, fixture.example.getFieldStatus());
+        assertEquals(1L, fixture.auditCount(SysProcessConstants.AUDIT_TYPE_SYSTEM_ERROR));
+        assertTrue(fixture.auditContents(SysProcessConstants.AUDIT_TYPE_SYSTEM_ERROR).get(0)
+                .contains("抄送对象公式执行失败"));
+        verify(fixture.notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
+        assertEquals(NODE_STATUS_WAITING, fixture.statusOf("N3"), "抄送节点解析失败不置完成");
     }
 
     /* ==================== ROBORT ==================== */

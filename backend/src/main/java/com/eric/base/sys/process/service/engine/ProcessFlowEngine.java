@@ -55,7 +55,7 @@ import java.util.Set;
  *              <tr><td>DRAFT</td><td>节点 PROCESSING，等待起草人提交</td></tr>
  *              <tr><td>END</td><td>进入即流程 FINISH</td></tr>
  *              <tr><td>APPROVE</td><td>解析审批人→单签/会签/串行→生成工作项；无需审批工作项则沿出边继续</td></tr>
- *              <tr><td>CC</td><td>解析抄送对象→留痕 CC_AUTO + 节点 FINISH + 继续（通知发送留给 P17-BE-012/BE-014）</td></tr>
+ *              <tr><td>CC</td><td>解析抄送对象→非空逐人发 READ 待阅（notify_cc_subject）+ 留痕 CC_AUTO→FINISH 继续；空抄送对象按跳过处理并留痕（P17-BE-012）</td></tr>
  *              <tr><td>CONDITION</td><td>按 field_branch_order 升序求出边 field_condition，取第一个 true；无 true 走默认边</td></tr>
  *              <tr><td>FORK</td><td>逐出边求值启动条件，激活分支各自继续，汇聚上下文记入 field_runtime</td></tr>
  *              <tr><td>JOIN</td><td>记录到达分支，满足 joinMode（all/any）后流出，否则等待</td></tr>
@@ -90,6 +90,7 @@ public class ProcessFlowEngine {
     private final ProcessFlowGraphLoader graphLoader;
     private final ProcessFlowSupport support;
     private final ProcessHandlerResolver handlerResolver;
+    private final ProcessNotifySender notifySender;
     private final SysProcessDocumentFieldService documentFieldService;
     private final FormulaEngine formulaEngine;
     private final ObjectProvider<ProcessTaskExecutor> taskExecutorProvider;
@@ -102,6 +103,7 @@ public class ProcessFlowEngine {
                              ProcessFlowGraphLoader graphLoader,
                              ProcessFlowSupport support,
                              ProcessHandlerResolver handlerResolver,
+                             ProcessNotifySender notifySender,
                              SysProcessDocumentFieldService documentFieldService,
                              FormulaEngine formulaEngine,
                              ObjectProvider<ProcessTaskExecutor> taskExecutorProvider) {
@@ -113,6 +115,7 @@ public class ProcessFlowEngine {
         this.graphLoader = graphLoader;
         this.support = support;
         this.handlerResolver = handlerResolver;
+        this.notifySender = notifySender;
         this.documentFieldService = documentFieldService;
         this.formulaEngine = formulaEngine;
         this.taskExecutorProvider = taskExecutorProvider;
@@ -676,20 +679,32 @@ public class ProcessFlowEngine {
     }
 
     /**
-     * CC：解析抄送对象 → 留痕 {@code CC_AUTO} → 节点 FINISH → 沿出边继续。
-     * <p>本任务只做「解析 + 留痕 + 自动办结」：抄送对象的 READ 待阅/通知发送由
-     * <b>P17-BE-012 / P17-BE-014</b> 落地（见方法内 TODO）。</p>
+     * CC：解析抄送对象 → 非空逐人发 READ 待阅（标题消费 {@code notify_cc_subject}）+ 留痕
+     * {@code CC_AUTO} → 节点 FINISH → 沿出边继续；空抄送对象按「跳过」处理并留痕
+     * （P17-BE-012，依据 docs/设计文档/sys/process/流程核心业务.md「抄送节点配置」）。
+     * <p>文案口径：READ 待阅内容 = {@code 流程抄送：{节点名}}（抄送节点无审批意见可携带，
+     * 以节点名说明抄送来源）；{@code CC_AUTO} 留痕保持既有口径 {@code 抄送对象: id;id}，
+     * 空抄送对象留痕 {@code 抄送对象为空，节点跳过}。READ 待阅经
+     * {@link ProcessNotifySender#sendCcRead} 发送，与流转同事务——发送失败随流转整体
+     * 转流程异常（PAUSE + SYSTEM_ERROR）。</p>
+     * <p>公式源解析失败由 {@link ProcessHandlerResolver#resolveCcIds} 抛
+     * {@link ProcessHandlerResolveException}，经 {@link #run} 统一出口转流程异常。</p>
      */
     private boolean enterCc(FlowContext context, SysProcessExampleNode node) {
         SysProcessTemplateNodeConfigDo config = support.parseNodeConfig(node.getFieldNodeConfig());
         List<String> ccIds = handlerResolver.resolveCcIds(config, node.getFieldNodeName(),
                 formulaVariables(context, config));
-        if (!ccIds.isEmpty()) {
+        if (ccIds.isEmpty()) {
+            // 空抄送对象按「跳过」处理并留痕（验收标准：空抄送对象按跳过处理并留痕）
+            support.addAudit(context.example.getFieldId(), null, null,
+                    SysProcessConstants.AUDIT_TYPE_CC_AUTO, "抄送对象为空，节点跳过");
+        } else {
+            notifySender.sendCcRead(context.example, "流程抄送：" + displayName(node.getFieldNodeName()),
+                    ccIds);
             support.addAudit(context.example.getFieldId(), null, null,
                     SysProcessConstants.AUDIT_TYPE_CC_AUTO,
                     "抄送对象: " + String.join(";", ccIds));
         }
-        // TODO(P17-BE-012/P17-BE-014)：按 ccIds 发送 READ 待阅（通知发送不在本任务范围内）
         finishNode(context, node, null);
         enqueueKey(context, context.graph.singleOutgoing(ProcessFlowGraph.nodeKey(node),
                 node.getFieldNodeName()).toKey(), null);
@@ -1415,7 +1430,7 @@ public class ProcessFlowEngine {
     /**
      * 无审批人处理方式归一（P17-BE-004）：仅 {@code skip}/{@code error} 生效，
      * 其余（空/非法/缺省）取 {@code system}（同系统配置=跳过该节点，即存量默认行为）。
-     * 抄送节点解析为空不适用本语义（{@code enterCc} 按「无需抄送」处理）。
+     * 抄送节点解析为空不适用本语义（{@code enterCc} 按「跳过」留痕后照常流转，P17-BE-012）。
      */
     private static String emptyHandlerMode(SysProcessTemplateNodeConfigDo config) {
         if (null == config || StringUtil.isEmpty(config.getEmptyHandlerMode())) {

@@ -37,6 +37,7 @@ import com.eric.base.sys.process.service.engine.ProcessFlowEngine;
 import com.eric.base.sys.process.service.engine.ProcessFlowGraphLoader;
 import com.eric.base.sys.process.service.engine.ProcessFlowSupport;
 import com.eric.base.sys.process.service.engine.ProcessHandlerResolver;
+import com.eric.base.sys.process.service.engine.ProcessNotifySender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -114,6 +115,7 @@ class SysProcessExampleServiceTest {
     private SysProcessTemplateNodeDao templateNodeDao;
     private CommonSettingService settingService;
     private SysNotifyTodoService notifyTodoService;
+    private ProcessNotifySender notifySender;
     private SysOrgUserMapper userMapper;
     private ProcessResolver resolver;
     private SysProcessDocumentFieldService documentFieldService;
@@ -144,14 +146,15 @@ class SysProcessExampleServiceTest {
         exampleLineDao = mock(SysProcessExampleLineDao.class);
         templateLineDao = mock(SysProcessTemplateLineDao.class);
         handlerResolver = mock(ProcessHandlerResolver.class);
+        notifySender = new ProcessNotifySender(notifyTodoService, userMapper, templateDao, settingService);
         ProcessFlowSupport flowSupport = new ProcessFlowSupport(exampleDao, nodeDao, workitemDao,
                 auditNoteDao, new ObjectMapper());
         flowEngine = new ProcessFlowEngine(exampleDao, nodeDao, workitemDao, auditNoteDao,
                 settingService, new ProcessFlowGraphLoader(exampleLineDao), flowSupport,
-                handlerResolver, documentFieldService, null, null);
+                handlerResolver, notifySender, documentFieldService, null, null);
         service = new SysProcessExampleService(exampleDao, nodeDao, exampleLineDao, workitemDao,
                 auditNoteDao, templateDao, templateNodeDao, templateLineDao, settingService,
-                userMapper, notifyTodoService, resolver, documentFieldService,
+                userMapper, notifySender, resolver, documentFieldService,
                 new ObjectMapper(), flowEngine, flowSupport);
 
         // 默认公共配置：自动跳过/包含起草人/连续跳过均开启
@@ -1281,10 +1284,9 @@ class SysProcessExampleServiceTest {
     @Test
     void operateNotYetImplementedTypesFail() {
         // P17-BE-010 已接通 handler_transfer / handler_transfer_retract / processed_retract，
-        // P17-BE-011 已接通 drafter_expedite / processed_expedite，不再列入待开放清单
-        List<String> pending = List.of(
-                SysProcessConstants.OPERATE_TYPE_HANDLER_CC,
-                SysProcessConstants.OPERATE_TYPE_ADMIN_CHANGE_HANDLER);
+        // P17-BE-011 已接通 drafter_expedite / processed_expedite，P17-BE-012 已接通 handler_cc，
+        // 暂未开放清单收窄为 admin_change_handler
+        List<String> pending = List.of(SysProcessConstants.OPERATE_TYPE_ADMIN_CHANGE_HANDLER);
         for (String type : pending) {
             IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                     () -> service.operate(EXAMPLE_ID, type, null, null, null, null),
@@ -2220,6 +2222,180 @@ class SysProcessExampleServiceTest {
         assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_FORBIDDEN));
         assertTrue(error.getMessage().contains("仅工作项处理人可催办"));
         verify(notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
+    }
+
+    /* ==================== 审批人抄送（P17-BE-012） ==================== */
+
+    @Test
+    void handlerCcSendsReadTodoToExplicitTargetsAndWritesAudit() {
+        // notify_cc_subject 未配置（mock 未打桩返回 null）回退默认模板——同时覆盖「缺省回退默认模板」口径
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_PROCESSING, CONFIG_SINGLE));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        SysProcessExampleWorkitem processing = workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+        when(workitemDao.selectById(WI_U1)).thenReturn(processing);
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        // ccToIds 含重复项且包含发起人本人：去重保序 [U2, U1]，抄送对象为显式指定不排除发起人
+        service.handlerCc(EXAMPLE_ID, WI_U1, U2 + ";" + U1 + ";" + U2, "请知悉");
+
+        // READ 待阅字段断言：默认模板渲染标题 + 通知类型/来源模块/modelId/链接/内容=审批意见
+        verify(notifyTodoService).send(argThat(todo ->
+                        "您被抄送的流程：采购订单审批模板".equals(todo.getFieldName())
+                                && SysNotifyType.READ.getValue().equals(todo.getFieldNotifyType())
+                                && SysProcessConstants.MODEL_KEY_SYS_PROCESS.equals(todo.getFieldModelName())
+                                && EXAMPLE_ID.equals(todo.getFieldModelId())
+                                && ("/processExample/detail/" + EXAMPLE_ID).equals(todo.getFieldUrl())
+                                && "请知悉".equals(todo.getFieldContent())),
+                argThat(ids -> ids.size() == 2 && ids.get(0).equals(U2) && ids.get(1).equals(U1)));
+        // 留痕 HANDLER_CC：workitemId=当前工作项 id，handlerId=发起人，content=审批意见
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_HANDLER_CC.equals(n.getFieldHandleType())
+                        && WI_U1.equals(n.getFieldWorkitemId())
+                        && U1.equals(n.getFieldHandlerId())
+                        && "请知悉".equals(n.getFieldContent())));
+        // 抄送是在途告知：不改工作项/节点/流程状态
+        verify(workitemDao, never()).update(any(SysProcessExampleWorkitem.class));
+        verify(nodeDao, never()).update(any(SysProcessExampleNode.class));
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_PROCESSING, example.getFieldStatus());
+        assertEquals(SysProcessConstants.WORKITEM_STATUS_PROCESSING, processing.getFieldStatus());
+    }
+
+    @Test
+    void handlerCcRequiresWorkitemIdCcToIdsAndContent() {
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_PROCESSING, CONFIG_SINGLE));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(workitemDao.selectById(WI_U1)).thenReturn(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        // 缺 workitemId → PARAM_MISSING
+        IllegalArgumentException missingWorkitem = assertThrows(IllegalArgumentException.class,
+                () -> service.handlerCc(EXAMPLE_ID, null, U2, "请知悉"));
+        assertTrue(missingWorkitem.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(missingWorkitem.getMessage().contains("workitemId"));
+
+        // 缺 ccToIds → PARAM_MISSING
+        IllegalArgumentException missingTargets = assertThrows(IllegalArgumentException.class,
+                () -> service.handlerCc(EXAMPLE_ID, WI_U1, "  ", "请知悉"));
+        assertTrue(missingTargets.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(missingTargets.getMessage().contains("ccToIds"));
+
+        // 缺 content → PARAM_MISSING（§6.2 handler_cc 必填参数含 content）
+        IllegalArgumentException missingContent = assertThrows(IllegalArgumentException.class,
+                () -> service.handlerCc(EXAMPLE_ID, WI_U1, U2, null));
+        assertTrue(missingContent.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(missingContent.getMessage().contains("content"));
+
+        verify(notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
+        verify(auditNoteDao, never()).insert(any(SysProcessAuditNote.class));
+    }
+
+    @Test
+    void handlerCcForbiddenForNonHandler() {
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_PROCESSING, CONFIG_SINGLE));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(workitemDao.selectById(WI_U1)).thenReturn(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U2, "李四"));
+
+        AuthorizationException error = assertThrows(AuthorizationException.class,
+                () -> service.handlerCc(EXAMPLE_ID, WI_U1, U2, "请知悉"));
+        assertEquals("FORBIDDEN", error.getCode());
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_FORBIDDEN));
+        assertTrue(error.getMessage().contains("仅工作项处理人"));
+        verify(notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
+        verify(auditNoteDao, never()).insert(any(SysProcessAuditNote.class));
+    }
+
+    @Test
+    void handlerCcRejectsNonProcessingState() {
+        // setUp 默认 DRAFT 状态：仅审批中的流程可抄送
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.handlerCc(EXAMPLE_ID, WI_U1, U2, "请知悉"));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_STATE_CONFLICT));
+        assertTrue(error.getMessage().contains("仅审批中的流程可执行抄送"));
+        verify(notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
+        verify(auditNoteDao, never()).insert(any(SysProcessAuditNote.class));
+    }
+
+    @Test
+    void handlerCcRejectsFinishedNode() {
+        // 节点已办结（FINISH）：抄送是在途告知，节点流出后不可再发起
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_FINISH, CONFIG_SINGLE));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(workitemDao.selectById(WI_U1)).thenReturn(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.handlerCc(EXAMPLE_ID, WI_U1, U2, "请知悉"));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_STATE_CONFLICT));
+        assertTrue(error.getMessage().contains("节点已办结，无法抄送"));
+        verify(notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
+        verify(auditNoteDao, never()).insert(any(SysProcessAuditNote.class));
+    }
+
+    @Test
+    void handlerCcRejectsUnknownTarget() {
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_PROCESSING, CONFIG_SINGLE));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(workitemDao.selectById(WI_U1)).thenReturn(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+        // setUp 默认：未知用户返回 null
+        String unknown = "12345678901234567890123456789999";
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> service.handlerCc(EXAMPLE_ID, WI_U1, U2 + ";" + unknown, "请知悉"));
+        assertTrue(error.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(error.getMessage().contains("抄送对象用户不存在"));
+        assertTrue(error.getMessage().contains(unknown));
+        verify(notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
+        verify(auditNoteDao, never()).insert(any(SysProcessAuditNote.class));
+    }
+
+    @Test
+    void operateDispatchesHandlerCc() {
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_PROCESSING, CONFIG_SINGLE));
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(workitemDao.selectById(WI_U1)).thenReturn(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        // operate 通道正向分发：workitemId / ccToIds / content 齐备
+        SysProcessOperateRequest request = op(SysProcessConstants.OPERATE_TYPE_HANDLER_CC);
+        request.setWorkitemId(WI_U1);
+        request.setCcToIds(U2 + ";" + U2 + ";" + CREATOR_ID);
+        request.setContent("抄送知悉");
+        service.operate(request);
+
+        verify(notifyTodoService).send(any(SysNotifyTodo.class),
+                argThat(ids -> ids.size() == 2 && ids.get(0).equals(U2) && ids.get(1).equals(CREATOR_ID)));
+        verify(auditNoteDao).insert(argThat(n ->
+                SysProcessConstants.AUDIT_TYPE_HANDLER_CC.equals(n.getFieldHandleType())
+                        && WI_U1.equals(n.getFieldWorkitemId())
+                        && "抄送知悉".equals(n.getFieldContent())));
+
+        // operate 通道缺 ccToIds → PARAM_MISSING
+        SysProcessOperateRequest missingTargets = op(SysProcessConstants.OPERATE_TYPE_HANDLER_CC);
+        missingTargets.setWorkitemId(WI_U1);
+        missingTargets.setContent("抄送知悉");
+        IllegalArgumentException missingError = assertThrows(IllegalArgumentException.class,
+                () -> service.operate(missingTargets));
+        assertTrue(missingError.getMessage().startsWith(SysProcessConstants.CS_PROCESS_OPERATE_PARAM_MISSING));
+        assertTrue(missingError.getMessage().contains("ccToIds"));
     }
 
     /* ==================== 详情 / 面板 ==================== */

@@ -113,6 +113,8 @@ public class SysProcessConstants {
     public static final String SETTING_NOTIFY_FINISH_DRAFTER_SUBJECT = "notify_finish_drafter_subject";
     /** 流程办结审批人待阅默认标题 */
     public static final String SETTING_NOTIFY_FINISH_HANDLER_SUBJECT = "notify_finish_handler_subject";
+    /** 抄送待阅默认标题（抄送节点 / 抄送动作 handler_cc 共用，v1_7 新增） */
+    public static final String SETTING_NOTIFY_CC_SUBJECT = "notify_cc_subject";
     /** 催办待阅默认标题（起草人催办 / 已审批人催办共用，v1_7 新增） */
     public static final String SETTING_NOTIFY_EXPEDITE_SUBJECT = "notify_expedite_subject";
 
@@ -122,6 +124,8 @@ public class SysProcessConstants {
     public static final String NOTIFY_PLACEHOLDER_CREATOR_NAME = "${fieldCreatorName}";
     /** 标题占位符：流程名称（模板名；模板缺失回退流程编号，再回退空串） */
     public static final String NOTIFY_PLACEHOLDER_EXAMPLE_NAME = "${fieldName}";
+    /** 抄送待阅默认标题（notify_cc_subject 缺省回退值，与 application.yml SETTING 默认值一致，v1_7 新增） */
+    public static final String DEFAULT_NOTIFY_CC_SUBJECT = "您被抄送的流程：${fieldName}";
     /** 催办待阅默认标题（notify_expedite_subject 缺省回退值，与 application.yml SETTING 默认值一致，v1_7 新增） */
     public static final String DEFAULT_NOTIFY_EXPEDITE_SUBJECT = "请尽快处理${fieldCreatorName}提交的流程：${fieldName}";
 
@@ -141,6 +145,7 @@ public class SysProcessConstants {
         desc.put(SETTING_TYPE_NOTIFY + "." + SETTING_NOTIFY_REFUSE_SUBJECT, "被驳回流程待办默认标题");
         desc.put(SETTING_TYPE_NOTIFY + "." + SETTING_NOTIFY_FINISH_DRAFTER_SUBJECT, "流程办结起草人待阅默认标题");
         desc.put(SETTING_TYPE_NOTIFY + "." + SETTING_NOTIFY_FINISH_HANDLER_SUBJECT, "流程办结审批人待阅默认标题");
+        desc.put(SETTING_TYPE_NOTIFY + "." + SETTING_NOTIFY_CC_SUBJECT, "抄送待阅默认标题（抄送节点/审批人抄送共用）");
         desc.put(SETTING_TYPE_NOTIFY + "." + SETTING_NOTIFY_EXPEDITE_SUBJECT, "催办待阅默认标题（起草人催办/已审批人催办共用）");
         return desc;
     }
@@ -409,6 +414,11 @@ public class SysProcessConstants {
     /** 处理人驳回（历史类型）：仅存量历史数据使用，v1_7 起新操作统一写 {@link #AUDIT_TYPE_HANDLER_REJECT} */
     public static final String AUDIT_TYPE_HANDLER_RETURN = "HANDLER_RETURN";
     /**
+     * 审批人抄送（v1_7 新增，P17-BE-012）：当前处理人在途抄送其他用户（地址本多选），逐人发
+     * READ 待阅（标题消费 {@link #SETTING_NOTIFY_CC_SUBJECT}），不改变工作项/节点/流程状态。
+     */
+    public static final String AUDIT_TYPE_HANDLER_CC = "HANDLER_CC";
+    /**
      * 审批人转办（v1_7 新增，P17-BE-010）：原工作项 ABANDON，为被转办人生成
      * {@code field_from_workitem_id} 关联的新工作项，被转办人视为该序位实际处理人。
      */
@@ -437,7 +447,7 @@ public class SysProcessConstants {
     public static final String AUDIT_TYPE_ADMIN_ABANDON = "ADMIN_ABANDON";
     /** 管理员办结 */
     public static final String AUDIT_TYPE_ADMIN_FINISH = "ADMIN_FINISH";
-    /** 抄送节点自动留痕（抄送对象已记录，通知发送由 P17-BE-012/BE-014 落地） */
+    /** 抄送节点自动留痕（P17-BE-012：抄送对象逐人发 READ 待阅后留痕；空抄送对象按跳过留痕） */
     public static final String AUDIT_TYPE_CC_AUTO = "CC_AUTO";
     /** 流程异常专用留痕（实例转 PAUSE，错误摘要入留痕） */
     public static final String AUDIT_TYPE_SYSTEM_ERROR = "SYSTEM_ERROR";

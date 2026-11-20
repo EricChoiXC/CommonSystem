@@ -2,11 +2,14 @@ package com.eric.base.sys.process.service.engine;
 
 import com.eric.base.common.setting.service.CommonSettingService;
 import com.eric.base.sys.formula.service.engine.FormulaEngine;
+import com.eric.base.sys.notify.service.SysNotifyTodoService;
+import com.eric.base.sys.org.mapper.SysOrgUserMapper;
 import com.eric.base.sys.process.dao.SysProcessAuditNoteDao;
 import com.eric.base.sys.process.dao.SysProcessExampleDao;
 import com.eric.base.sys.process.dao.SysProcessExampleLineDao;
 import com.eric.base.sys.process.dao.SysProcessExampleNodeDao;
 import com.eric.base.sys.process.dao.SysProcessExampleWorkitemDao;
+import com.eric.base.sys.process.dao.SysProcessTemplateDao;
 import com.eric.base.sys.process.model.SysProcessAuditNote;
 import com.eric.base.sys.process.model.SysProcessExample;
 import com.eric.base.sys.process.model.SysProcessExampleLine;
@@ -59,6 +62,10 @@ public class FlowEngineFixture {
     public final SysProcessExampleLineDao exampleLineDao = mock(SysProcessExampleLineDao.class);
     public final CommonSettingService settingService = mock(CommonSettingService.class);
     public final ProcessHandlerResolver handlerResolver = mock(ProcessHandlerResolver.class);
+    public final SysNotifyTodoService notifyTodoService = mock(SysNotifyTodoService.class);
+    public final SysOrgUserMapper userMapper = mock(SysOrgUserMapper.class);
+    public final SysProcessTemplateDao templateDao = mock(SysProcessTemplateDao.class);
+    public final ProcessNotifySender notifySender;
     public final SysProcessDocumentFieldService documentFieldService = mock(SysProcessDocumentFieldService.class);
     public final FormulaEngine formulaEngine = mock(FormulaEngine.class);
 
@@ -72,6 +79,8 @@ public class FlowEngineFixture {
     private ProcessFlowEngine engine;
 
     public FlowEngineFixture() {
+        // 通知发送组件（P17-BE-012）：真实实例 + Mock 依赖，标题模板读取走 mock 公共配置/模板表
+        notifySender = new ProcessNotifySender(notifyTodoService, userMapper, templateDao, settingService);
         example.setFieldId(EXAMPLE_ID);
         example.setFieldTemplateId(TEMPLATE_ID);
         example.setFieldModelName("sys_org");
@@ -155,7 +164,8 @@ public class FlowEngineFixture {
         ProcessFlowGraphLoader loader = new ProcessFlowGraphLoader(exampleLineDao);
         this.taskExecutorProvider = null == executor ? null : providerOf(executor);
         engine = new ProcessFlowEngine(exampleDao, nodeDao, workitemDao, auditNoteDao, settingService,
-                loader, support, handlerResolver, documentFieldService, formulaEngine, taskExecutorProvider);
+                loader, support, handlerResolver, notifySender, documentFieldService, formulaEngine,
+                taskExecutorProvider);
         return engine;
     }
 
