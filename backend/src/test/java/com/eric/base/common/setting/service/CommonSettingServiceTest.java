@@ -113,10 +113,10 @@ class CommonSettingServiceTest {
         int handled = service.syncFromYml();
 
         // common/application.yml 的 SETTING 段共 16 条（database 7 + redis 5 + system 4），
-        // sys/process/application.yml 的 SETTING 段共 7 条（process 3 + notify 4，
-        // 见 artificial/docs/设计文档/sys/process/流程核心业务.md「流程公共配置」），
+        // sys/process/application.yml 的 SETTING 段共 9 条（process 4 + notify 5，
+        // 见 docs/设计文档/sys/process/流程核心业务.md「流程公共配置」），
         // 其余为各业务模块后续补充的设置项（sys/calendar 等）
-        verify(dao, atLeast(23)).insert(any(CommonSetting.class));
+        verify(dao, atLeast(25)).insert(any(CommonSetting.class));
         // field_model_name 取同文件 MODEL_KEY（COMMON），field_value 初始等于默认值
         verify(dao).insert(argThat(setting ->
                 "database".equals(setting.getFieldType())
@@ -142,7 +142,7 @@ class CommonSettingServiceTest {
         verify(dao).insert(argThat(setting ->
                 "notify".equals(setting.getFieldType())
                         && "notify_handle_subject".equals(setting.getFieldKey())));
-        assertEquals(35, handled);
+        assertEquals(36, handled);
     }
 
     /* ==================== 内部读取 ==================== */

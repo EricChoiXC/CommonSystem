@@ -15,4 +15,7 @@ SETTING:
     notify_refuse_subject: "您提交的流程被${fieldHandlerName}驳回，请修改"
     notify_finish_drafter_subject: "您提交的流程${fieldName}已通过"
     notify_finish_handler_subject: "您审批的流程${fieldName}已通过"
+    # v1_7 新增（P17-DOC-005 定稿）：催办待阅默认标题（起草人催办/已审批人催办共用，
+    # 占位符口径与 notify_handle_subject 一致；消费方 SysProcessExampleService 催办动作）
+    notify_expedite_subject: "请尽快处理${fieldCreatorName}提交的流程：${fieldName}"
 # 流程分类（process_template）由各业务系统在自身 application.yml 中自行维护。

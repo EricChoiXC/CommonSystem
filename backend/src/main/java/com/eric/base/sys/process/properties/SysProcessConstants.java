@@ -18,6 +18,13 @@ public class SysProcessConstants {
     private SysProcessConstants() {
     }
 
+    /* ==================== 模块标识与页面路由 ==================== */
+
+    /** 流程模块 MODEL_KEY（properties/sys/process/application.yml 的 MODEL_KEY，通知待办 field_model_name 使用） */
+    public static final String MODEL_KEY_SYS_PROCESS = "SYS-PROCESS";
+    /** 流程实例详情页路由前缀（前端路由 processExample/detail/:id，通知待办跳转链接使用） */
+    public static final String EXAMPLE_DETAIL_URL_PREFIX = "/processExample/detail/";
+
     /* ==================== 接口标识（resolver 鉴权使用） ==================== */
 
     /** 流程公共配置列表 */
@@ -106,6 +113,17 @@ public class SysProcessConstants {
     public static final String SETTING_NOTIFY_FINISH_DRAFTER_SUBJECT = "notify_finish_drafter_subject";
     /** 流程办结审批人待阅默认标题 */
     public static final String SETTING_NOTIFY_FINISH_HANDLER_SUBJECT = "notify_finish_handler_subject";
+    /** 催办待阅默认标题（起草人催办 / 已审批人催办共用，v1_7 新增） */
+    public static final String SETTING_NOTIFY_EXPEDITE_SUBJECT = "notify_expedite_subject";
+
+    /* ==================== 通知待办标题模板占位符（notify.* subject 模板共用口径） ==================== */
+
+    /** 标题占位符：流程起草人姓名（渲染失败回退空串） */
+    public static final String NOTIFY_PLACEHOLDER_CREATOR_NAME = "${fieldCreatorName}";
+    /** 标题占位符：流程名称（模板名；模板缺失回退流程编号，再回退空串） */
+    public static final String NOTIFY_PLACEHOLDER_EXAMPLE_NAME = "${fieldName}";
+    /** 催办待阅默认标题（notify_expedite_subject 缺省回退值，与 application.yml SETTING 默认值一致，v1_7 新增） */
+    public static final String DEFAULT_NOTIFY_EXPEDITE_SUBJECT = "请尽快处理${fieldCreatorName}提交的流程：${fieldName}";
 
     /**
      * 公共配置中文描述（页面仅显示中文描述与值），key = "${field_type}.${field_key}"。
@@ -123,6 +141,7 @@ public class SysProcessConstants {
         desc.put(SETTING_TYPE_NOTIFY + "." + SETTING_NOTIFY_REFUSE_SUBJECT, "被驳回流程待办默认标题");
         desc.put(SETTING_TYPE_NOTIFY + "." + SETTING_NOTIFY_FINISH_DRAFTER_SUBJECT, "流程办结起草人待阅默认标题");
         desc.put(SETTING_TYPE_NOTIFY + "." + SETTING_NOTIFY_FINISH_HANDLER_SUBJECT, "流程办结审批人待阅默认标题");
+        desc.put(SETTING_TYPE_NOTIFY + "." + SETTING_NOTIFY_EXPEDITE_SUBJECT, "催办待阅默认标题（起草人催办/已审批人催办共用）");
         return desc;
     }
 
@@ -284,7 +303,7 @@ public class SysProcessConstants {
     public static final String OPERATE_TYPE_DRAFTER_CANCEL = "drafter_cancel";
     /** 操作类型：起草人收回（PROCESSING） */
     public static final String OPERATE_TYPE_DRAFTER_RETRACT = "drafter_retract";
-    /** 操作类型：起草人催办（PROCESSING；引擎分发由 P17-BE-011 落地） */
+    /** 操作类型：起草人催办（PROCESSING；P17-BE-011 落地引擎分发） */
     public static final String OPERATE_TYPE_DRAFTER_EXPEDITE = "drafter_expedite";
     // 操作类型 handler_pass（审批人通过）已在「模板保存侧取值」定义，此处直接复用
     /** 操作类型：审批人拒绝（PROCESSING；驳回目标校验由 P17-BE-009 落地） */
@@ -297,7 +316,7 @@ public class SysProcessConstants {
     public static final String OPERATE_TYPE_HANDLER_TRANSFER_RETRACT = "handler_transfer_retract";
     /** 操作类型：已审批人收回（PROCESSING；引擎分发由 P17-BE-010 落地） */
     public static final String OPERATE_TYPE_PROCESSED_RETRACT = "processed_retract";
-    /** 操作类型：已审批人催办（PROCESSING；引擎分发由 P17-BE-011 落地） */
+    /** 操作类型：已审批人催办（PROCESSING；P17-BE-011 落地引擎分发） */
     public static final String OPERATE_TYPE_PROCESSED_EXPEDITE = "processed_expedite";
     /** 操作类型：管理员废弃（PROCESSING / RETURN / DRAFT / PAUSE） */
     public static final String OPERATE_TYPE_ADMIN_ABANDON = "admin_abandon";
@@ -378,6 +397,8 @@ public class SysProcessConstants {
     public static final String AUDIT_TYPE_DRAFTER_BACK = "DRAFTER_BACK";
     /** 起草人废弃 */
     public static final String AUDIT_TYPE_DRAFTER_ABANDON = "DRAFTER_ABANDON";
+    /** 起草人催办（v1_7 新增，P17-BE-011）：向当前节点全部 PROCESSING 工作项处理人发催办待阅 */
+    public static final String AUDIT_TYPE_DRAFTER_EXPEDITE = "DRAFTER_EXPEDITE";
     /** 处理人通过 */
     public static final String AUDIT_TYPE_HANDLER_PASS = "HANDLER_PASS";
     /**
@@ -402,6 +423,8 @@ public class SysProcessConstants {
      * 已办结（FINISH）工作项收回到本人（重新持 PROCESSING 工作项），仅限正常流转场景。
      */
     public static final String AUDIT_TYPE_PROCESSED_RETRACT = "PROCESSED_RETRACT";
+    /** 已审批人催办（v1_7 新增，P17-BE-011）：同起草人催办，发起人为已审批人（已办结/在途工作项处理人） */
+    public static final String AUDIT_TYPE_PROCESSED_EXPEDITE = "PROCESSED_EXPEDITE";
     /** 自动跳过（重复审批人/起草人自动跳过时的留痕） */
     public static final String AUDIT_TYPE_AUTO_PASS = "AUTO_PASS";
     /** 管理员暂停 */
