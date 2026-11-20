@@ -46,6 +46,8 @@ import com.eric.base.sys.process.response.SysProcessExampleNodeVo;
 import com.eric.base.sys.process.response.SysProcessExamplePanelVo;
 import com.eric.base.sys.process.response.SysProcessExampleVo;
 import com.eric.base.sys.process.response.SysProcessExampleWorkitemVo;
+import com.eric.base.sys.process.response.SysProcessNodeOptionVo;
+import com.eric.base.sys.process.response.SysProcessPanelOperationVo;
 import com.eric.base.sys.process.response.SysProcessTemplateModelVo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +68,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import static com.eric.base.common.properties.CommonProperties.ROLE_ADMIN;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PROCESS_EXAMPLE_ADMIN_OPERATE;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ADMIN_OPERATE_ABANDON;
+import static com.eric.base.sys.process.properties.SysProcessConstants.ADMIN_OPERATE_CHANGE_HANDLER;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ADMIN_OPERATE_FINISH;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ADMIN_OPERATE_JUMP;
 import static com.eric.base.sys.process.properties.SysProcessConstants.ADMIN_OPERATE_PAUSE;
@@ -74,6 +77,7 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.APPROVE_M
 import static com.eric.base.sys.process.properties.SysProcessConstants.APPROVE_MODE_SERIAL;
 import static com.eric.base.sys.process.properties.SysProcessConstants.APPROVE_MODE_SINGLE;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_ADMIN_ABANDON;
+import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_ADMIN_CHANGE_HANDLER;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_ADMIN_FINISH;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_ADMIN_JUMP;
 import static com.eric.base.sys.process.properties.SysProcessConstants.AUDIT_TYPE_ADMIN_PAUSE;
@@ -175,9 +179,14 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.WORKITEM_
  *              <li>自动跳过：按公共配置（auto_handle_pass / auto_handle_pass_drafter / auto_continue_pass）
  *                  与节点配置（autoSkip / autoContinueSkip）跳过上一有效节点的重复审批人/起草人，
  *                  生成办结的工作项与 AUTO_PASS 审批记录，实际处理人为空时跳过节点；</li>
- *              <li>管理员特权操作：跳转/终审通过/作废/暂停/恢复（生成 ADMIN_* 审批记录）；</li>
+ *              <li>管理员特权操作：跳转/终审通过/作废/暂停/恢复（生成 ADMIN_* 审批记录）；
+ *                  更换审批人（v1_7 新增，P17-BE-013）：指定 PROCESSING 工作项换人，
+ *                  仅替换处理人与期望处理人（仅本实例有效，不改节点/流程状态，不影响串行序位
+ *                  与会签计数），留痕 ADMIN_CHANGE_HANDLER；</li>
  *              <li>列表/详情/审批面板：流程实例分页查询、实例+节点+工作项+审批记录详情、
- *                  可嵌入审批组件的面板数据。</li>
+ *                  可嵌入审批组件的面板数据；面板按钮集按「节点 operations 配置 ∩ 用户身份 ∩
+ *                  状态前置」计算（v1_7 升级为按钮对象数组，P17-BE-013），与 nodeOps
+ *                  业务标识并存（语义不变）。</li>
  *              </ul>
  */
 @Service
@@ -593,9 +602,8 @@ public class SysProcessExampleService {
 
     /**
      * 驳回目标校验（P17-BE-009，依据 docs/设计文档/sys/process/流程核心业务.md「驳回与重新提交（D3）」）：
-     * 允许目标 = 驳回节点配置 {@code rejectTargets} ∩ 已流经节点（配置为空或交集为空时默认仅起草节点）。
-     * 已流经节点运行期判定口径：起草节点恒视为已流经；审批节点状态 FINISH / REJECT 视为已流经
-     * （实际审批过或曾被驳回）；PASS（自动跳过）与 WAITING / PROCESSING 不算。
+     * 允许目标 = 驳回节点配置 {@code rejectTargets} ∩ 已流经节点（配置为空或交集为空时默认仅起草节点），
+     * 允许集合口径见 {@link #resolveAllowedRejectTargetKeys}。
      * 目标键必须是本实例节点键（按 nodeKey 匹配实例节点集合），否则同样拒绝。
      *
      * @param example    流程实例
@@ -607,15 +615,10 @@ public class SysProcessExampleService {
                                                       String targetKey) {
         List<SysProcessExampleNode> nodes = nodeDao.selectListByExampleId(example.getFieldId());
         SysProcessExampleNode target = null;
-        Set<String> traversedKeys = new LinkedHashSet<>();
         if (null != nodes) {
             for (SysProcessExampleNode node : nodes) {
-                String key = ProcessFlowGraph.nodeKey(node);
-                if (key.equals(targetKey)) {
+                if (ProcessFlowGraph.nodeKey(node).equals(targetKey)) {
                     target = node;
-                }
-                if (isTraversedNode(node)) {
-                    traversedKeys.add(key);
                 }
             }
         }
@@ -623,7 +626,35 @@ public class SysProcessExampleService {
             throw new IllegalArgumentException(CS_PROCESS_NODE_TARGET_INVALID
                     + "：驳回目标节点 " + targetKey + " 不是本流程实例的节点");
         }
-        // 允许目标集合 = rejectTargets ∩ 已流经节点；配置为空（或交集为空）默认仅起草节点
+        Set<String> allowed = resolveAllowedRejectTargetKeys(example, rejectNode);
+        if (!allowed.contains(targetKey)) {
+            throw new IllegalArgumentException(CS_PROCESS_NODE_TARGET_INVALID + "：驳回目标「"
+                    + (StringUtil.isEmpty(target.getFieldNodeName()) ? targetKey : target.getFieldNodeName())
+                    + "」不在允许的驳回目标范围内（允许目标 = 节点配置 rejectTargets ∩ 已流经节点）");
+        }
+        return target;
+    }
+
+    /**
+     * 解析允许的驳回目标节点键集合（P17-BE-009 允许目标口径，操作时校验与面板候选共用）：
+     * 节点配置 {@code rejectTargets} ∩ 已流经节点（已流经判定见 {@link #isTraversedNode}：
+     * 起草节点恒可；审批节点 FINISH / REJECT 算已流经，PASS / WAITING / PROCESSING 不算）；
+     * 配置为空或交集为空时默认仅起草节点。
+     *
+     * @param example    流程实例
+     * @param rejectNode 驳回者所在节点（rejectTargets 配置来源）
+     * @return 允许的驳回目标节点键集合（非空，保序）
+     */
+    private Set<String> resolveAllowedRejectTargetKeys(SysProcessExample example, SysProcessExampleNode rejectNode) {
+        List<SysProcessExampleNode> nodes = nodeDao.selectListByExampleId(example.getFieldId());
+        Set<String> traversedKeys = new LinkedHashSet<>();
+        if (null != nodes) {
+            for (SysProcessExampleNode node : nodes) {
+                if (isTraversedNode(node)) {
+                    traversedKeys.add(ProcessFlowGraph.nodeKey(node));
+                }
+            }
+        }
         Set<String> allowed = new LinkedHashSet<>();
         SysProcessTemplateNodeConfigDo config = parseNodeConfig(rejectNode.getFieldNodeConfig());
         List<String> rejectTargets = null == config ? null : config.getRejectTargets();
@@ -637,12 +668,7 @@ public class SysProcessExampleService {
         if (allowed.isEmpty()) {
             allowed.add(SysProcessConstants.FIXED_NODE_KEY_DRAFT);
         }
-        if (!allowed.contains(targetKey)) {
-            throw new IllegalArgumentException(CS_PROCESS_NODE_TARGET_INVALID + "：驳回目标「"
-                    + (StringUtil.isEmpty(target.getFieldNodeName()) ? targetKey : target.getFieldNodeName())
-                    + "」不在允许的驳回目标范围内（允许目标 = 节点配置 rejectTargets ∩ 已流经节点）");
-        }
-        return target;
+        return allowed;
     }
 
     /** 已流经节点判定（驳回目标候选口径）：起草节点恒可；审批节点 FINISH / REJECT 算已流经，其余不算。 */
@@ -1117,8 +1143,12 @@ public class SysProcessExampleService {
     /* ==================== 管理员特权操作 ==================== */
 
     /**
-     * 管理员特权操作：跳转 / 终审通过 / 作废 / 暂停 / 恢复（Controller 已按
-     * SYS_PROCESS_EXAMPLE_ADMIN 鉴权）；意见必填；生成对应 ADMIN_* 审批记录。
+     * 管理员特权操作：跳转 / 终审通过 / 作废 / 暂停 / 恢复 / 更换审批人（v1_7 新增，P17-BE-013）
+     * （Controller 已按 SYS_PROCESS_EXAMPLE_ADMIN 鉴权）；意见必填；生成对应 ADMIN_* 审批记录。
+     * <p>跳转目标节点：targetNodeId 与 targetNodeKey 二者其一必填（targetNodeId 优先，
+     * 见 {@link #adminJump}）；更换审批人：workitemId / changeToId 必填（缺失抛
+     * {@code CS_PROCESS_OPERATE_PARAM_MISSING}），状态限 PROCESSING，详见
+     * {@link #adminChangeHandler}。</p>
      */
     @Transactional
     public void adminOperate(SysProcessAdminOperateRequest request) {
@@ -1133,11 +1163,17 @@ public class SysProcessExampleService {
         String operateType = null == request.getOperateType() ? "" : request.getOperateType().trim();
         String content = request.getContent().trim();
         switch (operateType) {
-            case ADMIN_OPERATE_JUMP -> adminJump(example, current.getFieldId(), request.getTargetNodeId(), content);
+            case ADMIN_OPERATE_JUMP -> adminJump(example, current.getFieldId(),
+                    request.getTargetNodeId(), request.getTargetNodeKey(), content);
             case ADMIN_OPERATE_FINISH -> adminFinish(example, current.getFieldId(), content);
             case ADMIN_OPERATE_ABANDON -> abandonExample(example, current.getFieldId(), AUDIT_TYPE_ADMIN_ABANDON, content);
             case ADMIN_OPERATE_PAUSE -> adminPause(example, current.getFieldId(), content);
             case ADMIN_OPERATE_RESUME -> adminResume(example, current.getFieldId(), content);
+            case ADMIN_OPERATE_CHANGE_HANDLER -> {
+                String workitemId = requireOperateParam(request.getWorkitemId(), "workitemId");
+                String changeToId = requireOperateParam(request.getChangeToId(), "changeToId");
+                adminChangeHandler(example, current.getFieldId(), workitemId, changeToId, content);
+            }
             default -> throw new IllegalArgumentException("非法的特权操作类型: " + operateType);
         }
         log.info("process example admin operated: id={}, type={}", example.getFieldId(), operateType);
@@ -1183,12 +1219,12 @@ public class SysProcessExampleService {
      * <li>既有大写类型（业务模块 audit 转发通道）：HANDLER_PASS / HANDLER_RETURN /
      *     DRAFTER_BACK / DRAFTER_ABANDON / ADMIN_JUMP / ADMIN_FINISH / ADMIN_ABANDON /
      *     ADMIN_PAUSE / ADMIN_RESUME，分发逻辑不变（向后兼容）；</li>
-     * <li>14 类小写操作类型：drafter_submit / drafter_cancel / drafter_retract / handler_pass /
-     *     handler_reject / handler_transfer / handler_transfer_retract / processed_retract /
-     *     drafter_expedite / processed_expedite / handler_cc（催办分发由 P17-BE-011 落地、
-     *     抄送分发由 P17-BE-012 落地）/ admin_abandon / admin_jump 接通真实引擎分发
-     *     （转办/收回由 P17-BE-010 落地）；admin_change_handler 暂未开放
-     *     （{@code CS_PROCESS_OPERATE_TYPE_INVALID}，P17-BE-013 落地）；</li>
+     * <li>14 类小写操作类型全部接通真实引擎分发（P17-BE-008/009/010/011/012/013 逐批落地，
+     *     占位清单已清零）：drafter_submit / drafter_cancel / drafter_retract / drafter_expedite /
+     *     handler_pass / handler_reject / handler_cc / handler_transfer / handler_transfer_retract /
+     *     processed_retract / processed_expedite / admin_abandon / admin_jump /
+     *     admin_change_handler（管理员更换审批人，经 {@link #requireProcessAdmin} 校验后
+     *     组装 {@link SysProcessAdminOperateRequest} 走 {@link #adminOperate(SysProcessAdminOperateRequest)}）；</li>
      * <li>未登记类型一律拒绝（{@code CS_PROCESS_OPERATE_TYPE_INVALID}）。</li>
      * </ul>
      * <p>本方法内完成操作人身份校验（起草人 / 当前处理人 / 已处理人 / 流程管理员，
@@ -1276,9 +1312,13 @@ public class SysProcessExampleService {
                 requireOperateParam(content, "content");
                 handlerCc(exampleId, workitemId, request.getCcToIds(), content);
             }
-            /* ==================== 暂未开放（后续任务落地引擎分发） ==================== */
-            case OPERATE_TYPE_ADMIN_CHANGE_HANDLER ->
-                    throw new IllegalArgumentException(CS_PROCESS_OPERATE_TYPE_INVALID + "：操作类型暂未开放: " + type);
+            /* ==================== 管理员更换审批人（P17-BE-013，占位清零：14 类全接通） ==================== */
+            case OPERATE_TYPE_ADMIN_CHANGE_HANDLER -> {
+                requireOperateParam(workitemId, "workitemId");
+                requireOperateParam(request.getChangeToId(), "changeToId");
+                requireOperateParam(content, "content");
+                adminChangeHandlerByOperate(exampleId, workitemId, request.getChangeToId(), content, extraAdminRoles);
+            }
             default -> throw new IllegalArgumentException(CS_PROCESS_OPERATE_TYPE_INVALID + "：非法的流程操作类型: " + type);
         }
         return exampleDao.selectById(exampleId);
@@ -1295,6 +1335,25 @@ public class SysProcessExampleService {
         req.setFieldId(exampleId);
         req.setOperateType(operateType);
         req.setTargetNodeId(trimToNull(targetNodeId));
+        req.setContent(content);
+        adminOperate(req);
+    }
+
+    /**
+     * 管理员更换审批人（统一操作通道 admin_change_handler 分发，P17-BE-013）：
+     * 校验流程管理员后组装 {@link SysProcessAdminOperateRequest}
+     * （operateType=ADMIN_OPERATE_CHANGE_HANDLER）转发
+     * {@link #adminOperate(SysProcessAdminOperateRequest)}，语义与特权弹窗入口一致
+     * （Q-06 定稿两入口并存：前者为统一操作入口、后者为特权弹窗入口）。
+     */
+    private void adminChangeHandlerByOperate(String exampleId, String workitemId, String changeToId,
+                                             String content, String... extraAdminRoles) {
+        requireProcessAdmin(extraAdminRoles);
+        SysProcessAdminOperateRequest req = new SysProcessAdminOperateRequest();
+        req.setFieldId(exampleId);
+        req.setOperateType(ADMIN_OPERATE_CHANGE_HANDLER);
+        req.setWorkitemId(trimToNull(workitemId));
+        req.setChangeToId(trimToNull(changeToId));
         req.setContent(content);
         adminOperate(req);
     }
@@ -1484,7 +1543,12 @@ public class SysProcessExampleService {
 
     /**
      * 流程审批面板数据（可嵌入审批组件）：流程基本信息 + 节点 + 审批记录 +
-     * 当前用户可执行的审批操作与待处理工作项。
+     * 当前用户可执行的审批操作按钮集与待处理工作项。
+     * <p>v1_7 起 {@code operations} 升级为按钮对象数组（P17-BE-013，依据
+     * docs/设计文档/sys/process/流程v1_7接口清单.md §5.4）：按「节点 operations 配置 ∩
+     * 用户身份 ∩ 状态前置」计算（元素含 operateType/operateName/defaultContent，
+     * handler_reject 附 rejectTargets、handler_pass / drafter_submit 附 flowChoices），
+     * 旧操作标识语义由 operateType 承载；{@code nodeOps} 业务标识语义不变。</p>
      *
      * @param fieldId 流程实例 id
      * @return 面板数据；流程实例不存在时返回 null
@@ -1678,13 +1742,36 @@ public class SysProcessExampleService {
 
     /* ==================== 管理员操作实现 ==================== */
 
-    /** 管理员跳转：PROCESSING / RETURN 时可跳转到审批节点或起草节点；生成 ADMIN_JUMP 记录。 */
-    private void adminJump(SysProcessExample example, String operatorId, String targetNodeId, String content) {
+    /**
+     * 管理员跳转（v1_7 扩展，P17-BE-013）：PROCESSING / RETURN 时可跳转到审批节点、起草节点
+     * 或人工决策节点；生成 ADMIN_JUMP 记录。
+     * <p>跳转目标节点解析：targetNodeId 与 targetNodeKey 二者其一必填——targetNodeId 优先；
+     * targetNodeId 为空且 targetNodeKey 非空时，按实例节点集合的 nodeKey 匹配解析目标节点
+     * （找不到或不是本实例节点抛 {@code CS_PROCESS_NODE_TARGET_INVALID}）；两者都空抛
+     * {@code CS_PROCESS_OPERATE_PARAM_MISSING}（跳转节点必填）。</p>
+     */
+    private void adminJump(SysProcessExample example, String operatorId, String targetNodeId,
+                           String targetNodeKey, String content) {
         if (!EXAMPLE_STATUS_PROCESSING.equals(example.getFieldStatus())
                 && !EXAMPLE_STATUS_RETURN.equals(example.getFieldStatus())) {
             throw new IllegalArgumentException("仅审批中或驳回状态的流程可跳转");
         }
-        SysProcessExampleNode target = requireNode(targetNodeId);
+        // 目标节点解析：targetNodeId 优先；为空时按 targetNodeKey 匹配实例节点集合（key 非法拒绝）
+        String resolvedNodeId = trimToNull(targetNodeId);
+        String nodeKey = trimToNull(targetNodeKey);
+        if (null == resolvedNodeId && null != nodeKey) {
+            SysProcessExampleNode keyed = findInstanceNodeByKey(example.getFieldId(), nodeKey);
+            if (null == keyed) {
+                throw new IllegalArgumentException(CS_PROCESS_NODE_TARGET_INVALID
+                        + "：跳转目标节点 " + nodeKey + " 不是本流程实例的节点");
+            }
+            resolvedNodeId = keyed.getFieldId();
+        }
+        if (null == resolvedNodeId) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_PARAM_MISSING
+                    + "：跳转节点必填（targetNodeId 或 targetNodeKey）");
+        }
+        SysProcessExampleNode target = requireNode(resolvedNodeId);
         if (!NODE_TYPE_APPROVE.equals(target.getFieldNodeType())
                 && !NODE_TYPE_DRAFT.equals(target.getFieldNodeType())
                 && !SysProcessConstants.NODE_TYPE_MANUAL.equals(target.getFieldNodeType())) {
@@ -1694,7 +1781,21 @@ public class SysProcessExampleService {
         abandonActiveWorkitems(example.getFieldId());
         flowSupport.markCurrentNodeWaiting(example.getFieldId());
         // 跳转=废弃在途工作项后从目标节点进入引擎（起草节点停留等待重新提交）
-        flowEngine.adminJump(example, targetNodeId);
+        flowEngine.adminJump(example, resolvedNodeId);
+    }
+
+    /** 按节点业务键（nodeKey）查找实例节点集合中的节点（未命中返回 null）。 */
+    private SysProcessExampleNode findInstanceNodeByKey(String exampleId, String nodeKey) {
+        List<SysProcessExampleNode> nodes = nodeDao.selectListByExampleId(exampleId);
+        if (null == nodes) {
+            return null;
+        }
+        for (SysProcessExampleNode node : nodes) {
+            if (nodeKey.equals(ProcessFlowGraph.nodeKey(node))) {
+                return node;
+            }
+        }
+        return null;
     }
 
     /** 管理员终审通过：PROCESSING / RETURN / PAUSE 时办结；生成 ADMIN_FINISH 记录。 */
@@ -1731,6 +1832,54 @@ public class SysProcessExampleService {
                 WORKITEM_STATUS_PAUSE, WORKITEM_STATUS_PROCESSING);
         example.setFieldStatus(EXAMPLE_STATUS_PROCESSING);
         exampleDao.update(example);
+    }
+
+    /**
+     * 管理员更换审批人（CHANGE_HANDLER，v1_7 新增，P17-BE-013，依据
+     * docs/设计文档/sys/process/流程核心业务.md「管理员特权操作」与「审批操作矩阵（14 类）」#14）：
+     * 流程 PROCESSING 时将指定 PROCESSING 工作项的处理人替换为目标用户。
+     * <ul>
+     * <li>状态前置：流程限 {@code PROCESSING}（否则 {@code CS_PROCESS_OPERATE_STATE_CONFLICT}）；</li>
+     * <li>工作项：须属于本实例且状态 {@code PROCESSING}（不属于本实例抛「工作项不存在」，
+     *     非 PROCESSING 抛 {@code CS_PROCESS_OPERATE_STATE_CONFLICT}：仅处理中的工作项可更换处理人）；
+     *     管理员操作不做操作人身份校验（区别于 {@link #requireProcessingWorkitem}）；</li>
+     * <li>目标用户：{@code changeToId} 经用户表按 id 校验须存在（允许禁用用户，对齐审批人解析
+     *     语义；不存在抛 {@code CS_PROCESS_OPERATE_PARAM_MISSING}）；</li>
+     * <li>动作：仅替换 {@code field_handler_id} 与 {@code field_expect_handler_id} = changeToId
+     *     （仅本实例有效，不改模板配置），工作项仍是原序位——不改节点/流程状态，不影响串行
+     *     序位与会签计数；换人后新处理人按 {@code field_handler_id} 自然通过身份校验可操作、
+     *     原处理人失效（{@link #requireProcessingWorkitem} 的 FORBIDDEN）；</li>
+     * <li>留痕：{@link SysProcessConstants#AUDIT_TYPE_ADMIN_CHANGE_HANDLER ADMIN_CHANGE_HANDLER}
+     *     一条（workitemId=被换工作项 id，handlerId=管理员，content=操作意见）。</li>
+     * </ul>
+     *
+     * @param example    流程实例（非空）
+     * @param operatorId 管理员用户 id（留痕 handlerId）
+     * @param workitemId 待换人的工作项 id（必填，须为本实例 PROCESSING 工作项）
+     * @param changeToId 更换后的目标处理人用户 id（必填，须存在，允许禁用）
+     * @param content    操作意见（非空，由 {@link #adminOperate(SysProcessAdminOperateRequest)} 统一校验）
+     */
+    private void adminChangeHandler(SysProcessExample example, String operatorId,
+                                    String workitemId, String changeToId, String content) {
+        if (!EXAMPLE_STATUS_PROCESSING.equals(example.getFieldStatus())) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅审批中的流程可更换审批人");
+        }
+        SysProcessExampleWorkitem workitem = workitemDao.selectById(requireText(workitemId, "workitemId"));
+        if (null == workitem || !example.getFieldId().equals(workitem.getFieldExampleId())) {
+            throw new IllegalArgumentException("工作项不存在");
+        }
+        if (!WORKITEM_STATUS_PROCESSING.equals(workitem.getFieldStatus())) {
+            throw new IllegalArgumentException(CS_PROCESS_OPERATE_STATE_CONFLICT + "：仅处理中的工作项可更换处理人");
+        }
+        requireUserTargetsExist(List.of(changeToId.trim()), "更换审批人目标用户");
+        // 仅替换处理人与期望处理人（仅本实例有效，工作项仍是原序位；不改节点/流程状态）
+        workitem.setFieldHandlerId(changeToId.trim());
+        workitem.setFieldExpectHandlerId(changeToId.trim());
+        workitemDao.update(workitem);
+        addAudit(example.getFieldId(), workitem.getFieldId(), operatorId,
+                AUDIT_TYPE_ADMIN_CHANGE_HANDLER, content);
+        log.info("process workitem handler changed by admin: example={}, workitem={}, changeTo={}",
+                example.getFieldId(), workitem.getFieldId(), changeToId.trim());
     }
 
     /**
@@ -1937,52 +2086,342 @@ public class SysProcessExampleService {
         return null == user ? null : user.getFieldId();
     }
 
-    /** 当前用户对流程实例可执行的审批操作（面板展示，最终鉴权仍由各接口 resolver 兜底）。 */
-    private List<String> computeOperations(SysProcessExample example) {
-        List<String> operations = new ArrayList<>();
+    /* ==================== 审批面板按钮集计算（v1_7 升级为按钮对象数组，P17-BE-013） ==================== */
+
+    /**
+     * 当前用户对流程实例可执行的审批操作按钮集（面板展示预判，最终鉴权与身份校验仍由
+     * 各接口 resolver 与操作时引擎兜底）。
+     * <p>计算规则 = 节点 {@code operations} 配置 ∩ 用户身份 ∩ 状态前置（P17-BE-013，
+     * 依据 docs/设计文档/sys/process/流程v1_7接口清单.md §5.4）：</p>
+     * <ul>
+     * <li>配置行身份按 operateType 前缀推导：drafter_*=起草人（user==creator）、
+     *     handler_*=审批人（在当前 PROCESSING 节点持 PROCESSING 工作项）、
+     *     processed_*=已处理人（本实例有 FINISH 工作项）；</li>
+     * <li>配置行取自当前在途（PROCESSING）节点：审批人行取本人持工作项的节点、
+     *     起草人/已处理人行取全部当前在途节点（按节点序去重保序）；</li>
+     * <li>节点无配置（旧模板/空 operations）时按既有逻辑兜底：起草人收回（PROCESSING）/
+     *     废弃（DRAFT/RETURN）、当前处理人通过/拒绝（默认名），保证旧模板面板不塌；</li>
+     * <li>管理员按钮：准入判定沿用 {@code resolver.resolve(ACTION_PROCESS_EXAMPLE_ADMIN_OPERATE)}，
+     *     按状态给出 JUMP/FINISH/ABANDON/PAUSE/RESUME，PROCESSING 下新增 CHANGE_HANDLER。</li>
+     * </ul>
+     * <p>按钮行 {@code rejectTargets}（仅 handler_reject）与 {@code flowChoices}
+     * （仅 handler_pass / drafter_submit 且存在决策来源关系时）随按钮一并输出；
+     * {@code nodeOps} 业务标识逻辑不在此计算（语义维持现状不变）。</p>
+     */
+    private List<SysProcessPanelOperationVo> computeOperations(SysProcessExample example) {
+        List<SysProcessPanelOperationVo> operations = new ArrayList<>();
         String currentUserId = currentUserIdOrNull();
         if (null == currentUserId) {
             return operations;
         }
         String status = example.getFieldStatus();
+        List<SysProcessExampleNode> nodes = nodeDao.selectListByExampleId(example.getFieldId());
+        List<SysProcessExampleWorkitem> myWorkitems =
+                workitemDao.selectByExampleAndHandler(example.getFieldId(), currentUserId);
         boolean drafter = currentUserId.equals(example.getFieldCreatorId());
-        if (drafter) {
-            if (EXAMPLE_STATUS_PROCESSING.equals(status)) {
-                operations.add("DRAFTER_BACK");
-            } else if (EXAMPLE_STATUS_DRAFT.equals(status) || EXAMPLE_STATUS_RETURN.equals(status)) {
-                operations.add("DRAFTER_ABANDON");
+        boolean processed = null != myWorkitems && myWorkitems.stream()
+                .anyMatch(w -> WORKITEM_STATUS_FINISH.equals(w.getFieldStatus()));
+        // 当前在途节点（流程审批中才有）与本人持 PROCESSING 工作项的节点（审批人身份落点）
+        List<SysProcessExampleNode> currentNodes = new ArrayList<>();
+        if (null != nodes && EXAMPLE_STATUS_PROCESSING.equals(status)) {
+            for (SysProcessExampleNode node : nodes) {
+                if (NODE_STATUS_PROCESSING.equals(node.getFieldStatus())) {
+                    currentNodes.add(node);
+                }
             }
         }
-        boolean hasProcessingWorkitem = workitemDao.selectByExampleAndHandler(example.getFieldId(), currentUserId)
-                .stream().anyMatch(w -> WORKITEM_STATUS_PROCESSING.equals(w.getFieldStatus()));
-        if (EXAMPLE_STATUS_PROCESSING.equals(status) && hasProcessingWorkitem) {
-            operations.add("HANDLER_PASS");
-            operations.add("HANDLER_RETURN");
+        SysProcessExampleNode handlerNode = resolveHandlerNode(currentNodes, myWorkitems);
+        SysProcessExampleNode fallbackHandlerNode =
+                null == handlerNode ? resolveHandlerNode(nodes, myWorkitems) : handlerNode;
+
+        // 节点 operations 配置行（v1_7 模板）：无任何配置（旧模板/空 operations）时按既有逻辑兜底
+        List<SysProcessTemplateNodeConfigDo.OperationDetail> configRows =
+                collectConfiguredOperations(currentNodes, handlerNode);
+        if (configRows.isEmpty()) {
+            // 兜底（既有逻辑）：起草人收回/废弃、当前处理人通过/拒绝
+            if (drafter) {
+                if (EXAMPLE_STATUS_PROCESSING.equals(status)) {
+                    operations.add(fallbackPanelOperation(SysProcessConstants.OPERATE_TYPE_DRAFTER_RETRACT,
+                            example, fallbackHandlerNode));
+                } else if (EXAMPLE_STATUS_DRAFT.equals(status) || EXAMPLE_STATUS_RETURN.equals(status)) {
+                    operations.add(fallbackPanelOperation(SysProcessConstants.OPERATE_TYPE_DRAFTER_CANCEL,
+                            example, fallbackHandlerNode));
+                }
+            }
+            if (EXAMPLE_STATUS_PROCESSING.equals(status) && null != myWorkitems && myWorkitems.stream()
+                    .anyMatch(w -> WORKITEM_STATUS_PROCESSING.equals(w.getFieldStatus()))) {
+                operations.add(fallbackPanelOperation(SysProcessConstants.OPERATE_TYPE_HANDLER_PASS,
+                        example, fallbackHandlerNode));
+                operations.add(fallbackPanelOperation(SysProcessConstants.OPERATE_TYPE_HANDLER_REJECT,
+                        example, fallbackHandlerNode));
+            }
+        } else {
+            for (SysProcessTemplateNodeConfigDo.OperationDetail row : configRows) {
+                String operateType = trimToNull(row.getOperateType());
+                if (null == operateType
+                        || !matchesIdentity(operateType, drafter, null != handlerNode, processed)
+                        || !stateAllows(operateType, status)) {
+                    continue;
+                }
+                operations.add(configuredPanelOperation(example, row, handlerNode));
+            }
         }
+
+        // 管理员按钮：准入判定沿用 resolver.resolve(ACTION_PROCESS_EXAMPLE_ADMIN_OPERATE)，按状态 switch
         if (resolver.resolve(new AuthorizationContext(ACTION_PROCESS_EXAMPLE_ADMIN_OPERATE))) {
             switch (status) {
                 case EXAMPLE_STATUS_PROCESSING -> {
-                    operations.add(ADMIN_OPERATE_JUMP);
-                    operations.add(ADMIN_OPERATE_FINISH);
-                    operations.add(ADMIN_OPERATE_ABANDON);
-                    operations.add(ADMIN_OPERATE_PAUSE);
+                    operations.add(adminPanelOperation(ADMIN_OPERATE_JUMP));
+                    operations.add(adminPanelOperation(ADMIN_OPERATE_FINISH));
+                    operations.add(adminPanelOperation(ADMIN_OPERATE_ABANDON));
+                    operations.add(adminPanelOperation(ADMIN_OPERATE_PAUSE));
+                    operations.add(adminPanelOperation(ADMIN_OPERATE_CHANGE_HANDLER));
                 }
                 case EXAMPLE_STATUS_RETURN -> {
-                    operations.add(ADMIN_OPERATE_JUMP);
-                    operations.add(ADMIN_OPERATE_FINISH);
-                    operations.add(ADMIN_OPERATE_ABANDON);
+                    operations.add(adminPanelOperation(ADMIN_OPERATE_JUMP));
+                    operations.add(adminPanelOperation(ADMIN_OPERATE_FINISH));
+                    operations.add(adminPanelOperation(ADMIN_OPERATE_ABANDON));
                 }
-                case EXAMPLE_STATUS_DRAFT -> operations.add(ADMIN_OPERATE_ABANDON);
+                case EXAMPLE_STATUS_DRAFT -> operations.add(adminPanelOperation(ADMIN_OPERATE_ABANDON));
                 case EXAMPLE_STATUS_PAUSE -> {
-                    operations.add(ADMIN_OPERATE_FINISH);
-                    operations.add(ADMIN_OPERATE_ABANDON);
-                    operations.add(ADMIN_OPERATE_RESUME);
+                    operations.add(adminPanelOperation(ADMIN_OPERATE_FINISH));
+                    operations.add(adminPanelOperation(ADMIN_OPERATE_ABANDON));
+                    operations.add(adminPanelOperation(ADMIN_OPERATE_RESUME));
                 }
                 default -> {
                 }
             }
         }
         return operations;
+    }
+
+    /**
+     * 解析当前处理人身份落点节点：本人 {@code PROCESSING} 工作项所在节点，按候选节点序取首个命中。
+     *
+     * @param candidates  候选节点（配置行口径传当前在途节点——严格按「当前 PROCESSING 节点持
+     *                    PROCESSING 工作项」判定审批人身份；兜底口径传实例节点全集）
+     * @param myWorkitems 当前用户在本实例的工作项
+     * @return 命中节点；无命中返回 null
+     */
+    private SysProcessExampleNode resolveHandlerNode(List<SysProcessExampleNode> candidates,
+                                                     List<SysProcessExampleWorkitem> myWorkitems) {
+        if (null == candidates || null == myWorkitems) {
+            return null;
+        }
+        for (SysProcessExampleNode node : candidates) {
+            for (SysProcessExampleWorkitem workitem : myWorkitems) {
+                if (WORKITEM_STATUS_PROCESSING.equals(workitem.getFieldStatus())
+                        && node.getFieldId().equals(workitem.getFieldNodeId())) {
+                    return node;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 收集当前在途节点的 {@code operations} 配置行（按节点序去重保序）：审批人行（handler_ 前缀）
+     * 取本人持 PROCESSING 工作项的节点，起草人/已处理人行（drafter_ / processed_ 前缀）取全部当前在途节点。
+     */
+    private List<SysProcessTemplateNodeConfigDo.OperationDetail> collectConfiguredOperations(
+            List<SysProcessExampleNode> currentNodes, SysProcessExampleNode handlerNode) {
+        Set<String> seen = new HashSet<>();
+        List<SysProcessTemplateNodeConfigDo.OperationDetail> rows = new ArrayList<>();
+        List<SysProcessExampleNode> sources = new ArrayList<>();
+        if (null != handlerNode) {
+            sources.add(handlerNode);
+        }
+        if (null != currentNodes) {
+            for (SysProcessExampleNode node : currentNodes) {
+                if (!sources.contains(node)) {
+                    sources.add(node);
+                }
+            }
+        }
+        for (SysProcessExampleNode node : sources) {
+            SysProcessTemplateNodeConfigDo config = parseNodeConfig(node.getFieldNodeConfig());
+            if (null == config || null == config.getOperations()) {
+                continue;
+            }
+            for (SysProcessTemplateNodeConfigDo.OperationDetail row : config.getOperations()) {
+                String operateType = trimToNull(row.getOperateType());
+                if (null == operateType || !seen.add(operateType)) {
+                    continue;
+                }
+                rows.add(row);
+            }
+        }
+        return rows;
+    }
+
+    /**
+     * 配置行身份判定（按 operateType 前缀推导）：drafter_*=起草人（user==creator）、
+     * handler_*=当前审批人（当前 PROCESSING 节点持 PROCESSING 工作项）、
+     * processed_*=已处理人（本实例有 FINISH 工作项）；其余前缀（admin_* 等）不按节点配置出按钮。
+     */
+    private static boolean matchesIdentity(String operateType, boolean drafter, boolean handler, boolean processed) {
+        if (operateType.startsWith("drafter_")) {
+            return drafter;
+        }
+        if (operateType.startsWith("handler_")) {
+            return handler;
+        }
+        if (operateType.startsWith("processed_")) {
+            return processed;
+        }
+        return false;
+    }
+
+    /**
+     * 配置行状态前置判定（操作矩阵 §6.2）：drafter_submit / drafter_cancel 限 DRAFT / RETURN，
+     * 其余 11 类配置行（drafter_retract / drafter_expedite / handler_* / processed_*）限 PROCESSING；
+     * 未登记类型一律不出按钮。
+     */
+    private static boolean stateAllows(String operateType, String status) {
+        if (SysProcessConstants.OPERATE_TYPE_DRAFTER_SUBMIT.equals(operateType)
+                || SysProcessConstants.OPERATE_TYPE_DRAFTER_CANCEL.equals(operateType)) {
+            return EXAMPLE_STATUS_DRAFT.equals(status) || EXAMPLE_STATUS_RETURN.equals(status);
+        }
+        if (SysProcessConstants.OPERATE_TYPE_DRAFTER_RETRACT.equals(operateType)
+                || SysProcessConstants.OPERATE_TYPE_DRAFTER_EXPEDITE.equals(operateType)
+                || SysProcessConstants.OPERATE_TYPE_HANDLER_PASS.equals(operateType)
+                || SysProcessConstants.OPERATE_TYPE_HANDLER_REJECT.equals(operateType)
+                || SysProcessConstants.OPERATE_TYPE_HANDLER_CC.equals(operateType)
+                || SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER.equals(operateType)
+                || SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER_RETRACT.equals(operateType)
+                || SysProcessConstants.OPERATE_TYPE_PROCESSED_RETRACT.equals(operateType)
+                || SysProcessConstants.OPERATE_TYPE_PROCESSED_EXPEDITE.equals(operateType)) {
+            return EXAMPLE_STATUS_PROCESSING.equals(status);
+        }
+        return false;
+    }
+
+    /**
+     * 旧模板兜底按钮行（默认名；handler_reject / handler_pass 附带候选数据，
+     * handlerNode 为本人持 PROCESSING 工作项所在节点）。
+     */
+    private SysProcessPanelOperationVo fallbackPanelOperation(String operateType, SysProcessExample example,
+                                                              SysProcessExampleNode handlerNode) {
+        SysProcessPanelOperationVo vo = new SysProcessPanelOperationVo();
+        vo.setOperateType(operateType);
+        vo.setOperateName(SysProcessPanelOperationVo.defaultOperateName(operateType));
+        enrichPanelOperation(vo, example, handlerNode);
+        return vo;
+    }
+
+    /**
+     * 节点配置按钮行：操作名缺省取操作类型中文名，默认审批意见按节点配置回显；
+     * handler_reject / handler_pass / drafter_submit 附带候选数据。
+     */
+    private SysProcessPanelOperationVo configuredPanelOperation(SysProcessExample example,
+            SysProcessTemplateNodeConfigDo.OperationDetail row, SysProcessExampleNode handlerNode) {
+        String operateType = trimToNull(row.getOperateType());
+        SysProcessPanelOperationVo vo = new SysProcessPanelOperationVo();
+        vo.setOperateType(operateType);
+        String operateName = trimToNull(row.getOperateName());
+        vo.setOperateName(null != operateName ? operateName
+                : SysProcessPanelOperationVo.defaultOperateName(operateType));
+        vo.setDefaultContent(trimToNull(row.getDefaultContent()));
+        enrichPanelOperation(vo, example, handlerNode);
+        return vo;
+    }
+
+    /**
+     * 补充按钮候选数据：handler_reject 附驳回候选（仅本人持 PROCESSING 工作项时，候选来源=该节点）；
+     * handler_pass 附人工决策流向候选（决策来源=被通过节点）；drafter_submit 附人工决策流向候选
+     * （决策来源=起草节点）。
+     */
+    private void enrichPanelOperation(SysProcessPanelOperationVo vo, SysProcessExample example,
+                                      SysProcessExampleNode handlerNode) {
+        String operateType = vo.getOperateType();
+        if (SysProcessConstants.OPERATE_TYPE_HANDLER_REJECT.equals(operateType)) {
+            vo.setRejectTargets(null == handlerNode
+                    ? new ArrayList<>() : resolveRejectTargetOptions(example, handlerNode));
+        }
+        if (SysProcessConstants.OPERATE_TYPE_HANDLER_PASS.equals(operateType) && null != handlerNode) {
+            vo.setFlowChoices(resolveFlowChoiceOptions(example, ProcessFlowGraph.nodeKey(handlerNode)));
+        }
+        if (SysProcessConstants.OPERATE_TYPE_DRAFTER_SUBMIT.equals(operateType)) {
+            SysProcessExampleNode draftNode = nodeDao.selectByExampleAndType(example.getFieldId(), NODE_TYPE_DRAFT);
+            vo.setFlowChoices(resolveFlowChoiceOptions(example, null == draftNode
+                    ? SysProcessConstants.FIXED_NODE_KEY_DRAFT : ProcessFlowGraph.nodeKey(draftNode)));
+        }
+    }
+
+    /**
+     * 解析驳回候选节点（面板 handler_reject 按钮）：复用 P17-BE-009 允许目标口径
+     * （节点配置 {@code rejectTargets} ∩ 已流经节点，空默认起草节点，见
+     * {@link #resolveAllowedRejectTargetKeys}），输出候选节点 key+名称（按实例节点序）。
+     */
+    private List<SysProcessNodeOptionVo> resolveRejectTargetOptions(SysProcessExample example,
+                                                                    SysProcessExampleNode rejectNode) {
+        Set<String> allowed = resolveAllowedRejectTargetKeys(example, rejectNode);
+        List<SysProcessNodeOptionVo> options = new ArrayList<>();
+        List<SysProcessExampleNode> nodes = nodeDao.selectListByExampleId(example.getFieldId());
+        if (null == nodes) {
+            return options;
+        }
+        for (SysProcessExampleNode node : nodes) {
+            String key = ProcessFlowGraph.nodeKey(node);
+            if (allowed.contains(key)) {
+                options.add(nodeOption(key, node.getFieldNodeName()));
+            }
+        }
+        return options;
+    }
+
+    /**
+     * 解析人工决策流向候选（面板 handler_pass / drafter_submit 按钮，D6）：遍历人工决策（MANUAL）
+     * 节点，其 {@code flowDecisions} 含来源节点键（handler_pass=被通过节点键；drafter_submit=
+     * 起草节点键）时，输出该决策节点全部出边目标（nodeKey+nodeName）。
+     */
+    private List<SysProcessNodeOptionVo> resolveFlowChoiceOptions(SysProcessExample example, String sourceNodeKey) {
+        List<SysProcessNodeOptionVo> options = new ArrayList<>();
+        List<SysProcessExampleLine> lines = exampleLineDao.selectListByExampleId(example.getFieldId());
+        List<SysProcessExampleNode> nodes = nodeDao.selectListByExampleId(example.getFieldId());
+        if (null == lines || null == nodes || StringUtil.isEmpty(sourceNodeKey)) {
+            return options;
+        }
+        Map<String, String> nodeNames = new HashMap<>();
+        for (SysProcessExampleNode node : nodes) {
+            nodeNames.put(ProcessFlowGraph.nodeKey(node), node.getFieldNodeName());
+        }
+        for (SysProcessExampleNode node : nodes) {
+            if (!NODE_TYPE_MANUAL.equals(node.getFieldNodeType())) {
+                continue;
+            }
+            SysProcessTemplateNodeConfigDo config = parseNodeConfig(node.getFieldNodeConfig());
+            if (null == config || null == config.getFlowDecisions()
+                    || !config.getFlowDecisions().contains(sourceNodeKey)) {
+                continue;
+            }
+            for (SysProcessExampleLine line : lines) {
+                if (!ProcessFlowGraph.nodeKey(node).equals(line.getFieldFromKey())) {
+                    continue;
+                }
+                String targetKey = trimToNull(line.getFieldToKey());
+                if (null != targetKey) {
+                    options.add(nodeOption(targetKey, nodeNames.get(targetKey)));
+                }
+            }
+        }
+        return options;
+    }
+
+    /** 节点候选行（nodeKey + nodeName）。 */
+    private static SysProcessNodeOptionVo nodeOption(String nodeKey, String nodeName) {
+        SysProcessNodeOptionVo option = new SysProcessNodeOptionVo();
+        option.setNodeKey(nodeKey);
+        option.setNodeName(nodeName);
+        return option;
+    }
+
+    /** 管理员按钮行（大写特权操作标识，默认中文名）。 */
+    private static SysProcessPanelOperationVo adminPanelOperation(String operateType) {
+        SysProcessPanelOperationVo vo = new SysProcessPanelOperationVo();
+        vo.setOperateType(operateType);
+        vo.setOperateName(SysProcessPanelOperationVo.defaultOperateName(operateType));
+        return vo;
     }
 
     /* ==================== VO 转换 ==================== */

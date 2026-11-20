@@ -38,7 +38,7 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.ACTION_PR
  *
  * @author Eric
  * @date 2026/8/23
- * @description 后台管理-流程管理-流程实例的后端入口（依据 artificial/docs/设计文档/sys/process/流程核心业务.md「流程实例和流转」）：
+ * @description 后台管理-流程管理-流程实例的后端入口（依据 docs/设计文档/sys/process/流程核心业务.md「流程实例和流转」）：
  *              <ul>
  *              <li>查看类操作（list/load/panel）：SYS_PROCESS_EXAMPLE_VIEWER 及以上；</li>
  *              <li>特权操作（adminOperate）：仅 SYS_PROCESS_EXAMPLE_ADMIN。</li>
@@ -125,15 +125,19 @@ public class SysProcessExampleController {
 
     /**
      * 流程审批面板数据：GET /backend/sys/process/example/panel?fieldId=${id}
-     * 返回流程基本信息 + 节点 + 审批记录 + 当前用户可执行审批操作（供业务文档页嵌入审批组件展示）。
+     * 返回流程基本信息 + 节点 + 审批记录 + 当前用户可执行审批操作按钮集（供业务文档页嵌入审批组件展示）。
+     * v1_7 起 operations 升级为按钮对象数组（按节点 operations 配置 ∩ 用户身份 ∩ 状态前置计算），
+     * nodeOps 业务标识语义不变。
      *
      * @param fieldId 流程实例 ID
      * @return 统一响应，data 为审批面板数据；不存在返回 E_NOT_FOUND
      */
     @GetMapping("/panel")
     @Operation(summary = "流程审批面板数据", description = "鉴权动作 sys.process.example.panel"
-            + "（SYS_PROCESS_EXAMPLE_VIEWER 及以上）；返回流程基本信息 + 节点 + 审批记录 + 当前用户可执行审批操作，"
-            + "供业务文档页嵌入审批组件展示")
+            + "（SYS_PROCESS_EXAMPLE_VIEWER 及以上）；返回面板数据，operations 为按节点配置 ∩ 用户身份"
+            + "计算的按钮集（按钮对象数组，元素含 operateType/operateName/defaultContent，"
+            + "handler_reject 附 rejectTargets、handler_pass/drafter_submit 附 flowChoices），"
+            + "nodeOps 语义不变")
     public BaseResponse<SysProcessExamplePanelVo> panel(
             @Parameter(description = "流程实例 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorizationHelper.authorize(baseResolver, ACTION_PROCESS_EXAMPLE_PANEL, fieldId);
@@ -146,16 +150,20 @@ public class SysProcessExampleController {
 
     /**
      * 流程实例特权操作：POST /backend/sys/process/example/adminOperate
-     * 请求体为 { fieldId, operateType, targetNodeId, content }；仅 SYS_PROCESS_EXAMPLE_ADMIN 可执行。
-     * operateType 取 JUMP / FINISH / ABANDON / PAUSE / RESUME。
+     * 请求体为 { fieldId, operateType, targetNodeId, targetNodeKey, workitemId, changeToId, content }；
+     * 仅 SYS_PROCESS_EXAMPLE_ADMIN 可执行。
+     * operateType 取 JUMP / FINISH / ABANDON / PAUSE / RESUME / CHANGE_HANDLER（v1_7 新增）；
+     * JUMP 时 targetNodeId 与 targetNodeKey 二者其一必填（targetNodeId 优先）；
+     * CHANGE_HANDLER 时 workitemId / changeToId 必填。
      *
-     * @param body 特权操作请求 { fieldId, operateType, targetNodeId, content }
+     * @param body 特权操作请求 { fieldId, operateType, targetNodeId, targetNodeKey, workitemId, changeToId, content }
      * @return 统一响应；缺 fieldId 返回 BAD_REQUEST
      */
     @PostMapping("/adminOperate")
     @Operation(summary = "流程实例特权操作", description = "鉴权动作 sys.process.example.adminOperate（仅 "
-            + "SYS_PROCESS_EXAMPLE_ADMIN）；请求体 { fieldId, operateType, targetNodeId, content }，"
-            + "operateType 取 JUMP / FINISH / ABANDON / PAUSE / RESUME")
+            + "SYS_PROCESS_EXAMPLE_ADMIN）；operateType 取 JUMP/FINISH/ABANDON/PAUSE/RESUME/CHANGE_HANDLER；"
+            + "JUMP 时 targetNodeId 与 targetNodeKey 二者其一必填（targetNodeId 优先），"
+            + "CHANGE_HANDLER 时 workitemId/changeToId 必填，意见必填")
     public BaseResponse<Void> adminOperate(@RequestBody SysProcessAdminOperateRequest body) {
         if (null == body || StringUtil.isEmpty(body.getFieldId())) {
             return BaseResponse.failure("BAD_REQUEST", "fieldId is required");

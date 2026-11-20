@@ -435,6 +435,11 @@ public class SysProcessConstants {
     public static final String AUDIT_TYPE_PROCESSED_RETRACT = "PROCESSED_RETRACT";
     /** 已审批人催办（v1_7 新增，P17-BE-011）：同起草人催办，发起人为已审批人（已办结/在途工作项处理人） */
     public static final String AUDIT_TYPE_PROCESSED_EXPEDITE = "PROCESSED_EXPEDITE";
+    /**
+     * 管理员更换审批人（v1_7 新增，P17-BE-013）：将指定 PROCESSING 工作项的处理人替换为目标用户
+     * （仅本实例有效，不改模板配置），换人后新处理人可操作、原处理人失效。
+     */
+    public static final String AUDIT_TYPE_ADMIN_CHANGE_HANDLER = "ADMIN_CHANGE_HANDLER";
     /** 自动跳过（重复审批人/起草人自动跳过时的留痕） */
     public static final String AUDIT_TYPE_AUTO_PASS = "AUTO_PASS";
     /** 管理员暂停 */
@@ -464,6 +469,8 @@ public class SysProcessConstants {
     public static final String ADMIN_OPERATE_PAUSE = "PAUSE";
     /** 特权操作：恢复 */
     public static final String ADMIN_OPERATE_RESUME = "RESUME";
+    /** 特权操作：更换审批人（v1_7 新增，P17-BE-013；指定 PROCESSING 工作项换人，仅本实例有效） */
+    public static final String ADMIN_OPERATE_CHANGE_HANDLER = "CHANGE_HANDLER";
 
     /* ==================== 操作标识（process_template.${fieldModelName}.ops 字典 key） ==================== */
 

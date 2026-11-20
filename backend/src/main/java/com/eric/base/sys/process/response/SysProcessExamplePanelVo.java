@@ -10,10 +10,14 @@ import java.util.Set;
  *
  * @author Eric
  * @date 2026/8/23
- * @description 可嵌入审批组件的面板数据（依据 artificial/docs/设计文档/sys/process/
+ * @description 可嵌入审批组件的面板数据（依据 docs/设计文档/sys/process/
  *              流程核心业务.md「流程审批面板」）：流程基本信息 + 节点 + 审批记录 +
- *              当前用户可执行的审批操作列表（面板仅做展示与表单收集，不直接调接口，
+ *              当前用户可执行的审批操作按钮集（面板仅做展示与表单收集，不直接调接口，
  *              由各业务文档页提交给各自模块后端，再调用流程模块服务）。
+ *              v1_7 起 operations 升级为按钮对象数组（P17-BE-013，
+ *              依据 docs/设计文档/sys/process/流程v1_7接口清单.md §5.4）：
+ *              按节点 operations 配置 ∩ 用户身份 ∩ 状态前置计算，
+ *              旧操作标识语义由元素 operateType 承载，不新增并列字段。
  */
 @Data
 public class SysProcessExamplePanelVo {
@@ -27,8 +31,13 @@ public class SysProcessExamplePanelVo {
     /** 审批记录（按创建时间升序） */
     private List<SysProcessAuditNoteVo> auditNotes;
 
-    /** 当前用户可执行的审批操作列表（为空则审批卡片不可见） */
-    private List<String> operations;
+    /**
+     * 当前用户可执行的审批操作按钮集（v1_7 升级为按钮对象数组：
+     * operateType / operateName / defaultContent / rejectTargets / flowChoices，见
+     * {@link SysProcessPanelOperationVo}；为空则审批卡片不可见。
+     * 面板仅做展示预判，最终以操作时引擎身份校验为准）。
+     */
+    private List<SysProcessPanelOperationVo> operations;
 
     /** 当前用户在当前节点待处理工作项（审批操作提交时回传 workitemId） */
     private List<SysProcessExampleWorkitemVo> myWorkitems;
