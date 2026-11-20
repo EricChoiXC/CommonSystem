@@ -526,6 +526,45 @@ class SysProcessExampleServiceTest {
                 () -> service.reject(EXAMPLE_ID, WI_U1, "不同意", null));
     }
 
+    /* ==================== 被驳回待办（P17-BE-014 通知收口） ==================== */
+
+    @Test
+    void rejectSendsRefuseTodoToDrafter() {
+        // 驳回人（U1 张三）≠起草人：流程转 RETURN 后向起草人发送被驳回待办
+        // （TODO，标题消费 notify_refuse_subject 默认模板、${fieldHandlerName}=驳回人姓名，内容=驳回意见）
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        when(workitemDao.selectById(WI_U1)).thenReturn(workitem(WI_U1, NODE3_ID, U1,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        when(workitemDao.selectListByNodeId(NODE3_ID)).thenReturn(List.of());
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(U1, "张三"));
+
+        service.reject(EXAMPLE_ID, WI_U1, "金额不对", SysProcessConstants.RESUME_MODE_RESTART);
+
+        verify(notifyTodoService).send(argThat(todo ->
+                        SysNotifyType.TODO.getValue().equals(todo.getFieldNotifyType())
+                                && "您提交的流程被张三驳回，请修改".equals(todo.getFieldName())
+                                && "金额不对".equals(todo.getFieldContent())
+                                && SysProcessConstants.MODEL_KEY_SYS_PROCESS.equals(todo.getFieldModelName())
+                                && ("/processExample/detail/" + EXAMPLE_ID).equals(todo.getFieldUrl())),
+                argThat(ids -> ids.size() == 1 && ids.get(0).equals(CREATOR_ID)));
+    }
+
+    @Test
+    void rejectByDrafterHimselfSendsNoRefuseTodo() {
+        // 驳回人=起草人本人：不发被驳回待办
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(nodeDao.selectById(NODE3_ID)).thenReturn(exampleNodeAt(3));
+        when(workitemDao.selectById(WI_U1)).thenReturn(workitem(WI_U1, NODE3_ID, CREATOR_ID,
+                SysProcessConstants.WORKITEM_STATUS_PROCESSING));
+        when(workitemDao.selectListByNodeId(NODE3_ID)).thenReturn(List.of());
+        userUtil.when(UserUtil::getCurrentUser).thenReturn(user(CREATOR_ID, "起草人"));
+
+        service.reject(EXAMPLE_ID, WI_U1, "自查驳回", SysProcessConstants.RESUME_MODE_RESTART);
+
+        verify(notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
+    }
+
     /* ==================== 驳回目标校验（P17-BE-009） ==================== */
 
     /** 驳回目标配置：允许起草节点（N2）与上游审批节点 N3 */
@@ -887,6 +926,8 @@ class SysProcessExampleServiceTest {
                 && null != e.getFieldFinishTime()));
         verify(nodeDao).update(argThat(n -> n.getFieldNodeNo() == 5
                 && SysProcessConstants.NODE_STATUS_PROCESSING.equals(n.getFieldStatus())));
+        // ABANDON 终态不发办结待阅（P17-BE-014 通知收口：仅 FINISH 办结发送）
+        verify(notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
     }
 
     /* ==================== 管理员特权操作 ==================== */
@@ -932,6 +973,38 @@ class SysProcessExampleServiceTest {
     }
 
     @Test
+    void adminFinishSendsFinishReadsToDrafterAndApprovedHandlers() {
+        // P17-BE-014 通知收口：管理员终审通过不经引擎 enterEnd，由 Service 以同口径发送办结待阅——
+        // 起草人待阅始终发送（收件人=起草人）；审批人待阅收件人=HANDLER_PASS 留痕关联工作项处理人
+        // （finish_notify_handler 显式打桩 true，与生产「配置缺失回退 null → 缺省 true」同口径）
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        when(nodeDao.selectByExampleAndType(EXAMPLE_ID, SysProcessConstants.NODE_TYPE_END))
+                .thenReturn(exampleNodeAt(5));
+        when(settingService.getBooleanValue(eq(SysProcessConstants.SETTING_TYPE_PROCESS),
+                eq(SysProcessConstants.SETTING_PROCESS_FINISH_NOTIFY_HANDLER))).thenReturn(true);
+        when(workitemDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(List.of(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_FINISH)));
+        when(auditNoteDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(List.of(
+                auditNote("12345678901234567890123456789040", WI_U1,
+                        SysProcessConstants.AUDIT_TYPE_HANDLER_PASS)));
+
+        service.adminOperate(operate(SysProcessConstants.ADMIN_OPERATE_FINISH, null, "终审通过"));
+
+        // 起草人待阅（READ）：标题=notify_finish_drafter_subject 默认模板渲染、内容=固定文案
+        verify(notifyTodoService).send(argThat(todo ->
+                        SysNotifyType.READ.getValue().equals(todo.getFieldNotifyType())
+                                && "您提交的流程采购订单审批模板已通过".equals(todo.getFieldName())
+                                && "流程已办结".equals(todo.getFieldContent())),
+                argThat(ids -> ids.size() == 1 && ids.get(0).equals(CREATOR_ID)));
+        // 审批人待阅（READ）：收件人=实际审批过的用户 [U1]
+        verify(notifyTodoService).send(argThat(todo ->
+                        SysNotifyType.READ.getValue().equals(todo.getFieldNotifyType())
+                                && "您审批的流程采购订单审批模板已通过".equals(todo.getFieldName())),
+                argThat(ids -> ids.size() == 1 && ids.get(0).equals(U1)));
+        verify(notifyTodoService, times(2)).send(any(SysNotifyTodo.class), anyList());
+    }
+
+    @Test
     void adminAbandonMovesToEndNodeWithAbandonStatus() {
         example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
         when(nodeDao.selectByExampleAndType(EXAMPLE_ID, SysProcessConstants.NODE_TYPE_END))
@@ -941,6 +1014,8 @@ class SysProcessExampleServiceTest {
 
         verify(auditNoteDao).insert(argThat(n -> SysProcessConstants.AUDIT_TYPE_ADMIN_ABANDON.equals(n.getFieldHandleType())));
         verify(exampleDao).update(argThat(e -> SysProcessConstants.EXAMPLE_STATUS_ABANDON.equals(e.getFieldStatus())));
+        // ABANDON 终态不发办结待阅（P17-BE-014 通知收口：仅 FINISH 办结发送）
+        verify(notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
     }
 
     @Test

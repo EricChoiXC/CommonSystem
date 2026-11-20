@@ -142,6 +142,8 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.RESUME_MO
 import static com.eric.base.sys.process.properties.SysProcessConstants.SETTING_PROCESS_AUTO_CONTINUE_PASS;
 import static com.eric.base.sys.process.properties.SysProcessConstants.SETTING_PROCESS_AUTO_HANDLE_PASS;
 import static com.eric.base.sys.process.properties.SysProcessConstants.SETTING_PROCESS_AUTO_HANDLE_PASS_DRAFTER;
+import static com.eric.base.sys.process.properties.SysProcessConstants.SETTING_PROCESS_FINISH_NOTIFY_HANDLER;
+import static com.eric.base.sys.process.properties.SysProcessConstants.SETTING_TYPE_PROCESS;
 import static com.eric.base.sys.process.properties.SysProcessConstants.WORKITEM_CONFIG_RESUME_MODE;
 import static com.eric.base.sys.process.properties.SysProcessConstants.WORKITEM_STATUS_ABANDON;
 import static com.eric.base.sys.process.properties.SysProcessConstants.WORKITEM_STATUS_FINISH;
@@ -183,6 +185,11 @@ import static com.eric.base.sys.process.properties.SysProcessConstants.WORKITEM_
  *                  更换审批人（v1_7 新增，P17-BE-013）：指定 PROCESSING 工作项换人，
  *                  仅替换处理人与期望处理人（仅本实例有效，不改节点/流程状态，不影响串行序位
  *                  与会签计数），留痕 ADMIN_CHANGE_HANDLER；</li>
+ *              <li>通知收口（v1_7，P17-BE-014）：审批待办/被驳回待办/办结待阅的发送统一经
+ *                  {@link com.eric.base.sys.process.service.engine.ProcessNotifySender}——驳回动作
+ *                  发被驳回待办（起草人，标题消费 notify_refuse_subject）、管理员终审通过后按
+ *                  引擎 enterEnd 同口径发办结待阅（起草人待阅始终发送，审批人待阅受
+ *                  finish_notify_handler 控制）；</li>
  *              <li>列表/详情/审批面板：流程实例分页查询、实例+节点+工作项+审批记录详情、
  *                  可嵌入审批组件的面板数据；面板按钮集按「节点 operations 配置 ∩ 用户身份 ∩
  *                  状态前置」计算（v1_7 升级为按钮对象数组，P17-BE-013），与 nodeOps
@@ -595,6 +602,14 @@ public class SysProcessExampleService {
                 draftNode.setFieldStatus(NODE_STATUS_PROCESSING);
                 nodeDao.update(draftNode);
             }
+        }
+        // 被驳回待办（P17-BE-014 通知收口）：流程转 RETURN 后向起草人发送被驳回待办
+        // （TODO，标题消费 notify_refuse_subject，占位符 ${fieldHandlerName}=驳回人姓名，
+        // 内容=驳回意见）；驳回人与起草人为同一人时不发送
+        if (StringUtil.isNotEmpty(example.getFieldCreatorId())
+                && !current.getFieldId().equals(example.getFieldCreatorId())) {
+            notifySender.sendRefuseTodo(example, current.getFieldName(), trimToNull(content),
+                    List.of(example.getFieldCreatorId()));
         }
         log.info("process example rejected: example={}, node={}, rejectTargetKey={}, resumeMode={}",
                 example.getFieldId(), node.getFieldNodeName(), targetKey, resumeMode);
@@ -1798,7 +1813,8 @@ public class SysProcessExampleService {
         return null;
     }
 
-    /** 管理员终审通过：PROCESSING / RETURN / PAUSE 时办结；生成 ADMIN_FINISH 记录。 */
+    /** 管理员终审通过：PROCESSING / RETURN / PAUSE 时办结；生成 ADMIN_FINISH 记录；
+     *  办结后发送办结待阅（P17-BE-014 通知收口，与引擎 enterEnd 同口径）。 */
     private void adminFinish(SysProcessExample example, String operatorId, String content) {
         if (!EXAMPLE_STATUS_PROCESSING.equals(example.getFieldStatus())
                 && !EXAMPLE_STATUS_RETURN.equals(example.getFieldStatus())
@@ -1808,6 +1824,8 @@ public class SysProcessExampleService {
         addAudit(example.getFieldId(), null, operatorId, AUDIT_TYPE_ADMIN_FINISH, content);
         finishActiveWorkitems(example.getFieldId());
         moveToEndNode(example, EXAMPLE_STATUS_FINISH);
+        // 办结待阅（P17-BE-014 通知收口）：管理员终审通过不经引擎 enterEnd，由 Service 以同口径发送
+        notifyFinishReads(example);
     }
 
     /** 管理员暂停：PROCESSING 时暂停；流程与工作项状态转 PAUSE；生成 ADMIN_PAUSE 记录。 */
@@ -1911,6 +1929,74 @@ public class SysProcessExampleService {
         example.setFieldStatus(finishStatus);
         example.setFieldFinishTime(new Date());
         exampleDao.update(example);
+    }
+
+    /* ==================== 办结待阅发送（P17-BE-014 通知收口） ==================== */
+
+    /**
+     * 办结待阅发送（P17-BE-014 通知收口，Service 侧）：管理员终审通过（ADMIN_FINISH）不经引擎
+     * {@code enterEnd}，办结（FINISH 终态）后由本方法以与引擎同口径发送——
+     * <ul>
+     * <li>起草人待阅（notify_finish_drafter_subject）：收件人 = 实例起草人（办结为系统事件，
+     *     不排除任何人）；不受公共配置控制，始终发送；</li>
+     * <li>审批人待阅（notify_finish_handler_subject）：收件人 = {@link #finishedHandlerIds}
+     *     （本实例「实际审批过」的用户），受公共配置 {@code finish_notify_handler}（缺省 true）
+     *     控制，false 时不发送。</li>
+     * </ul>
+     * ABANDON 终态（管理员作废 / 起草人废弃同样走 {@link #moveToEndNode}）不发办结待阅，
+     * 故本方法仅由 {@link #adminFinish} 调用，不在 {@code moveToEndNode} 内触发。
+     */
+    private void notifyFinishReads(SysProcessExample example) {
+        if (StringUtil.isNotEmpty(example.getFieldCreatorId())) {
+            notifySender.sendFinishDrafterRead(example, List.of(example.getFieldCreatorId()));
+        }
+        Boolean notifyHandler = settingService.getBooleanValue(SETTING_TYPE_PROCESS,
+                SETTING_PROCESS_FINISH_NOTIFY_HANDLER);
+        if (null == notifyHandler || notifyHandler) {
+            notifySender.sendFinishHandlerRead(example, finishedHandlerIds(example));
+        }
+    }
+
+    /**
+     * 本实例「实际审批过」的用户（去重保序，与引擎 enterEnd 办结待阅同口径）：
+     * HANDLER_PASS 审批记录关联工作项的处理人（expect_handler_id 优先，回退 handler_id）；
+     * 自动跳过者留痕为 AUTO_PASS，无通过留痕，不在收件人。
+     */
+    private List<String> finishedHandlerIds(SysProcessExample example) {
+        Map<String, SysProcessExampleWorkitem> workitemById = new HashMap<>();
+        List<SysProcessExampleWorkitem> workitems = workitemDao.selectListByExampleId(example.getFieldId());
+        if (null != workitems) {
+            for (SysProcessExampleWorkitem workitem : workitems) {
+                workitemById.put(workitem.getFieldId(), workitem);
+            }
+        }
+        Set<String> handlers = new LinkedHashSet<>();
+        List<SysProcessAuditNote> notes = auditNoteDao.selectListByExampleId(example.getFieldId());
+        if (null == notes) {
+            return List.of();
+        }
+        for (SysProcessAuditNote note : notes) {
+            if (!AUDIT_TYPE_HANDLER_PASS.equals(note.getFieldHandleType())
+                    || StringUtil.isEmpty(note.getFieldWorkitemId())) {
+                continue;
+            }
+            String handlerId = resolveWorkitemHandlerId(workitemById.get(note.getFieldWorkitemId()));
+            if (StringUtil.isNotEmpty(handlerId)) {
+                handlers.add(handlerId);
+            }
+        }
+        return new ArrayList<>(handlers);
+    }
+
+    /** 工作项处理人取值（expect_handler_id 优先，回退 handler_id；皆空返回 null）。 */
+    private static String resolveWorkitemHandlerId(SysProcessExampleWorkitem workitem) {
+        if (null == workitem) {
+            return null;
+        }
+        if (StringUtil.isNotEmpty(workitem.getFieldExpectHandlerId())) {
+            return workitem.getFieldExpectHandlerId();
+        }
+        return StringUtil.isEmpty(workitem.getFieldHandlerId()) ? null : workitem.getFieldHandlerId();
     }
 
     /* ==================== 私有工具方法 ==================== */

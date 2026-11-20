@@ -85,7 +85,7 @@ class ProcessFlowEngineNodeTest2 {
     }
 
     @Test
-    @DisplayName("CC 抄送对象为空：按跳过处理并留痕，节点 FINISH 继续，不发送 READ 待阅")
+    @DisplayName("CC 抄送对象为空：按跳过处理并留痕，节点 FINISH 继续，不发送抄送待阅")
     void ccNodeWithoutTargetsSkipsWithAudit() {
         fixture.node(3, "抄送节点", NODE_TYPE_CC, FlowEngineFixture.ccConfig(""));
         fixture.node(5, "结束节点", NODE_TYPE_END);
@@ -99,7 +99,14 @@ class ProcessFlowEngineNodeTest2 {
         assertEquals(1L, fixture.auditCount(SysProcessConstants.AUDIT_TYPE_CC_AUTO));
         assertEquals("抄送对象为空，节点跳过",
                 fixture.auditContents(SysProcessConstants.AUDIT_TYPE_CC_AUTO).get(0));
-        verify(fixture.notifyTodoService, never()).send(any(SysNotifyTodo.class), anyList());
+        // 不发送抄送待阅（P17-BE-012；模板未配置时抄送标题应为「您被抄送的流程：」前缀）；
+        // 沿出边进入 END 办结后发送起草人待阅（P17-BE-014 通知收口，模板未配置时 ${fieldName} 渲染为空串）
+        verify(fixture.notifyTodoService, never()).send(argThat(todo ->
+                null != todo.getFieldName() && todo.getFieldName().startsWith("您被抄送")), anyList());
+        verify(fixture.notifyTodoService).send(argThat(todo ->
+                        SysNotifyType.READ.getValue().equals(todo.getFieldNotifyType())
+                                && "您提交的流程已通过".equals(todo.getFieldName())),
+                argThat(ids -> ids.size() == 1 && ids.get(0).equals(FlowEngineFixture.CREATOR)));
     }
 
     @Test

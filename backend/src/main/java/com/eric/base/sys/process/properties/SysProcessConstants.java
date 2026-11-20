@@ -124,6 +124,16 @@ public class SysProcessConstants {
     public static final String NOTIFY_PLACEHOLDER_CREATOR_NAME = "${fieldCreatorName}";
     /** 标题占位符：流程名称（模板名；模板缺失回退流程编号，再回退空串） */
     public static final String NOTIFY_PLACEHOLDER_EXAMPLE_NAME = "${fieldName}";
+    /** 标题占位符：驳回人姓名（被驳回待办标题 ${fieldHandlerName} 取值，v1_7 新增；未传入或查无回退空串） */
+    public static final String NOTIFY_PLACEHOLDER_HANDLER_NAME = "${fieldHandlerName}";
+    /** 审批待办默认标题（notify_handle_subject 缺省回退值，与 application.yml SETTING 默认值一致，v1_7 新增） */
+    public static final String DEFAULT_NOTIFY_HANDLE_SUBJECT = "请审批${fieldCreatorName}提交的流程：${fieldName}";
+    /** 被驳回待办默认标题（notify_refuse_subject 缺省回退值，与 application.yml SETTING 默认值一致，v1_7 新增） */
+    public static final String DEFAULT_NOTIFY_REFUSE_SUBJECT = "您提交的流程被${fieldHandlerName}驳回，请修改";
+    /** 办结起草人待阅默认标题（notify_finish_drafter_subject 缺省回退值，与 application.yml SETTING 默认值一致，v1_7 新增） */
+    public static final String DEFAULT_NOTIFY_FINISH_DRAFTER_SUBJECT = "您提交的流程${fieldName}已通过";
+    /** 办结审批人待阅默认标题（notify_finish_handler_subject 缺省回退值，与 application.yml SETTING 默认值一致，v1_7 新增） */
+    public static final String DEFAULT_NOTIFY_FINISH_HANDLER_SUBJECT = "您审批的流程${fieldName}已通过";
     /** 抄送待阅默认标题（notify_cc_subject 缺省回退值，与 application.yml SETTING 默认值一致，v1_7 新增） */
     public static final String DEFAULT_NOTIFY_CC_SUBJECT = "您被抄送的流程：${fieldName}";
     /** 催办待阅默认标题（notify_expedite_subject 缺省回退值，与 application.yml SETTING 默认值一致，v1_7 新增） */

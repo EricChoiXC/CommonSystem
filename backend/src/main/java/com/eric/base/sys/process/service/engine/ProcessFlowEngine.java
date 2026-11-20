@@ -53,8 +53,8 @@ import java.util.Set;
  *              <tr><th>类型</th><th>语义</th></tr>
  *              <tr><td>START</td><td>直接沿唯一出边流转</td></tr>
  *              <tr><td>DRAFT</td><td>节点 PROCESSING，等待起草人提交</td></tr>
- *              <tr><td>END</td><td>进入即流程 FINISH</td></tr>
- *              <tr><td>APPROVE</td><td>解析审批人→单签/会签/串行→生成工作项；无需审批工作项则沿出边继续</td></tr>
+ *              <tr><td>END</td><td>进入即流程 FINISH，并发送办结待阅（起草人待阅 + 受 finish_notify_handler 控制的审批人待阅，P17-BE-014）</td></tr>
+ *              <tr><td>APPROVE</td><td>解析审批人→单签/会签/串行→生成工作项，生成 PROCESSING 工作项后统一发送审批待办（notify_handle_subject，P17-BE-014）；无需审批工作项则沿出边继续</td></tr>
  *              <tr><td>CC</td><td>解析抄送对象→非空逐人发 READ 待阅（notify_cc_subject）+ 留痕 CC_AUTO→FINISH 继续；空抄送对象按跳过处理并留痕（P17-BE-012）</td></tr>
  *              <tr><td>CONDITION</td><td>按 field_branch_order 升序求出边 field_condition，取第一个 true；无 true 走默认边</td></tr>
  *              <tr><td>FORK</td><td>逐出边求值启动条件，激活分支各自继续，汇聚上下文记入 field_runtime</td></tr>
@@ -667,13 +667,17 @@ public class ProcessFlowEngine {
     }
 
     /**
-     * END：进入即流程办结；先触发流程结束步骤任务（EndProcess，含强制任务，P17-BE-005）。
+     * END：进入即流程办结；先触发流程结束步骤任务（EndProcess，含强制任务，P17-BE-005），
+     * 再发送办结待阅（P17-BE-014 通知收口：起草人待阅 + 受 {@code finish_notify_handler} 控制的
+     * 审批人待阅）。本方法仅在引擎图遍历办结（FINISH 终态）时到达；ABANDON 终态
+     * （起草人废弃/管理员作废）走 Service {@code moveToEndNode}，不经本方法、不发办结待阅。
      */
     private boolean enterEnd(FlowContext context, SysProcessExampleNode node) {
         runNodeTasks(context, node, ProcessTaskType.EndProcess, null);
         runForceTasks(context, ProcessTaskType.EndProcess, null);
         support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_PROCESSING);
         support.markFinished(context.example);
+        notifyFinishReads(context);
         context.finished = true;
         return false;
     }
@@ -1195,6 +1199,7 @@ public class ProcessFlowEngine {
             return enterSerialApprove(context, node, ordered, skipped);
         }
         int processing = 0;
+        List<String> processingHandlers = new ArrayList<>();
         for (String handlerId : ordered) {
             boolean skip = skipped.contains(handlerId);
             SysProcessExampleWorkitem workitem = insertApproveWorkitem(context, node, handlerId,
@@ -1204,11 +1209,14 @@ public class ProcessFlowEngine {
                 addAutoPassAudit(context, node, handlerId, workitem);
             } else {
                 processing++;
+                processingHandlers.add(handlerId);
             }
         }
         if (processing > 0) {
             support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_PROCESSING);
             support.markProcessing(context.example);
+            // 审批待办（P17-BE-014 通知收口）：本次生成的 PROCESSING 工作项处理人合并为一次发送
+            notifyApproveHandlers(context, processingHandlers);
             return false;
         }
         support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_PASS);
@@ -1243,6 +1251,8 @@ public class ProcessFlowEngine {
         insertApproveWorkitem(context, node, firstHandler, SysProcessConstants.WORKITEM_STATUS_PROCESSING);
         support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_PROCESSING);
         support.markProcessing(context.example);
+        // 审批待办（P17-BE-014 通知收口）：串行首序位处理人
+        notifyApproveHandlers(context, List.of(firstHandler));
         return false;
     }
 
@@ -1264,6 +1274,74 @@ public class ProcessFlowEngine {
         runNodeTasks(context, node, SysProcessConstants.WORKITEM_STATUS_FINISH.equals(status)
                 ? ProcessTaskType.EndWorkitem : ProcessTaskType.StartWorkitem, workitem);
         return workitem;
+    }
+
+    /* ==================== 通知发送（P17-BE-014 通知收口） ==================== */
+
+    /**
+     * 审批待办发送（P17-BE-014 通知收口）：审批节点本次生成「实际需审批（PROCESSING）」工作项后
+     * 统一触发，收件人 = 本次生成的 PROCESSING 工作项处理人（自动跳过者工作项为 FINISH，不在收件人），
+     * 经 {@link ProcessNotifySender#sendApproveTodo} 发送（TODO，标题消费 notify_handle_subject）；
+     * 一次节点进入合并为一次发送（同一工作项只发一次），收件人集合为空时不发送。
+     * <p>管理员跳转进入审批节点、驳回 backToNode 重入目标节点、并行分支激活等所有经引擎生成
+     * PROCESSING 工作项的路径都经由 {@link #createApproveWorkitems}（单签/会签）、
+     * {@link #enterSerialApprove}（串行首序位）与 {@link #createNextSerialWorkitem}（串行后续序位）
+     * 天然覆盖；审批节点已在审批中重入（恢复并行分支/重复入队）不重新创建工作项、不重复发送。</p>
+     *
+     * @param context    流转上下文（取实例）
+     * @param handlerIds 本次生成的 PROCESSING 工作项处理人（去重保序，可空/空表不发）
+     */
+    private void notifyApproveHandlers(FlowContext context, List<String> handlerIds) {
+        if (null == handlerIds || handlerIds.isEmpty()) {
+            return;
+        }
+        notifySender.sendApproveTodo(context.example, handlerIds);
+    }
+
+    /**
+     * 办结待阅发送（P17-BE-014 通知收口）：进入 END 节点办结（FINISH 终态）时发送，经
+     * {@link ProcessNotifySender} 发送——
+     * <ul>
+     * <li><b>起草人待阅</b>（notify_finish_drafter_subject）：收件人 = 实例起草人
+     *     （办结为系统事件，不排除任何人）；不受公共配置控制，始终发送；</li>
+     * <li><b>审批人待阅</b>（notify_finish_handler_subject）：收件人 = {@link #finishedHandlers}
+     *     （本实例「实际审批过」的用户），受公共配置 {@code finish_notify_handler}（缺省 true）
+     *     控制，false 时不发送。</li>
+     * </ul>
+     * ABANDON 终态（起草人废弃/管理员作废走 Service {@code moveToEndNode}）不经本方法，
+     * 不发办结待阅；管理员终审通过（ADMIN_FINISH）不经引擎，由 Service 以同口径触发（见
+     * {@code SysProcessExampleService} 办结待阅发送）。
+     */
+    private void notifyFinishReads(FlowContext context) {
+        SysProcessExample example = context.example;
+        if (StringUtil.isNotEmpty(example.getFieldCreatorId())) {
+            notifySender.sendFinishDrafterRead(example, List.of(example.getFieldCreatorId()));
+        }
+        if (boolSetting(SysProcessConstants.SETTING_PROCESS_FINISH_NOTIFY_HANDLER, true)) {
+            notifySender.sendFinishHandlerRead(example, finishedHandlers(context));
+        }
+    }
+
+    /**
+     * 本实例「实际审批过」的用户（去重保序）：HANDLER_PASS 审批记录关联工作项的处理人
+     * （expect_handler_id 优先，回退 handler_id）；自动跳过者留痕为 AUTO_PASS，无通过留痕，
+     * 不在收件人。审批记录与工作项缓存均取自流转上下文（进入流转时装配，驳回/通过产生的
+     * 留痕与工作项先于本次流转落库）。
+     */
+    private List<String> finishedHandlers(FlowContext context) {
+        Set<String> handlers = new LinkedHashSet<>();
+        for (SysProcessAuditNote note : context.auditNotes) {
+            if (!SysProcessConstants.AUDIT_TYPE_HANDLER_PASS.equals(note.getFieldHandleType())
+                    || StringUtil.isEmpty(note.getFieldWorkitemId())) {
+                continue;
+            }
+            SysProcessExampleWorkitem workitem = context.workitemById(note.getFieldWorkitemId());
+            String handlerId = null == workitem ? null : workitemHandlerId(workitem);
+            if (StringUtil.isNotEmpty(handlerId)) {
+                handlers.add(handlerId);
+            }
+        }
+        return new ArrayList<>(handlers);
     }
 
     /**
@@ -1332,6 +1410,8 @@ public class ProcessFlowEngine {
                 continue;
             }
             insertApproveWorkitem(context, node, handlerId, SysProcessConstants.WORKITEM_STATUS_PROCESSING);
+            // 审批待办（P17-BE-014 通知收口）：串行下一序位处理人
+            notifyApproveHandlers(context, List.of(handlerId));
             return false;
         }
         // 串行队列已走完：节点结束（EndNode），触发节点结束步骤任务
