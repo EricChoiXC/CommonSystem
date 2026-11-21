@@ -8,8 +8,8 @@
 | 输入依据 | 《功能实现方案-改造分析与方案设计》（§3.3 节点类型与图形、§4 审批操作体系、§5 节点配置、§9 前端设计，D1~D8 已评审）；《流程核心业务.md》（P17-DOC-001 改造稿）；《流程管理v1_7研发任务清单.md》（P17-DOC-004 卡片）；`AGENTS.md` 第 6 节前端约束；现状前端代码基线 |
 | 适用版本 | v1_7 流程管理（连线 DAG 引擎 + 10 类节点 + 14 类审批操作 + @ProcessTask + 监控统计） |
 | 创建日期 | 2026-11-19 |
-| 文档版本 | V1.4 |
-| 文档状态 | 已确认（Wave 0 / P17-DOC-004 产出；V1.2 为 P17-FE-003 实施回写、V1.3 为 P17-FE-004 实施回写、V1.4 为 P17-FE-005 实施回写） |
+| 文档版本 | V1.6 |
+| 文档状态 | 已确认（Wave 0 / P17-DOC-004 产出；V1.2 为 P17-FE-003 实施回写、V1.3 为 P17-FE-004 实施回写、V1.4 为 P17-FE-005 实施回写、V1.5 为 P17-FE-006 实施回写、V1.6 为 P17-FE-007 实施回写） |
 | 承接关系 | 本文档供 P17-FE-001~009 实现、P17-QA-003 页面走查使用；系统模块层页面承接见 `docs/系统模块/系统模块UI设计文档.md` §3.3、§4.3.4（已引用本文档） |
 
 ### 1.1 范围与边界
@@ -29,6 +29,7 @@
 | V1.3 | 2026-11-21 | P17-FE-004 实施回写：§4.2 顶部按钮集按现状页面实际口径修正（新建【关闭】【保存】/ 编辑【关闭】【启停用】【保存】/ 详情【关闭】【编辑】【启停用】，无独立【返回】按钮）；TemplateFormView 已重写为画布设计器三段形态（顶部表单 + FlowDesignerCanvas，详情 readonly），节点/分支配置走画布内置弹窗，保存走 validateGraph → getSavePayload → save/update（nodes+lines 全量），画布改动置脏、【关闭】与路由离开二次确认 |
 | V1.4 | 2026-11-21 | P17-FE-005 实施回写：§6.2 连线「已流经/未流经」口径定稿（源节点 FINISH/PASS 且目标节点非 WAITING，REJECT 源出边按未流经展示，仅视觉）、只读实现方案核实结论（isSilentMode 下 node:dbclick 仍触发，沿用静默方案）、双击节点提示以 el-dialog 承载、实例节点字段口径（fieldNodeNo/fieldNodeKey）；§12.3 T-04 定稿（已随本任务归一 .detail-grid）、T-05 登记本期不加（保持待定） |
 | V1.5 | 2026-11-21 | P17-FE-006 实施回写：§7.3-6 抄送字段名定稿回写 `ccIds`→`ccToIds`（对齐接口清单 §6.1 Q-01/P17-BE-008）；§7.3 补第 8 条实施形态（按钮组 + 条件字段区内联承载、宿主 completeSubmit/refresh 反馈契约、大写特权标识归一/透传口径、抄送与 processed_* 工作项选择的契约自洽补充） |
+| V1.6 | 2026-11-21 | P17-FE-007 实施回写：§8 监控页偏差回写（「当前节点」筛选不落——后端 SysProcessExampleQuery 无对应字段，筛选位由「仅看在途」`inFlightOnly` 开关补位；异常筛选落两态 全部/仅异常——后端 `exceptionOnly` boolean 承载，「排除异常」不落；T-02 定稿异常标志由行内 `exceptionFlag` 承载、响应无错误摘要字段故异常标记列 title 提示不落；排序仅创建时间——后端排序白名单仅 `createTime`）；§8.3 异常标记字段名修正 `errorFlag/errorMsg`→`exceptionFlag`；§11.2 补 `ProcessAdminOperateDialog.vue`（自 ExampleDetailView 抽取，实例详情页/监控页共用） |
 
 ---
 
@@ -650,6 +651,8 @@ emit('submit', {
 - **列表区**：本页**无批量操作**（不设复选框列）、**不展示主键 `fieldId`**；末列操作列 `fixed="right"`；分页 `layout="total, prev, pager, next, sizes"`、`page-sizes [10,20,50,100]`，切页大小回第 1 页。
 - 样式复用 `list-page.css`，**不在页面内重复定义** `.filter-form` / `.list-toolbar` / `.sort-area` / `.list-pagination`。
 
+> **实施回写（P17-FE-007，2026-11-21）**：后端 `SysProcessExampleQuery`（monitorList 契约）无「当前节点」筛选字段，本节示意第 2 行第 4 格的「当前节点」筛选**本期不落**，该筛选位由**「仅看在途」开关**（`inFlightOnly` boolean，后端已备、本节示意未列）补位；排序区仅落**创建时间**单条件（后端 `normalizeSortField` 白名单仅 `createTime`，示意的更新时间排序后端未承载，`sortField`/`sortOrder` 仍按 `{ body, pages, sortField, sortOrder }` 形态透传）。
+
 ### 8.2 状态与异常筛选
 
 | 筛选项 | 控件 | 说明 |
@@ -658,6 +661,8 @@ emit('submit', {
 | 异常状态 | `el-select` | 选项：**全部 / 仅异常 / 排除异常**；「异常」语义 = 流程处于 `PAUSE` 且最近一条审批记录类型为 `SYSTEM_ERROR`（**待确认事项 T-02**：若后端 `monitorList` 提供专门异常标志字段，则前端优先消费该字段，不自行推导） |
 
 - 列表行**异常标记列**：异常实例显示 `el-tag type="danger"`「流程异常」（`title` 提示错误摘要，摘要文本由后端在 `monitorList` 响应中提供）。
+
+> **实施回写（P17-BE-015 / P17-FE-007，2026-11-21）**：T-02 已定稿——异常标志由 `monitorList` 行内 **`exceptionFlag`** 承载（存在 `SYSTEM_ERROR` 留痕或状态 `PAUSE`，二者取或），前端直接消费、不自行推导；异常筛选落**两态**（全部 / 仅异常，后端 `exceptionOnly` boolean，缺省 `false`），「排除异常」后端未承载、本期不落（不做前端当前页过滤）；`monitorList` 响应**无错误摘要字段**，异常标记列 `title` 提示不落，异常实例仅显示「流程异常」tag、无异常显示 `-`。
 
 ### 8.3 列表列与操作列
 
@@ -670,13 +675,13 @@ emit('submit', {
 | 创建时间 | `fieldCreateTime` | 格式化时间 |
 | 当前节点 | `currentNodeName` | 文本 |
 | 流程状态 | `fieldStatus` | `el-tag`（`PROCESSING` warning / `FINISH` success / `DRAFT` info / `PAUSE` danger / `RETURN` danger / `ABANDON` info，沿用实例页 `statusTag` 口径） |
-| 异常标记 | `errorFlag` / `errorMsg` | `el-tag danger`「流程异常」；无异常显示 `-` |
+| 异常标记 | `exceptionFlag` | `el-tag danger`「流程异常」；无异常显示 `-`（响应无错误摘要字段，`title` 提示不落，见 8.2 实施回写） |
 | 操作 | — | 详情、特批操作（link 按钮，`fixed="right"`） |
 
 操作列约定：
 
 1. **详情**：跳 `/processExample/detail/:id`，**复用现有实例详情页**（`meta.tab: 'name'` 单标签复用），不在监控页另建详情页。
-2. **特批操作**：仅 `hasAuth(['SYS_PROCESS_ADMIN','SYS_PROCESS_EXAMPLE_ADMIN'])` 显示；点击打开**特权操作弹窗**——与实例详情页 6.4 同一弹窗形态（操作类型：跳转/终审通过/作废/暂停/恢复/**更换审批人**；跳转节点限起草/审批/人工决策节点；更换审批人需选待处理工作项 + 目标用户；意见必填），**复用现有 `adminOperate` 通道 + v1_7 新增更换审批人**。
+2. **特批操作**：仅 `hasAuth(['SYS_PROCESS_ADMIN','SYS_PROCESS_EXAMPLE_ADMIN'])` 显示；点击打开**特权操作弹窗**——与实例详情页 6.4 同一弹窗形态（操作类型：跳转/终审通过/作废/暂停/恢复/**更换审批人**；跳转节点限起草/审批/人工决策节点；更换审批人需选待处理工作项 + 目标用户；意见必填），**复用现有 `adminOperate` 通道 + v1_7 新增更换审批人**；弹窗抽为公共组件 `ProcessAdminOperateDialog`（见 11.2，详情页/监控页共用），打开前按行 `loadProcessExample` 取跳转候选节点与换人候选工作项。
 3. 弹窗提交成功后刷新当前页列表（不跳转）。
 
 ---
@@ -819,6 +824,7 @@ frontend/src/
 │  └─ process.js                                  # 11.1 具名函数（改造 + 新增）
 ├─ components/process/
 │  ├─ ProcessApprovalPanel.vue                    # 现状：审批面板（v1_7 改造，仍从 components/index.js 出口）
+│  ├─ ProcessAdminOperateDialog.vue               # v1_7 已实现（P17-FE-007）：特权操作弹窗（自 ExampleDetailView 抽取，实例详情页/监控页共用；不进出口，流程模块内相对导入）
 │  ├─ ProcessFlowViewer.vue                       # v1_7 已实现（P17-FE-005）：只读流程图（实例详情 + 面板「流程」卡片复用；不进出口，宿主相对导入）
 │  └─ designer/                                   # v1_7 新增目录（P17-FE-001/002/003 + FE-005 exampleGraph）
 │     ├─ FlowDesignerCanvas.vue                   # 画布容器（LogicFlow 实例、拖拽/连线/删除、readonly 模式）
@@ -899,7 +905,7 @@ frontend/src/
 | 编号 | 待确认项 | 影响范围 | 建议处置 |
 | --- | --- | --- | --- |
 | T-01 | @ProcessTask 注册清单接口的路径、响应结构（`name` / `processTemplate[]` / `allowTaskType[]` / 中文描述） | 节点配置「流程任务」标签「执行任务」下拉（P17-FE-003） | 由 P17-BE-005 与 P17-DOC-002 定稿后回填本文档 11.1；定稿前该下拉以「接口未就绪」空态占位，禁止硬编码 |
-| T-02 | 流程监控「异常状态」的数据来源：由 `monitorList` 提供专门异常标志字段，还是前端按「状态 = PAUSE 且最近审批记录 = SYSTEM_ERROR」推导 | 监控页筛选与异常标记列（P17-FE-007） | 优先由后端字段承载（避免前端多表拼装与口径漂移）；P17-BE-015 定稿后回填 8.2 |
+| T-02 | 流程监控「异常状态」的数据来源：由 `monitorList` 提供专门异常标志字段，还是前端按「状态 = PAUSE 且最近审批记录 = SYSTEM_ERROR」推导 | 监控页筛选与异常标记列（P17-FE-007） | **已定稿（2026-11-21）**：由后端字段承载——`monitorList` 行内透出 `exceptionFlag`（存在 `SYSTEM_ERROR` 留痕或状态 `PAUSE`，二者取或），前端直接消费不自行推导；异常筛选落两态（后端 `exceptionOnly` boolean）；响应无错误摘要字段，异常标记列 `title` 提示不落（§8.2 已回写） |
 | T-03 | 「我参与的」是否区分「待我审批 / 我已审批」参与方式筛选 | 我参与的页筛选区（P17-FE-008） | 若 `scope=myJoined` 响应含处理状态字段则增加单选筛选；否则本期不加 |
 | T-04 | 实例详情页「流程实例信息区」是否随 P17-FE-005 一并从 `el-descriptions` 迁移到 `form-page.css` 的 `.detail-grid` | 实例详情页布局一致性（D-05） | **已定稿（2026-11-21）：一并迁移**——P17-FE-005 已实施，流程实例信息区为 `.detail-grid` 八字段两列（字段与状态 tag 全保留），新增流程图区同规范 |
 | T-05 | `sys_process_task_log` 任务执行日志是否在实例详情页/面板展示 | 实例详情页、审批面板（P17-FE-005/006） | 建议 P17-BE-005 落地后可读后在实例详情页增加「任务日志」辅助表；本期不阻塞主流程。**P17-FE-005 登记（2026-11-21）：本期不加**——task_log 不在 load 响应契约内（`SysProcessExampleDetailVo` 无该字段），详情页未渲染任务日志表；待后端契约扩展后再评估 |

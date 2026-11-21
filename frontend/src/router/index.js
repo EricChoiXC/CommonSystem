@@ -278,6 +278,14 @@ const routes = [
         meta: { title: '流程实例详情', parent: '系统管理', group: '流程管理', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN', 'SYS_PROCESS_EXAMPLE_VIEWER'], tab: 'name' }
       },
       {
+        // 流程监控列表页（P17-FE-007）：管理员级全量监控视图（UI 分册 §2.3 冻结写法）；
+        // 叶子路由不设 meta.tab（仅动态子路由复用单标签）
+        path: 'process/monitor',
+        name: 'ProcessMonitor',
+        component: () => import('@/views/process/ProcessMonitorView.vue'),
+        meta: { title: '流程监控', parent: '系统管理', group: '流程管理', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN'] }
+      },
+      {
         path: 'i18nLanguage',
         name: 'I18nLanguageManage',
         component: () => import('@/views/i18n/I18nLanguageManageView.vue'),

@@ -154,6 +154,20 @@ export function loadProcessExamplePanel(fieldId) {
 }
 
 /**
+ * 流程监控列表分页查询（v1_7 新增，接口清单 §5.6）：管理员全量视图（不做本人数据过滤），
+ * 支持在途筛选（inFlightOnly：PROCESSING/RETURN/PAUSE）与异常筛选（exceptionOnly：
+ * 存在 SYSTEM_ERROR 留痕或状态 PAUSE）；行内额外透出 exceptionFlag（是否异常实例）与
+ * currentNodeName（当前节点名称）；仅创建时间单条件排序。
+ * @param {Object} data { body: { fieldName, fieldCode, fieldModelName, fieldCreatorName,
+ *   fieldCreateTimeBegin, fieldCreateTimeEnd, fieldStatus, inFlightOnly, exceptionOnly },
+ *   pages, sortField, sortOrder }
+ * @returns {Promise<Object>} BaseResponse，data 为流程实例数组（含 exceptionFlag），总数经 metadata.total 返回
+ */
+export function queryProcessMonitorList(data) {
+  return request.post('/backend/sys/process/example/monitorList', data)
+}
+
+/**
  * 流程实例特权操作：跳转/终审通过/作废/暂停/恢复/更换审批人（仅 SYS_PROCESS_EXAMPLE_ADMIN）。
  * v1_7 契约（接口清单 §5.5）：operateType 取 JUMP/FINISH/ABANDON/PAUSE/RESUME/CHANGE_HANDLER；
  * JUMP 目标节点扩展为起草/审批/人工决策节点（targetNodeId 与 targetNodeKey 二者其一，

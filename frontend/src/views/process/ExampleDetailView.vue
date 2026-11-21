@@ -148,66 +148,26 @@
       </div>
     </div>
 
-    <!-- ============ 特权操作弹窗 ============ -->
-    <el-dialog v-model="operateDialogVisible" title="特权操作" width="520px" :close-on-click-modal="false">
-      <el-form :model="operateForm" label-width="100px">
-        <el-form-item label="操作类型" required>
-          <el-select v-model="operateForm.operateType" placeholder="请选择操作类型" style="width: 100%">
-            <el-option v-for="o in OPERATE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="operateForm.operateType === 'JUMP'" label="跳转节点" required>
-          <el-select v-model="operateForm.targetNodeId" placeholder="请选择跳转节点（起草/审批/人工决策节点）" style="width: 100%">
-            <el-option
-              v-for="n in jumpableNodes"
-              :key="n.fieldId"
-              :label="`${n.fieldNodeNo} ${n.fieldNodeName}（${nodeTypeText(n.fieldNodeType)}）`"
-              :value="n.fieldId"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="operateForm.operateType === 'CHANGE_HANDLER'" label="待处理工作项" required>
-          <el-select
-            v-model="operateForm.workitemId"
-            :placeholder="pendingWorkitems.length ? '请选择待处理工作项' : '当前节点暂无处理中工作项'"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="w in pendingWorkitems"
-              :key="w.fieldId"
-              :label="w.fieldHandlerName || w.fieldHandlerId"
-              :value="w.fieldId"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="operateForm.operateType === 'CHANGE_HANDLER'" label="更换为" required>
-          <AddressBook
-            v-model:field-id="operateForm.changeToId"
-            v-model:field-name="operateForm.changeToName"
-            org-type="PERSON"
-          />
-        </el-form-item>
-        <el-form-item label="意见" required>
-          <el-input v-model="operateForm.content" type="textarea" :rows="3" placeholder="请输入意见（必填）" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="operateDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="operating" @click="submitOperate">提交</el-button>
-      </template>
-    </el-dialog>
+    <!-- ============ 特权操作弹窗（复用 ProcessAdminOperateDialog，v1_7 P17-FE-007 抽取为流程模块公共组件） ============ -->
+    <ProcessAdminOperateDialog
+      v-model="operateDialogVisible"
+      :field-id="route.params.id"
+      :nodes="detail.nodes || []"
+      :workitems="detail.workitems || []"
+      @success="loadDetail"
+    />
   </el-card>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { hasAuth } from '@/utils/auth'
-import { adminOperateProcessExample, loadProcessExample, queryProcessExampleModels } from '@/api/process'
-import { getDictOptions, getDictTextMap } from '@/utils/dict'
-import AddressBook from '@/components/AddressBook.vue'
+import { loadProcessExample, queryProcessExampleModels } from '@/api/process'
+import { getDictTextMap } from '@/utils/dict'
 import ProcessFlowViewer from '@/components/process/ProcessFlowViewer.vue'
+import ProcessAdminOperateDialog from '@/components/process/ProcessAdminOperateDialog.vue'
 import { NODE_TYPE_LABELS } from '@/components/process/designer/flowNodes'
 
 /**
@@ -215,15 +175,13 @@ import { NODE_TYPE_LABELS } from '@/components/process/designer/flowNodes'
  * 节点按状态着色 WAITING/PROCESSING/FINISH/PASS/REJECT，图数据来自 load 响应 nodes + lines，
  * 无连线数据降级按节点序号排布）、流程实例节点/工作项/审批记录三张明细表；
  * 仅 SYS_PROCESS_EXAMPLE_ADMIN 级权限用户显示「特权操作」按钮（跳转/终审通过/作废/暂停/
- * 恢复/更换审批人，跳转节点为起草/审批/人工决策节点，更换审批人选当前节点 PROCESSING
- * 工作项 + 地址本单选人员，意见必填），提交后刷新详情。
+ * 恢复/更换审批人，弹窗复用 ProcessAdminOperateDialog——跳转节点为起草/审批/人工决策节点，
+ * 更换审批人选当前节点 PROCESSING 工作项 + 地址本单选人员，意见必填），提交后刷新详情。
  * 依据 docs/设计文档/sys/process/流程核心业务.md「流程实例详情」、
  * docs/设计文档/sys/process/流程v1_7前端UI设计分册.md §6。
  * 状态/节点/审批记录等文本（dict.process_*）由 dict 模块提供，缺失时回退原值。
  */
 
-/** 特权操作选项（dict.process_admin_operate；缺项时经 mergeAdminOperateOptions 兜底补全） */
-const OPERATE_OPTIONS = ref([])
 /** 码值文本映射（dict.process_example_status / process_node_type / process_node_status / process_workitem_status / process_audit_type / process_resume_mode） */
 const STATUS_MAP = ref({})
 const NODE_TYPE_MAP = ref({})
@@ -234,16 +192,6 @@ const RESUME_MODE_TEXT = ref({})
 
 /** 特权操作所需权限：与后端 example.adminOperate 鉴权一致 */
 const AUTH_EXAMPLE_ADMIN = ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN']
-
-/** 管理员特权操作兜底选项（v1_7 六类；dict 缺项/加载失败时补全，保证弹窗可用） */
-const ADMIN_OPERATE_FALLBACKS = [
-  { value: 'JUMP', label: '跳转' },
-  { value: 'FINISH', label: '终审通过' },
-  { value: 'ABANDON', label: '作废' },
-  { value: 'PAUSE', label: '暂停' },
-  { value: 'RESUME', label: '恢复' },
-  { value: 'CHANGE_HANDLER', label: '更换审批人' },
-]
 
 const route = useRoute()
 const router = useRouter()
@@ -292,90 +240,12 @@ function modelLabel(fieldModelName) {
   return found ? found.name : fieldModelName
 }
 
-/* ============ 特权操作 ============ */
+/* ============ 特权操作（弹窗复用 ProcessAdminOperateDialog，提交成功后刷新详情） ============ */
 
 const operateDialogVisible = ref(false)
-const operating = ref(false)
-const operateForm = reactive({
-  operateType: '',
-  targetNodeId: null,
-  workitemId: '',
-  changeToId: '',
-  changeToName: '',
-  content: ''
-})
-
-/** 跳转节点：v1_7 扩展为起草节点、审批节点、人工决策节点（接口清单 §5.5 目标范围） */
-const jumpableNodes = computed(() =>
-  (detail.value.nodes || []).filter((n) =>
-    ['DRAFT', 'APPROVE', 'MANUAL'].includes(n.fieldNodeType)
-  )
-)
-
-/** 更换审批人的待处理工作项：当前 PROCESSING 节点的 PROCESSING 工作项（label 展示处理人姓名） */
-const pendingWorkitems = computed(() => {
-  const processingNodeIds = new Set(
-    (detail.value.nodes || []).filter((n) => n && n.fieldStatus === 'PROCESSING').map((n) => n.fieldId)
-  )
-  return (detail.value.workitems || []).filter(
-    (w) => w && w.fieldStatus === 'PROCESSING' && processingNodeIds.has(w.fieldNodeId)
-  )
-})
 
 function openOperateDialog() {
-  operateForm.operateType = ''
-  operateForm.targetNodeId = null
-  operateForm.workitemId = ''
-  operateForm.changeToId = ''
-  operateForm.changeToName = ''
-  operateForm.content = ''
   operateDialogVisible.value = true
-}
-
-async function submitOperate() {
-  if (!operateForm.operateType) {
-    ElMessage.warning('请选择操作类型')
-    return
-  }
-  if (operateForm.operateType === 'JUMP' && !operateForm.targetNodeId) {
-    ElMessage.warning('请选择跳转节点')
-    return
-  }
-  if (operateForm.operateType === 'CHANGE_HANDLER' && !operateForm.workitemId) {
-    ElMessage.warning('请选择待处理工作项')
-    return
-  }
-  if (operateForm.operateType === 'CHANGE_HANDLER' && !operateForm.changeToId) {
-    ElMessage.warning('请选择更换后的审批人')
-    return
-  }
-  if (!operateForm.content || !operateForm.content.trim()) {
-    ElMessage.warning('意见必填')
-    return
-  }
-  operating.value = true
-  try {
-    const payload = {
-      fieldId: route.params.id,
-      operateType: operateForm.operateType,
-      content: operateForm.content.trim()
-    }
-    if (operateForm.operateType === 'JUMP') {
-      payload.targetNodeId = operateForm.targetNodeId
-    }
-    if (operateForm.operateType === 'CHANGE_HANDLER') {
-      payload.workitemId = operateForm.workitemId
-      payload.changeToId = operateForm.changeToId
-    }
-    await adminOperateProcessExample(payload)
-    ElMessage.success('操作成功')
-    operateDialogVisible.value = false
-    loadDetail()
-  } catch (error) {
-    ElMessage.error(error.message || '操作失败')
-  } finally {
-    operating.value = false
-  }
 }
 
 /* ============ 展示工具 ============ */
@@ -506,12 +376,12 @@ onMounted(() => {
   loadDetail()
 })
 
-/** 加载流程码值选项与文本映射（dict.process_*）；失败时文本回退原值、特权操作经兜底补全选项 */
+/** 加载流程码值文本映射（dict.process_*）；失败时文本回退原值，不阻塞详情展示
+ *  （特权操作弹窗的选项与兜底由 ProcessAdminOperateDialog 组件内部自行加载） */
 async function loadDictOptions() {
   try {
-    const [operateOptions, statusMap, nodeTypeMap, nodeStatusMap, workitemStatusMap, handleTypeMap, resumeModeMap] =
+    const [statusMap, nodeTypeMap, nodeStatusMap, workitemStatusMap, handleTypeMap, resumeModeMap] =
       await Promise.all([
-        getDictOptions('process_admin_operate'),
         getDictTextMap('process_example_status'),
         getDictTextMap('process_node_type'),
         getDictTextMap('process_node_status'),
@@ -519,7 +389,6 @@ async function loadDictOptions() {
         getDictTextMap('process_audit_type'),
         getDictTextMap('process_resume_mode')
       ])
-    OPERATE_OPTIONS.value = mergeAdminOperateOptions(operateOptions)
     STATUS_MAP.value = statusMap
     NODE_TYPE_MAP.value = nodeTypeMap
     NODE_STATUS_MAP.value = nodeStatusMap
@@ -527,7 +396,6 @@ async function loadDictOptions() {
     HANDLE_TYPE_MAP.value = handleTypeMap
     RESUME_MODE_TEXT.value = resumeModeMap
   } catch {
-    OPERATE_OPTIONS.value = mergeAdminOperateOptions([])
     STATUS_MAP.value = {}
     NODE_TYPE_MAP.value = {}
     NODE_STATUS_MAP.value = {}
@@ -535,12 +403,6 @@ async function loadDictOptions() {
     HANDLE_TYPE_MAP.value = {}
     RESUME_MODE_TEXT.value = {}
   }
-}
-
-/** 管理员特权操作选项兜底：dict 加载结果在前，缺登记的 v1_7 六类按默认中文名补后 */
-function mergeAdminOperateOptions(options) {
-  const known = new Set((options || []).map((o) => o.value))
-  return [...(options || []), ...ADMIN_OPERATE_FALLBACKS.filter((o) => !known.has(o.value))]
 }
 </script>
 

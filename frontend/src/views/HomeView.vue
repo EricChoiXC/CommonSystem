@@ -287,7 +287,9 @@ const menus = [
         children: [
           { title: '公共配置', path: '/processSetting', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_SETTING_ADMIN'] },
           { title: '模板管理', path: '/processTemplate', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_TEMPLATE_ADMIN', 'SYS_PROCESS_TEMPLATE_VIEWER'] },
-          { title: '流程实例', path: '/processExample', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN', 'SYS_PROCESS_EXAMPLE_VIEWER'] }
+          { title: '流程实例', path: '/processExample', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN', 'SYS_PROCESS_EXAMPLE_VIEWER'] },
+          // 流程监控（v1_7 P17-FE-007）：管理员级监控列表，菜单 path 与路由 process/monitor 对应
+          { title: '流程监控', path: '/process/monitor', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN'] }
         ]
       },
       {
@@ -425,6 +427,17 @@ const activeMenu = computed(() => {
   if (path.startsWith('/formula')) return '/formula'
   // 流程模板新建/编辑/详情为模板管理列表的子页面，归约到模板管理菜单项
   if (path.startsWith('/processTemplate/')) return '/processTemplate'
+  // 流程实例详情为流程实例列表的子页面，归约到流程实例菜单项（v1_7 P17-FE-007 补 D-01 归约：
+  // 现状 detail 路由落到 return path，el-menu 无对应 index、菜单失去高亮）
+  if (path.startsWith('/processExample/')) return '/processExample'
+  // 流程监控/流程统计（v1_7 新增 /process/monitor、/process/statistic）归约到 /process 统一维护口径
+  // ⚠ 顺序约束：'/process' 是 '/processTemplate' 与 '/processExample' 的字符串前缀
+  // （如 '/processTemplate/edit/1'.startsWith('/process/') 为 true），本分支必须写在上述两条之后，
+  // 否则模板/实例子页面会被误归约到不存在的 /process 菜单项、失去高亮（UI 分册 §3.2 冻结顺序）
+  if (path.startsWith('/process/')) return '/process'
+  // 审批一级菜单子路由（v1_7 P17-FE-008：/approval/created、/approval/joined、/approval/statistic）
+  // 归约到 /approval 统一维护口径；/approval 本身无菜单项，归约后不命中为分册 §3.2 已知可接受行为
+  if (path.startsWith('/approval/')) return '/approval'
   // /module 为顶层扁平叶子路径，无需归约
   // 多语言三个页面均为叶子路径（弹窗编辑无子路由），无需归约
   return path
