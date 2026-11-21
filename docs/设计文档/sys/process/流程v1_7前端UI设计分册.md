@@ -28,6 +28,7 @@
 | V1.2 | 2026-11-21 | P17-FE-003 定稿回写：T-09 并行开始「无可流转分支时行为」配置键名定稿为 `noBranchMode`（error/continue，后端 SysProcessTemplateNodeConfigDo 已实现），落 §5.3 与 §12.3；节点配置弹窗已实现结构与本节逐条核对一致 |
 | V1.3 | 2026-11-21 | P17-FE-004 实施回写：§4.2 顶部按钮集按现状页面实际口径修正（新建【关闭】【保存】/ 编辑【关闭】【启停用】【保存】/ 详情【关闭】【编辑】【启停用】，无独立【返回】按钮）；TemplateFormView 已重写为画布设计器三段形态（顶部表单 + FlowDesignerCanvas，详情 readonly），节点/分支配置走画布内置弹窗，保存走 validateGraph → getSavePayload → save/update（nodes+lines 全量），画布改动置脏、【关闭】与路由离开二次确认 |
 | V1.4 | 2026-11-21 | P17-FE-005 实施回写：§6.2 连线「已流经/未流经」口径定稿（源节点 FINISH/PASS 且目标节点非 WAITING，REJECT 源出边按未流经展示，仅视觉）、只读实现方案核实结论（isSilentMode 下 node:dbclick 仍触发，沿用静默方案）、双击节点提示以 el-dialog 承载、实例节点字段口径（fieldNodeNo/fieldNodeKey）；§12.3 T-04 定稿（已随本任务归一 .detail-grid）、T-05 登记本期不加（保持待定） |
+| V1.5 | 2026-11-21 | P17-FE-006 实施回写：§7.3-6 抄送字段名定稿回写 `ccIds`→`ccToIds`（对齐接口清单 §6.1 Q-01/P17-BE-008）；§7.3 补第 8 条实施形态（按钮组 + 条件字段区内联承载、宿主 completeSubmit/refresh 反馈契约、大写特权标识归一/透传口径、抄送与 processed_* 工作项选择的契约自洽补充） |
 
 ---
 
@@ -591,11 +592,19 @@ emit('submit', {
   transferToIds,     // handler_transfer 专用（多选人员 id）
   changeToId,        // admin_change_handler 专用
   targetNodeId,      // admin_jump 专用
-  ccIds              // handler_cc 专用（多选 id）
+  ccToIds            // handler_cc 专用（多选 id，';' 连接；字段名定稿 ccToIds，Q-01/P17-BE-008，对齐接口清单 §6.1/§6.4）
 })
 ```
 
 7. **提交后**：面板重新拉取 `panel` 数据（刷新按钮集与审批记录卡片），宿主页面按需刷新单据状态；失败按接口 message 提示，保留用户已填内容（不清空表单）。
+
+8. **实施形态（P17-FE-006 实施回写，2026-11-21）**：
+
+   - 条件字段不按 §7.2「弹窗」措辞单独开弹窗，按任务卡片 P17-FE-006 口径以「**条件字段区**」内联承载：按钮组点击选中操作（再点取消），选中后按 §7.4 表动态渲染对应控件，字段集合与弹窗形态一致；
+   - 面板**不提供起草提交按钮**（提交动作由宿主文档页承载）；`operations` 含带 `flowChoices` 的 `drafter_submit` 行时渲染人工决策流向控件（可空、独立于选中操作常驻），**选择变更即 emit `submit`**（`operateType=drafter_submit`）把 `flowChoice` 同步给宿主缓存——该事件是流向同步、不是执行指令，宿主随自身提交动作转发；
+   - 面板 emit `submit` 后不自行清空表单：宿主转发完成后调 `completeSubmit(success)`（true → 面板重拉 panel 并清空表单；false → 保留已填内容由宿主提示），另暴露 `refresh()` 供宿主在单据刷新后重拉面板；
+   - 大写特权标识（接口清单 §5.4 实际下发形态，后端 `computeOperations` 源码口径）：`ABANDON` / `JUMP` / `CHANGE_HANDLER` 按 `admin_abandon` / `admin_jump` / `admin_change_handler` 语义渲染，`payload.operateType` 归一为小写（对齐统一操作通道 14 类取值）；`FINISH` / `PAUSE` / `RESUME` 无统一通道对应项，按钮照常渲染并**原样透传**，由宿主按 adminOperate 通道转发或忽略；
+   - 工作项选择控件按接口清单 §6.2 必填参数表扩展为三档（契约自洽补充，§7.4 表未覆盖处）：`handler_cc` 取本人 PROCESSING 项（引擎 `handlerCc` 必填 workitemId）；`processed_retract` 取本人 FINISH 且所属节点仍 PROCESSING 项（引擎 `processedRetract` 前置一致）；`processed_expedite` 取本人 FINISH/PROCESSING 项（引擎 `processedExpedite` 口径）；`handler_transfer_retract` 按任务卡片缺口登记不渲染工作项选择、不传 `workitemId`（P17-INT-003 处置）。
 
 ### 7.4 审批意见与流向选择控件
 
