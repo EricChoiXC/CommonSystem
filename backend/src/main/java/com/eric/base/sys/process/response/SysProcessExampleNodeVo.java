@@ -1,5 +1,6 @@
 package com.eric.base.sys.process.response;
 
+import com.eric.base.sys.process.model.SysProcessExampleNodeRuntimeDo;
 import lombok.Data;
 
 /**
@@ -30,4 +31,7 @@ public class SysProcessExampleNodeVo {
 
     /** 节点业务键（模板节点快照，模板内唯一），供实例详情流程图渲染节点定位与连线端点匹配 */
     private String fieldNodeKey;
+
+    /** 节点运行态（FORK 激活分支集合与汇聚模式 / JOIN 到达分支集合，接口清单 §5.3 nodes[].runtime）；无运行态为 null */
+    private SysProcessExampleNodeRuntimeDo runtime;
 }

@@ -119,6 +119,36 @@ class ProcessFlowEngineForkJoinTest {
     }
 
     @Test
+    @DisplayName("并行分支末端为无工作项节点（抄送/机器人）时分支键随流出传递，JOIN 正常汇聚（P17-INT-003 修复回归）")
+    void joinConvergesWhenBranchEndsWithWorkitemLessNodes() throws Exception {
+        // FORK(N3) → 分支A: CC(N4) → JOIN(N6)；分支B: ROBORT(N5) → JOIN(N6) → END(N7)
+        // 修复前：CC/ROBORT 流出时分支键丢失（enqueue 分支键为 null），JOIN 到达计数回溯不到
+        // 归属分支（locateBranchKey 子图遍历在 JOIN 处剪枝），arrivedBranchKeys 恒空、流程卡在汇聚等待
+        fixture.node(3, "并行开始", NODE_TYPE_FORK,
+                FlowEngineFixture.forkConfig(SysProcessConstants.JOIN_MODE_ALL, SysProcessConstants.NO_BRANCH_MODE_ERROR));
+        fixture.node(4, "抄送通知", SysProcessConstants.NODE_TYPE_CC,
+                "{\"ccSource\":\"org\",\"ccIds\":\"" + FlowEngineFixture.U1 + "\"}");
+        fixture.node(5, "机器人节点", SysProcessConstants.NODE_TYPE_ROBORT);
+        fixture.node(6, "并行结束", NODE_TYPE_JOIN);
+        fixture.node(7, "结束节点", NODE_TYPE_END);
+        fixture.line("N3", "N4", SysProcessConstants.LINE_TYPE_PARALLEL, "", false, 1);
+        fixture.line("N3", "N5", SysProcessConstants.LINE_TYPE_PARALLEL, "", false, 2);
+        fixture.line("N4", "N6");
+        fixture.line("N5", "N6");
+        fixture.line("N6", "N7");
+
+        ProcessFlowResult result = fixture.engine(null).enterFlow(fixture.example, "N3");
+
+        assertTrue(result.isFinished(), "两分支末端均为无工作项节点时应在同一流转内汇聚流出");
+        assertEquals(NODE_STATUS_FINISH, fixture.statusOf("N4"));
+        assertEquals(NODE_STATUS_FINISH, fixture.statusOf("N5"));
+        assertEquals(NODE_STATUS_FINISH, fixture.statusOf("N6"));
+        assertEquals(SysProcessConstants.EXAMPLE_STATUS_FINISH, fixture.example.getFieldStatus());
+        assertTrue(fixture.runtimeOf("N6").getArrivedBranchKeys().containsAll(List.of("N4", "N5")),
+                "JOIN 到达计数按分支键记录");
+    }
+
+    @Test
     @DisplayName("FORK 无可流转分支且配置为报错：转流程异常 PAUSE + SYSTEM_ERROR")
     void forkWithoutBranchPausesWhenConfiguredAsError() {
         buildParallel(SysProcessConstants.JOIN_MODE_ALL, SysProcessConstants.NO_BRANCH_MODE_ERROR);

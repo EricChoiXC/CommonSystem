@@ -31,6 +31,7 @@
 | V1.5 | 2026-11-21 | P17-FE-006 实施回写：§7.3-6 抄送字段名定稿回写 `ccIds`→`ccToIds`（对齐接口清单 §6.1 Q-01/P17-BE-008）；§7.3 补第 8 条实施形态（按钮组 + 条件字段区内联承载、宿主 completeSubmit/refresh 反馈契约、大写特权标识归一/透传口径、抄送与 processed_* 工作项选择的契约自洽补充） |
 | V1.6 | 2026-11-21 | P17-FE-007 实施回写：§8 监控页偏差回写（「当前节点」筛选不落——后端 SysProcessExampleQuery 无对应字段，筛选位由「仅看在途」`inFlightOnly` 开关补位；异常筛选落两态 全部/仅异常——后端 `exceptionOnly` boolean 承载，「排除异常」不落；T-02 定稿异常标志由行内 `exceptionFlag` 承载、响应无错误摘要字段故异常标记列 title 提示不落；排序仅创建时间——后端排序白名单仅 `createTime`）；§8.3 异常标记字段名修正 `errorFlag/errorMsg`→`exceptionFlag`；§11.2 补 `ProcessAdminOperateDialog.vue`（自 ExampleDetailView 抽取，实例详情页/监控页共用） |
 | V1.7 | 2026-11-21 | P17-FE-008 实施回写：§9.1/§9.2 偏差注记（「当前节点」筛选不落——与监控页同源，后端 SysProcessExampleQuery 无对应字段；T-03 定稿——我参与的「参与方式」筛选与「我的处理状态」列均不落，后端 Query 无参与方式区分字段、list 响应无本人处理状态字段）；§12.3 T-03 状态更新为已定稿；§9 标注两页已交付、我的流程统计页仍待 P17-FE-009 |
+| V1.8 | 2026-11-21 | P17-INT-003 缺口处置回写：§7.3-8 补三条（转办收回渲染工作项选择并提交 workitemId=本人 ABANDON 弃置项、配套面板按钮身份补「转办发起人」；CHANGE_HANDLER 工作项选项优先消费 `operation.workitemCandidates`；抄送控件收窄 `orgType="PERSON"`）；§7.4 控件表同步（工作项选择按档拆分三行 + 抄送人行规格修正） |
 
 ---
 
@@ -606,18 +607,21 @@ emit('submit', {
    - 面板**不提供起草提交按钮**（提交动作由宿主文档页承载）；`operations` 含带 `flowChoices` 的 `drafter_submit` 行时渲染人工决策流向控件（可空、独立于选中操作常驻），**选择变更即 emit `submit`**（`operateType=drafter_submit`）把 `flowChoice` 同步给宿主缓存——该事件是流向同步、不是执行指令，宿主随自身提交动作转发；
    - 面板 emit `submit` 后不自行清空表单：宿主转发完成后调 `completeSubmit(success)`（true → 面板重拉 panel 并清空表单；false → 保留已填内容由宿主提示），另暴露 `refresh()` 供宿主在单据刷新后重拉面板；
    - 大写特权标识（接口清单 §5.4 实际下发形态，后端 `computeOperations` 源码口径）：`ABANDON` / `JUMP` / `CHANGE_HANDLER` 按 `admin_abandon` / `admin_jump` / `admin_change_handler` 语义渲染，`payload.operateType` 归一为小写（对齐统一操作通道 14 类取值）；`FINISH` / `PAUSE` / `RESUME` 无统一通道对应项，按钮照常渲染并**原样透传**，由宿主按 adminOperate 通道转发或忽略；
-   - 工作项选择控件按接口清单 §6.2 必填参数表扩展为三档（契约自洽补充，§7.4 表未覆盖处）：`handler_cc` 取本人 PROCESSING 项（引擎 `handlerCc` 必填 workitemId）；`processed_retract` 取本人 FINISH 且所属节点仍 PROCESSING 项（引擎 `processedRetract` 前置一致）；`processed_expedite` 取本人 FINISH/PROCESSING 项（引擎 `processedExpedite` 口径）；`handler_transfer_retract` 按任务卡片缺口登记不渲染工作项选择、不传 `workitemId`（P17-INT-003 处置）。
+   - 工作项选择控件按接口清单 §6.2 必填参数表扩展为三档（契约自洽补充，§7.4 表未覆盖处）：`handler_cc` 取本人 PROCESSING 项（引擎 `handlerCc` 必填 workitemId）；`processed_retract` 取本人 FINISH 且所属节点仍 PROCESSING 项（引擎 `processedRetract` 前置一致）；`processed_expedite` 取本人 FINISH/PROCESSING 项（引擎 `processedExpedite` 口径）。
+   - **缺口处置落地（P17-INT-003，2026-11-21）**：① `handler_transfer_retract` 渲染工作项选择并提交 `workitemId`（选项 = 本人 ABANDON 转办弃置项即转办发起原工作项，与引擎 `transferRetract` 前置一致；配套后端面板按钮身份补「转办发起人」，见接口清单 §5.4 身份口径）；② 大写 `CHANGE_HANDLER` 工作项选项优先消费 `operation.workitemCandidates`（后端仅该按钮携带当前节点全部 PROCESSING 工作项投影），候选为空回退本人工作项，选项 label 补节点名消歧；③ `handler_cc` 抄送控件收窄 `orgType="PERSON"`（operate 通道 `requireUserTargetsExist` 仅接受人员 id；抄送节点的自动抄送仍为地址本全类型解析，两处语义不同）。
 
 ### 7.4 审批意见与流向选择控件
 
 | 控件 | 触发条件 | 规格 |
 | --- | --- | --- |
 | 审批意见 | 任何操作 | `el-input type="textarea"`（3 行）；默认值按 7.3-3 回填；`handler_*`/`admin_*` 类操作必填 |
-| 待处理工作项 | 通过/拒绝/转办/转办收回/更换审批人 | `el-select`，选项 = `panel.myWorkitems` 中 `fieldStatus === 'PROCESSING'` 的项（label 为处理人姓名） |
+| 待处理工作项 | 通过/拒绝/转办/抄送/更换审批人 | `el-select`，选项 = `panel.myWorkitems` 中 `fieldStatus === 'PROCESSING'` 的项（label 为处理人姓名）；**`admin_change_handler`（含大写 `CHANGE_HANDLER` 归一）优先取 `operation.workitemCandidates`（当前节点全部 PROCESSING 工作项投影，含他人工作项；候选为空回退本人项），label 为「节点名 · 处理人」** |
+| 本人工作项（转办收回） | `handler_transfer_retract` | `el-select`，选项 = 本人 `fieldStatus === 'ABANDON'` 的转办弃置工作项（转办发起原工作项，P17-INT-003 缺口①落地），提交 `workitemId`；label 为「节点名 · 处理人」 |
+| 本人工作项（processed 档） | `processed_retract`（本人 FINISH 且所属节点仍 PROCESSING）/ `processed_expedite`（本人 FINISH/PROCESSING） | `el-select`，选项 = `panel.myWorkitems` 内按档过滤；label 为「节点名 · 处理人」（契约自洽补充，见 7.3-8） |
 | 驳回目标 | `handler_reject` | `el-select`，选项 = `panel.rejectTargets`（后端按节点 `rejectTargets` ∩ 已流经节点计算）；**为空时默认仅起草节点** |
 | 重新提交后流转方式 | `handler_reject` | `el-radio-group`，选项来自 `dict.process_resume_mode`（`restart` 重新流转 / `backToNode` 转回驳回节点），**必选** |
 | 人工决策流向（`flowChoice`） | 当前操作对应节点在 `panel.flowDecisions` 中（即本节点被某人工决策节点列为决策来源） | `el-select`，**可空**；选项 = 该人工决策节点的**出边目标节点**（`node_key` + 名称）；提示「不选择时按该人工决策节点的默认流向流转」；**后提交覆盖先提交**为后端语义，前端不做特殊处理 |
-| 抄送人 | `handler_cc` | 地址本多选（`orgType="ALL"` + `multi` + `showRole`）；必填至少 1 人 |
+| 抄送人 | `handler_cc` | 地址本多选（`orgType="PERSON"` + `multi`；P17-INT-003 收窄——operate 通道 `requireUserTargetsExist` 仅接受人员 id，抄送节点的自动抄送仍为地址本全类型解析，两处语义不同）；必填至少 1 人 |
 | 被转办人 | `handler_transfer` | 地址本多选（`orgType="PERSON"` 或 `ALL`，结果须为人员）；必填 |
 | 目标用户 | `admin_change_handler` | 地址本单选（人员） |
 | 目标节点 | `admin_jump` | `el-select`，选项 = `panel.nodes` 中类型为 `APPROVE` / `DRAFT` / `MANUAL` 的节点 |

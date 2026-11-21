@@ -29,6 +29,9 @@ import java.util.Map;
  *                  「节点配置 rejectTargets ∩ 已流经节点，空默认起草节点」输出；</li>
  *              <li>{@code flowChoices}：人工决策流向候选（仅 handler_pass / drafter_submit 且
  *                  存在决策来源关系时），输出决策节点全部出边目标。</li>
+ *              <li>{@code workitemCandidates}：管理员换人工作项候选（仅 CHANGE_HANDLER 按钮携带：
+ *                  本实例当前全部 PROCESSING 工作项投影，管理员经面板为「他人」工作项更换审批人；
+ *                  非管理员按钮不带该字段，避免数据面扩散）。</li>
  *              </ul>
  */
 @Data
@@ -48,6 +51,9 @@ public class SysProcessPanelOperationVo {
 
     /** 人工决策流向候选（nodeKey + nodeName；仅 handler_pass / drafter_submit 且存在决策来源关系时提供） */
     private List<SysProcessNodeOptionVo> flowChoices;
+
+    /** 管理员换人工作项候选（工作项投影；仅 CHANGE_HANDLER 按钮携带，非管理员按钮不带） */
+    private List<SysProcessExampleWorkitemVo> workitemCandidates;
 
     /** 操作类型默认中文名（14 类小写操作标识，键即 {@code SysProcessConstants.OPERATE_TYPE_*} 值） */
     private static final Map<String, String> DEFAULT_OPERATE_NAMES = buildDefaultOperateNames();

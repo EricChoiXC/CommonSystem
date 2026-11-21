@@ -34,7 +34,9 @@ import com.eric.base.sys.process.request.SysProcessOperateRequest;
 import com.eric.base.sys.process.resolver.ProcessResolver;
 import com.eric.base.sys.process.response.SysProcessExampleDetailVo;
 import com.eric.base.sys.process.response.SysProcessExampleLineVo;
+import com.eric.base.sys.process.response.SysProcessExampleNodeVo;
 import com.eric.base.sys.process.response.SysProcessExamplePanelVo;
+import com.eric.base.sys.process.response.SysProcessExampleWorkitemVo;
 import com.eric.base.sys.process.response.SysProcessNodeOptionVo;
 import com.eric.base.sys.process.response.SysProcessPanelOperationVo;
 import com.eric.base.sys.process.service.engine.ProcessFlowEngine;
@@ -2868,6 +2870,15 @@ class SysProcessExampleServiceTest {
             "{\"handlerIds\":\"" + U1 + "\",\"approveMode\":\"single\","
                     + "\"operations\":[{\"operateType\":\"handler_pass\"}]}";
 
+    /** v1_7 审批操作明细配置（含转办收回行，供转办发起人身份用例） */
+    private static final String CONFIG_OPERATIONS_WITH_TRANSFER_RETRACT =
+            "{\"handlerIds\":\"" + U1 + "\",\"approveMode\":\"single\","
+                    + "\"operations\":["
+                    + "{\"operateType\":\"handler_pass\"},"
+                    + "{\"operateType\":\"handler_transfer\"},"
+                    + "{\"operateType\":\"handler_transfer_retract\"}"
+                    + "]}";
+
     /** v1_7 审批操作明细配置（已处理人段：收回/催办） */
     private static final String CONFIG_OPERATIONS_PROCESSED =
             "{\"handlerIds\":\"" + U1 + "\",\"approveMode\":\"countersign\","
@@ -3051,6 +3062,91 @@ class SysProcessExampleServiceTest {
         assertEquals(List.of(SysProcessConstants.OPERATE_TYPE_HANDLER_PASS), operationTypes(panel));
         assertEquals("同意", panel.getOperations().get(0).getOperateName());
         assertEquals(Set.of(SysProcessConstants.OP_ATTACHMENT), panel.getNodeOps());
+    }
+
+    @Test
+    void panelTransferRetractRowVisibleToTransferInitiatorOnly() {
+        // 转办收回（P17-INT-003 缺口①）：转办发起人（本人在当前在途节点持有被转办弃置 ABANDON 工作项）
+        // 可见 handler_transfer_retract 按钮；当前被转办人（PROCESSING 工作项）不可见（执行身份=原审批人）
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_PROCESSING, CONFIG_OPERATIONS_WITH_TRANSFER_RETRACT));
+        when(nodeDao.selectByExampleAndStatus(EXAMPLE_ID, SysProcessConstants.NODE_STATUS_PROCESSING))
+                .thenReturn(List.of(exampleNodeAt(3)));
+        // 转办发起人 U1：仅持有 ABANDON 原工作项（已转办给 U2）
+        when(workitemDao.selectByExampleAndHandler(EXAMPLE_ID, U1)).thenReturn(List.of(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_ABANDON)));
+
+        SysProcessExamplePanelVo initiatorPanel = panelAs(U1);
+        assertTrue(operationTypes(initiatorPanel).contains(
+                SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER_RETRACT),
+                "转办发起人应看到转办收回按钮");
+
+        // 被转办人 U2：持有 PROCESSING 工作项（当前处理人），不出现转办收回
+        when(workitemDao.selectByExampleAndHandler(EXAMPLE_ID, U2)).thenReturn(List.of(
+                workitem(WI_U2, NODE3_ID, U2, SysProcessConstants.WORKITEM_STATUS_PROCESSING)));
+        when(workitemDao.selectByExampleAndHandler(EXAMPLE_ID, U1)).thenReturn(List.of());
+        SysProcessExamplePanelVo transfereePanel = panelAs(U2);
+        assertFalse(operationTypes(transfereePanel).contains(
+                SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER_RETRACT),
+                "被转办人不应看到转办收回按钮");
+        assertTrue(operationTypes(transfereePanel).contains(SysProcessConstants.OPERATE_TYPE_HANDLER_PASS));
+    }
+
+    @Test
+    void panelChangeHandlerCarriesWorkitemCandidatesAndOtherButtonsDoNot() {
+        // 管理员换人（P17-INT-003 缺口②）：CHANGE_HANDLER 按钮携带 workitemCandidates=当前全部
+        // PROCESSING 工作项投影（含他人工作项）；非管理员按钮不携带该字段
+        example.setFieldStatus(SysProcessConstants.EXAMPLE_STATUS_PROCESSING);
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "审批节点3", "APPROVE",
+                SysProcessConstants.NODE_STATUS_PROCESSING, CONFIG_OPERATIONS_FULL));
+        when(nodeDao.selectByExampleAndStatus(EXAMPLE_ID, SysProcessConstants.NODE_STATUS_PROCESSING))
+                .thenReturn(List.of(exampleNodeAt(3)));
+        when(workitemDao.selectByExampleAndHandler(EXAMPLE_ID, U1)).thenReturn(List.of(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_PROCESSING)));
+        // 实例全部工作项：U1/U2 各持一项 PROCESSING（候选应含 U2 项，管理员可为「他人」换人）
+        when(workitemDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(List.of(
+                workitem(WI_U1, NODE3_ID, U1, SysProcessConstants.WORKITEM_STATUS_PROCESSING),
+                workitem(WI_U2, NODE3_ID, U2, SysProcessConstants.WORKITEM_STATUS_PROCESSING)));
+        when(resolver.resolve(any(AuthorizationContext.class))).thenReturn(true);
+
+        SysProcessExamplePanelVo panel = panelAs(U1);
+
+        SysProcessPanelOperationVo changeHandler = panel.getOperations().stream()
+                .filter(op -> SysProcessConstants.ADMIN_OPERATE_CHANGE_HANDLER.equals(op.getOperateType()))
+                .findFirst().orElseThrow();
+        assertNotNull(changeHandler.getWorkitemCandidates());
+        assertEquals(List.of(WI_U1, WI_U2), changeHandler.getWorkitemCandidates().stream()
+                .map(SysProcessExampleWorkitemVo::getFieldId).toList());
+        // 非管理员按钮（节点配置行）不携带候选
+        SysProcessPanelOperationVo handlerPass = panel.getOperations().stream()
+                .filter(op -> SysProcessConstants.OPERATE_TYPE_HANDLER_PASS.equals(op.getOperateType()))
+                .findFirst().orElseThrow();
+        assertNull(handlerPass.getWorkitemCandidates());
+    }
+
+    /**
+     * 节点运行态透出（P17-INT-003 契约缺口补齐）：load/panel 响应 nodes[].runtime 按
+     * 接口清单 §5.3 输出 FORK/JOIN 运行态 JSON，无运行态节点为 null。
+     */
+    @Test
+    void loadCarriesNodeRuntimeForForkAndJoin() {
+        exampleNodes.set(2, exampleNode(NODE3_ID, 3, "并行开始", "FORK",
+                SysProcessConstants.NODE_STATUS_FINISH,
+                "{\"joinMode\":\"all\",\"noBranchMode\":\"error\"}"));
+        exampleNodes.get(2).setFieldRuntime("{\"activeBranchKeys\":[\"N4\"],\"joinMode\":\"all\"}");
+
+        SysProcessExampleDetailVo detail = service.load(EXAMPLE_ID);
+
+        SysProcessExampleNodeVo forkNode = detail.getNodes().stream()
+                .filter(n -> "FORK".equals(n.getFieldNodeType())).findFirst().orElseThrow();
+        assertNotNull(forkNode.getRuntime());
+        assertEquals(List.of("N4"), forkNode.getRuntime().getActiveBranchKeys());
+        assertEquals("all", forkNode.getRuntime().getJoinMode());
+        // 无运行态节点 runtime 为 null
+        SysProcessExampleNodeVo startNode = detail.getNodes().stream()
+                .filter(n -> "START".equals(n.getFieldNodeType())).findFirst().orElseThrow();
+        assertNull(startNode.getRuntime());
     }
 
     /**

@@ -75,12 +75,13 @@
           <div class="field-tip">不选择时按该人工决策节点的默认流向流转</div>
         </el-form-item>
         <el-form-item v-if="isCc" label="抄送人" required>
+          <!-- 缺口③：operate 通道 requireUserTargetsExist 仅接受人员 id，控件收窄 PERSON
+               （抄送节点的自动抄送仍为地址本全类型解析，两处语义不同，分册已回写） -->
           <AddressBook
             v-model:field-id="form.ccToIds"
             v-model:field-name="form.ccToNames"
-            org-type="ALL"
+            org-type="PERSON"
             multi
-            show-role
           />
         </el-form-item>
         <el-form-item v-if="isTransfer" label="被转办人" required>
@@ -191,10 +192,13 @@ import ProcessFlowViewer from './ProcessFlowViewer.vue'
  * 无统一通道对应项，按钮照常渲染并**原样透传** operateType，由宿主按 adminOperate 通道
  * 转发或忽略（分册 §7.2：终审/暂停/恢复保持特权操作入口语义）。
  *
- * 已知缺口（登记，P17-INT-003 处置，见任务清单 4.35 交付记录）：
- * handler_transfer_retract 不渲染工作项选择、不传 workitemId（转办发起人被弃置工作项的
- * 选取口径待定）；大写 CHANGE_HANDLER 的工作项选项为本人工作项，管理员更换「他人」工作项
- * 时无数据源。抄送与 processed_* 两类的工作项选择为对齐 §6.2 必填参数表的契约自洽补充。
+ * FE-006 缺口处置（P17-INT-003 落地，2026-11-21）：① 转办收回补本人工作项选择（选项=本人
+ * ABANDON 转办弃置项，即转办发起原工作项，operate 通道必填 workitemId）——配套后端面板按钮
+ * 身份补「转办发起人」（转办后本人不再持有 PROCESSING 工作项，既有 handler_ 前缀判定覆盖不到）；
+ * ② 大写 CHANGE_HANDLER 工作项候选消费 operation.workitemCandidates（后端仅该按钮携带当前
+ * 全部 PROCESSING 工作项投影），候选为空回退本人工作项；③ 抄送控件收窄 orgType=PERSON
+ * （operate 通道 requireUserTargetsExist 仅接受人员 id；抄送节点的自动抄送仍为地址本全类型
+ * 解析，两处语义不同）。④⑤（processed_* 三档选择、ccToIds 通道）FE-006 已落地，本次链路实测。
  *
  * @param {String} exampleId 流程实例 id
  * @emits submit { exampleId, operateType, workitemId, content, resumeMode, rejectTargetKey,
@@ -242,6 +246,8 @@ const ADMIN_TYPE_ALIAS = {
 
 /** 需要选择待处理工作项（PROCESSING 选项）的操作（分册 §7.4 表；handler_cc 为契约自洽补充，见下） */
 const PROCESSING_WORKITEM_TYPES = new Set(['handler_pass', 'handler_reject', 'handler_transfer', 'handler_cc', 'admin_change_handler'])
+/** 转办收回：§6.2 必填 workitemId=本人 ABANDON 转办弃置项（转办发起原工作项，引擎 transferRetract 口径） */
+const TRANSFER_RETRACT_WORKITEM_TYPES = new Set(['handler_transfer_retract'])
 /** 已审批收回：§6.2 必填 workitemId=本人 FINISH 工作项且所属节点仍 PROCESSING（引擎 processedRetract 口径） */
 const RETRACT_WORKITEM_TYPES = new Set(['processed_retract'])
 /** 已审批人催办：§6.2 必填 workitemId=本人 FINISH / PROCESSING 工作项（引擎 processedExpedite 口径） */
@@ -306,6 +312,7 @@ const activeType = computed(() => normalizeType(form.operateType))
 const needWorkitem = computed(
   () =>
     PROCESSING_WORKITEM_TYPES.has(activeType.value) ||
+    TRANSFER_RETRACT_WORKITEM_TYPES.has(activeType.value) ||
     RETRACT_WORKITEM_TYPES.has(activeType.value) ||
     EXPEDITE_WORKITEM_TYPES.has(activeType.value)
 )
@@ -319,13 +326,31 @@ const contentRequired = computed(() =>
 )
 
 /**
- * 工作项下拉选项（按操作语义分三档，均为 panel.myWorkitems 数据源内过滤）：
- * 审批人类操作（含抄送）取本人 PROCESSING 项；已审批收回取本人 FINISH 且所属节点仍 PROCESSING 项
- * （与引擎 processedRetract 前置一致，防提交后 STATE_CONFLICT）；已审批人催办取本人 FINISH/PROCESSING 项。
+ * 管理员换人工作项候选（缺口②）：operation.workitemCandidates 为后端仅 CHANGE_HANDLER 按钮
+ * 携带的当前节点全部 PROCESSING 工作项投影（管理员可为「他人」工作项换人）；候选为空时回退
+ * 本人工作项（与 FE-006 既有口径兼容）。
+ */
+const adminChangeHandlerCandidates = computed(() => {
+  const op = operations.value.find((item) => normalizeType(item.operateType) === 'admin_change_handler')
+  return (op?.workitemCandidates || []).filter((w) => w.fieldStatus === 'PROCESSING')
+})
+
+/**
+ * 工作项下拉选项（按操作语义分档）：审批人类操作（含抄送）取本人 PROCESSING 项；
+ * 管理员换人优先取 operation.workitemCandidates（空回退本人 PROCESSING 项）；
+ * 转办收回取本人 ABANDON 转办弃置项（转办发起原工作项，与引擎 transferRetract 前置一致）；
+ * 已审批收回取本人 FINISH 且所属节点仍 PROCESSING 项（防提交后 STATE_CONFLICT）；
+ * 已审批人催办取本人 FINISH/PROCESSING 项。
  * 注：分册 §7.4 控件清单未覆盖抄送与 processed_* 两类，此为对齐接口清单 §6.2 必填参数表的
  * 契约自洽补充（引擎三方法均 requireOperateParam(workitemId)），偏差已在交付记录登记。
  */
 const workitemOptions = computed(() => {
+  if (activeType.value === 'admin_change_handler' && adminChangeHandlerCandidates.value.length) {
+    return adminChangeHandlerCandidates.value
+  }
+  if (TRANSFER_RETRACT_WORKITEM_TYPES.has(activeType.value)) {
+    return myWorkitems.value.filter((w) => w.fieldStatus === 'ABANDON')
+  }
   if (RETRACT_WORKITEM_TYPES.has(activeType.value)) {
     const processingNodeIds = new Set(
       nodes.value.filter((n) => n.fieldStatus === 'PROCESSING').map((n) => n.fieldId)
@@ -343,14 +368,15 @@ const workitemLabel = computed(() =>
   PROCESSING_WORKITEM_TYPES.has(activeType.value) ? '待处理工作项' : '本人工作项'
 )
 
-/** 工作项选项 label：PROCESSING 档按 §7.4 冻结为处理人姓名；processed_* 档补充节点名消歧（同处理人多节点并行） */
+/** 工作项选项 label：本人待处理项按 §7.4 冻结为处理人姓名；换人候选、processed_ 档与转办收回档补充节点名消歧（同处理人多节点并行或跨人候选） */
 function workitemOptionLabel(w) {
   const handler = w.fieldHandlerName || w.fieldHandlerId || '-'
-  if (PROCESSING_WORKITEM_TYPES.has(activeType.value)) {
+  if (PROCESSING_WORKITEM_TYPES.has(activeType.value)
+    && !(activeType.value === 'admin_change_handler' && adminChangeHandlerCandidates.value.length)) {
     return handler
   }
   const node = nodes.value.find((n) => n.fieldId === w.fieldNodeId)
-  return `${node?.fieldNodeName || w.fieldNodeId} · ${handler}`
+  return `${node?.fieldNodeName || w.fieldNodeName || w.fieldNodeId} · ${handler}`
 }
 
 /** 驳回目标候选（operation.rejectTargets，值=nodeKey）；候选意外为空时防御兜底起草节点（后端已保证非空） */

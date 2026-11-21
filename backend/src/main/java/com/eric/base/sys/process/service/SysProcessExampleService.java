@@ -2309,9 +2309,18 @@ public class SysProcessExampleService {
                 }
             }
         }
+        java.util.Set<String> currentNodeIds = currentNodes.stream()
+                .map(SysProcessExampleNode::getFieldId).collect(java.util.stream.Collectors.toSet());
         SysProcessExampleNode handlerNode = resolveHandlerNode(currentNodes, myWorkitems);
         SysProcessExampleNode fallbackHandlerNode =
                 null == handlerNode ? resolveHandlerNode(nodes, myWorkitems) : handlerNode;
+        // 转办发起人（P17-INT-003 缺口① 补全）：本人在当前在途节点持有被转办弃置（ABANDON）的工作项。
+        // handler_transfer_retract 执行身份=原审批人（转办发起人），转办后本人仅持有 ABANDON 原工作项，
+        // 既有 handler_ 前缀「当前处理人」判定覆盖不到（面板按钮无法出现），按操作矩阵 §6.3 单独放行；
+        // 被转办工作项是否仍可收回（未被处理）由 operate 通道引擎最终校验兜底。
+        boolean transferInitiator = null != myWorkitems && myWorkitems.stream()
+                .anyMatch(w -> WORKITEM_STATUS_ABANDON.equals(w.getFieldStatus())
+                        && currentNodeIds.contains(w.getFieldNodeId()));
 
         // 节点 operations 配置行（v1_7 模板）：无任何配置（旧模板/空 operations）时按既有逻辑兜底
         List<SysProcessTemplateNodeConfigDo.OperationDetail> configRows =
@@ -2338,7 +2347,8 @@ public class SysProcessExampleService {
             for (SysProcessTemplateNodeConfigDo.OperationDetail row : configRows) {
                 String operateType = trimToNull(row.getOperateType());
                 if (null == operateType
-                        || !matchesIdentity(operateType, drafter, null != handlerNode, processed)
+                        || !matchesIdentity(operateType, drafter, null != handlerNode, processed,
+                                transferInitiator)
                         || !stateAllows(operateType, status)) {
                     continue;
                 }
@@ -2354,7 +2364,7 @@ public class SysProcessExampleService {
                     operations.add(adminPanelOperation(ADMIN_OPERATE_FINISH));
                     operations.add(adminPanelOperation(ADMIN_OPERATE_ABANDON));
                     operations.add(adminPanelOperation(ADMIN_OPERATE_PAUSE));
-                    operations.add(adminPanelOperation(ADMIN_OPERATE_CHANGE_HANDLER));
+                    operations.add(adminChangeHandlerPanelOperation(example));
                 }
                 case EXAMPLE_STATUS_RETURN -> {
                     operations.add(adminPanelOperation(ADMIN_OPERATE_JUMP));
@@ -2437,8 +2447,14 @@ public class SysProcessExampleService {
      * 配置行身份判定（按 operateType 前缀推导）：drafter_*=起草人（user==creator）、
      * handler_*=当前审批人（当前 PROCESSING 节点持 PROCESSING 工作项）、
      * processed_*=已处理人（本实例有 FINISH 工作项）；其余前缀（admin_* 等）不按节点配置出按钮。
+     * <p>例外：{@code handler_transfer_retract} 执行身份为「原审批人（转办发起人）」（操作矩阵 §6.3，
+     * 转办后本人仅持有 ABANDON 原工作项、不再满足当前处理人判定），按 {@code transferInitiator} 放行。</p>
      */
-    private static boolean matchesIdentity(String operateType, boolean drafter, boolean handler, boolean processed) {
+    private static boolean matchesIdentity(String operateType, boolean drafter, boolean handler,
+                                           boolean processed, boolean transferInitiator) {
+        if (SysProcessConstants.OPERATE_TYPE_HANDLER_TRANSFER_RETRACT.equals(operateType)) {
+            return transferInitiator;
+        }
         if (operateType.startsWith("drafter_")) {
             return drafter;
         }
@@ -2603,6 +2619,23 @@ public class SysProcessExampleService {
         return vo;
     }
 
+    /**
+     * 管理员更换审批人按钮行（P17-INT-003 缺口② 落地）：大写 CHANGE_HANDLER 标识 + 默认中文名，
+     * 附带 {@code workitemCandidates} —— 本实例当前全部 PROCESSING 工作项投影（仅本按钮携带，
+     * 非管理员按钮不带；管理员经面板为「他人」工作项换人，解决既有面板仅本人工作项无数据源问题）。
+     * 面板仅做展示预判，目标工作项归属与状态由 adminOperate / operate 通道引擎最终校验兜底。
+     */
+    private SysProcessPanelOperationVo adminChangeHandlerPanelOperation(SysProcessExample example) {
+        SysProcessPanelOperationVo vo = adminPanelOperation(ADMIN_OPERATE_CHANGE_HANDLER);
+        List<SysProcessExampleWorkitem> workitems = workitemDao.selectListByExampleId(example.getFieldId());
+        List<SysProcessExampleWorkitemVo> candidates = null == workitems ? new ArrayList<>()
+                : toWorkitemVos(workitems.stream()
+                        .filter(w -> WORKITEM_STATUS_PROCESSING.equals(w.getFieldStatus()))
+                        .toList());
+        vo.setWorkitemCandidates(candidates);
+        return vo;
+    }
+
     /* ==================== VO 转换 ==================== */
 
     private SysProcessExampleVo toExampleVo(SysProcessExample example) {
@@ -2642,6 +2675,9 @@ public class SysProcessExampleService {
             vo.setFieldNodeType(node.getFieldNodeType());
             vo.setFieldStatus(node.getFieldStatus());
             vo.setFieldNodeKey(ProcessFlowGraph.nodeKey(node));
+            // 节点运行态透出（接口清单 §5.3/§5.4 nodes[].runtime 契约，P17-INT-003 缺口补齐）：
+            // FORK 激活分支集合与汇聚模式 / JOIN 到达分支集合；无运行态为 null
+            vo.setRuntime(flowSupport.parseNodeRuntime(node.getFieldRuntime()));
             return vo;
         }).toList();
     }

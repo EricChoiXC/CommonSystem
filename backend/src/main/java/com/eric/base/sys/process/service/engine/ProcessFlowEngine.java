@@ -464,19 +464,19 @@ public class ProcessFlowEngine {
             return enterDraft(context, node);
         }
         if (SysProcessConstants.NODE_TYPE_APPROVE.equals(nodeType)) {
-            return enterApprove(context, node);
+            return enterApprove(context, node, branchKey);
         }
         if (SysProcessConstants.NODE_TYPE_END.equals(nodeType)) {
             return enterEnd(context, node);
         }
         if (SysProcessConstants.NODE_TYPE_CC.equals(nodeType)) {
-            return enterCc(context, node);
+            return enterCc(context, node, branchKey);
         }
         if (SysProcessConstants.NODE_TYPE_ROBORT.equals(nodeType)) {
-            return enterRobort(context, node);
+            return enterRobort(context, node, branchKey);
         }
         if (SysProcessConstants.NODE_TYPE_CONDITION.equals(nodeType)) {
-            return enterCondition(context, node);
+            return enterCondition(context, node, branchKey);
         }
         if (SysProcessConstants.NODE_TYPE_FORK.equals(nodeType)) {
             return enterFork(context, node);
@@ -485,7 +485,7 @@ public class ProcessFlowEngine {
             return enterJoin(context, node, branchKey);
         }
         if (SysProcessConstants.NODE_TYPE_MANUAL.equals(nodeType)) {
-            return enterManual(context, node);
+            return enterManual(context, node, branchKey);
         }
         throw ProcessFlowException.graph("节点「" + displayName(node.getFieldNodeName())
                 + "」的节点类型不受支持: " + nodeType);
@@ -694,7 +694,7 @@ public class ProcessFlowEngine {
      * <p>公式源解析失败由 {@link ProcessHandlerResolver#resolveCcIds} 抛
      * {@link ProcessHandlerResolveException}，经 {@link #run} 统一出口转流程异常。</p>
      */
-    private boolean enterCc(FlowContext context, SysProcessExampleNode node) {
+    private boolean enterCc(FlowContext context, SysProcessExampleNode node, String branchKey) {
         SysProcessTemplateNodeConfigDo config = support.parseNodeConfig(node.getFieldNodeConfig());
         List<String> ccIds = handlerResolver.resolveCcIds(config, node.getFieldNodeName(),
                 formulaVariables(context, config));
@@ -710,8 +710,10 @@ public class ProcessFlowEngine {
                     "抄送对象: " + String.join(";", ccIds));
         }
         finishNode(context, node, null);
+        // 沿出边继续：并行分支内携带当前任务分支键（P17-INT-003 修复：分支末端为无工作项节点时
+        // 分支键丢失会使 JOIN 到达计数回溯不到归属分支，流程卡在汇聚等待）
         enqueueKey(context, context.graph.singleOutgoing(ProcessFlowGraph.nodeKey(node),
-                node.getFieldNodeName()).toKey(), null);
+                node.getFieldNodeName()).toKey(), branchKey);
         return true;
     }
 
@@ -720,7 +722,7 @@ public class ProcessFlowEngine {
      * <p>任务实现由 <b>P17-BE-005</b> 提供（{@link ProcessTaskExecutor}）；无实现 bean 时按
      * 「无任务则直接 FINISH」处理，保证图流转等价。</p>
      */
-    private boolean enterRobort(FlowContext context, SysProcessExampleNode node) {
+    private boolean enterRobort(FlowContext context, SysProcessExampleNode node, String branchKey) {
         SysProcessTemplateNodeConfigDo config = support.parseNodeConfig(node.getFieldNodeConfig());
         List<SysProcessTemplateNodeConfigDo.TaskDetail> tasks = null == config || null == config.getTasks()
                 ? List.of() : config.getTasks();
@@ -735,8 +737,9 @@ public class ProcessFlowEngine {
         }
         runNodeTasks(context, node, null, null, unbound);
         finishNode(context, node, null);
+        // 沿出边继续：并行分支内携带当前任务分支键（P17-INT-003 修复，口径同 enterCc）
         enqueueKey(context, context.graph.singleOutgoing(ProcessFlowGraph.nodeKey(node),
-                node.getFieldNodeName()).toKey(), null);
+                node.getFieldNodeName()).toKey(), branchKey);
         return true;
     }
 
@@ -855,7 +858,7 @@ public class ProcessFlowEngine {
      * CONDITION：按 {@code field_branch_order} 升序求出边 {@code field_condition}，
      * 取<b>第一个 true</b> 的出边；无 true 走 {@code field_is_default=1} 的默认边。
      */
-    private boolean enterCondition(FlowContext context, SysProcessExampleNode node) {
+    private boolean enterCondition(FlowContext context, SysProcessExampleNode node, String branchKey) {
         String nodeKey = ProcessFlowGraph.nodeKey(node);
         List<ProcessFlowLine> outgoing = context.graph.outgoing(nodeKey);
         if (outgoing.isEmpty()) {
@@ -869,7 +872,7 @@ public class ProcessFlowEngine {
             }
             if (evaluateLineCondition(context, node, line)) {
                 finishNode(context, node, null);
-                enqueueKey(context, line.toKey(), null);
+                enqueueKey(context, line.toKey(), branchKey);
                 return true;
             }
         }
@@ -879,7 +882,7 @@ public class ProcessFlowEngine {
                     + "」无 true 分支且未配置默认分支", null);
         }
         finishNode(context, node, null);
-        enqueueKey(context, defaultLine.toKey(), null);
+        enqueueKey(context, defaultLine.toKey(), branchKey);
         return true;
     }
 
@@ -983,7 +986,7 @@ public class ProcessFlowEngine {
      * </ul>
      * <p>候选流向须为本节点实际出边目标之一，否则回退默认流向。</p>
      */
-    private boolean enterManual(FlowContext context, SysProcessExampleNode node) {
+    private boolean enterManual(FlowContext context, SysProcessExampleNode node, String branchKey) {
         String nodeKey = ProcessFlowGraph.nodeKey(node);
         SysProcessTemplateNodeConfigDo config = support.parseNodeConfig(node.getFieldNodeConfig());
         SysProcessExampleWorkitem lastWorkitem = latestFlowChoiceWorkitem(context, nodeKey);
@@ -1017,7 +1020,7 @@ public class ProcessFlowEngine {
                     + "」的流向目标 " + choice + " 不是本节点出边目标");
         }
         finishNode(context, node, lastWorkitem);
-        enqueueKey(context, target.toKey(), null);
+        enqueueKey(context, target.toKey(), branchKey);
         return true;
     }
 
@@ -1166,7 +1169,7 @@ public class ProcessFlowEngine {
      *
      * @return true=继续流转；false=停留等待审批
      */
-    private boolean enterApprove(FlowContext context, SysProcessExampleNode node) {
+    private boolean enterApprove(FlowContext context, SysProcessExampleNode node, String branchKey) {
         // 已在审批中的节点（恢复并行分支/重复入队）：不再重复创建工作项
         if (hasActiveWorkitem(node.getFieldId())
                 && SysProcessConstants.NODE_STATUS_PROCESSING.equals(node.getFieldStatus())) {
@@ -1174,12 +1177,12 @@ public class ProcessFlowEngine {
             return false;
         }
         SysProcessTemplateNodeConfigDo config = support.parseNodeConfig(node.getFieldNodeConfig());
-        return createApproveWorkitems(context, node, config);
+        return createApproveWorkitems(context, node, config, branchKey);
     }
 
     /** 按审批模式（单签/会签/串行）创建工作项并落节点状态 */
     private boolean createApproveWorkitems(FlowContext context, SysProcessExampleNode node,
-                                           SysProcessTemplateNodeConfigDo config) {
+                                           SysProcessTemplateNodeConfigDo config, String branchKey) {
         String nodeKey = ProcessFlowGraph.nodeKey(node);
         // 审批人顺序解析结果同时用于「是否需创建审批工作项」判定与工作项生成（一次解析、一次比对）
         List<String> ordered = resolveHandlerOrder(context, config, node);
@@ -1190,13 +1193,14 @@ public class ProcessFlowEngine {
                         "审批节点「" + displayName(node.getFieldNodeName()) + "」无审批人（emptyHandlerMode=error），转流程异常");
             }
             support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_PASS);
-            enqueueKey(context, context.graph.singleOutgoing(nodeKey, node.getFieldNodeName()).toKey(), null);
+            // 并行分支内携带当前任务分支键（P17-INT-003 修复，口径同 enterCc）
+            enqueueKey(context, context.graph.singleOutgoing(nodeKey, node.getFieldNodeName()).toKey(), branchKey);
             return true;
         }
         Set<String> skipped = computeSkippedHandlers(context, config, new LinkedHashSet<>(ordered), nodeKey);
         String approveMode = approveMode(config);
         if (SysProcessConstants.APPROVE_MODE_SERIAL.equals(approveMode)) {
-            return enterSerialApprove(context, node, ordered, skipped);
+            return enterSerialApprove(context, node, ordered, skipped, branchKey);
         }
         int processing = 0;
         List<String> processingHandlers = new ArrayList<>();
@@ -1220,7 +1224,8 @@ public class ProcessFlowEngine {
             return false;
         }
         support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_PASS);
-        enqueueKey(context, context.graph.singleOutgoing(nodeKey, node.getFieldNodeName()).toKey(), null);
+        // 全员自动跳过：节点跳过并沿出边继续，并行分支内携带当前任务分支键（P17-INT-003 修复）
+        enqueueKey(context, context.graph.singleOutgoing(nodeKey, node.getFieldNodeName()).toKey(), branchKey);
         return true;
     }
 
@@ -1229,7 +1234,7 @@ public class ProcessFlowEngine {
      * 被自动跳过的处理人不占串行序位。
      */
     private boolean enterSerialApprove(FlowContext context, SysProcessExampleNode node,
-                                       List<String> ordered, Set<String> skipped) {
+                                       List<String> ordered, Set<String> skipped, String branchKey) {
         String firstHandler = null;
         for (String handlerId : ordered) {
             if (skipped.contains(handlerId)) {
@@ -1242,10 +1247,10 @@ public class ProcessFlowEngine {
             break;
         }
         if (null == firstHandler) {
-            // 全部处理人被自动跳过：节点跳过并继续
+            // 全部处理人被自动跳过：节点跳过并继续（并行分支内携带当前任务分支键，P17-INT-003 修复）
             support.updateNodeStatus(node, SysProcessConstants.NODE_STATUS_PASS);
             enqueueKey(context, context.graph.singleOutgoing(ProcessFlowGraph.nodeKey(node),
-                    node.getFieldNodeName()).toKey(), null);
+                    node.getFieldNodeName()).toKey(), branchKey);
             return true;
         }
         insertApproveWorkitem(context, node, firstHandler, SysProcessConstants.WORKITEM_STATUS_PROCESSING);
