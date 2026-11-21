@@ -28,6 +28,10 @@
  * 重排后 1..n 回写 —— 分支配置弹窗的上移/下移只改弹窗内工作副本，画布回写与保存组装统一
  * 走本模块归一，保证 branch_order 与界面顺序一致。
  *
+ * 节点配置候选计算（v1_7 / P17-FE-003 追加）：rejectTargetCandidates（G9 驳回目标候选）/
+ * flowDecisionCandidates（G10 流向决策候选）/ outEdgeTargets（G6 人工决策默认流向候选），
+ * 供 FlowNodeConfigDialog 按当前图上下文计算可选项；入参兼容画布图快照与 load 平铺 VO 两种形态。
+ *
  * 自定项登记（分册未冻结细节，P17-DOC-010 走查时可调）：
  *   - 边文本 branchLineText()：有分支名称显示名称，默认分支追加「（默认）」；无名称的默认
  *     分支显示「默认」；其余不显示文本；
@@ -117,7 +121,8 @@ export const NO_NODE_CONFIG_TYPES = ['START', 'DRAFT', 'END', 'CONDITION', 'JOIN
 
 /**
  * 节点 save 元素按类型透传的配置平铺字段（接口清单 §4.2 nodes[] 全表；固定节点与
- * CONDITION/JOIN 无配置字段）。skipMode 旧值 yes/no 由后端读取归一，前端透传不改写。
+ * CONDITION/JOIN 无配置字段）。skipMode 旧值 yes/no 由后端读取归一，前端透传不改写；
+ * noBranchMode 为 T-09 定稿键名（P17-FE-003 同批补入 FORK 白名单）。
  */
 export const NODE_CONFIG_KEYS = {
   APPROVE: [
@@ -128,7 +133,7 @@ export const NODE_CONFIG_KEYS = {
   CC: ['ccSource', 'ccIds', 'ccNames', 'ccFormula', 'tasks'],
   ROBORT: ['tasks'],
   MANUAL: ['flowDecisions', 'defaultFlowKey'],
-  FORK: ['joinMode'],
+  FORK: ['joinMode', 'noBranchMode'],
 }
 
 /** 自动分层布局常量（自定项，见文件头登记）：节点中心坐标，层距需容纳菱形 96 与边文本 */
@@ -694,4 +699,128 @@ export function validateGraph(graphData) {
       }
     })
   return errors
+}
+
+/* ==================== 节点配置候选计算（v1_7 / P17-FE-003） ==================== */
+
+/**
+ * 节点配置弹窗的候选计算纯函数（分册 §5.2/§5.3 冻结口径，服务端校验 G6/G9/G10 的前端子集）：
+ *   - rejectTargetCandidates：驳回目标候选 = 起草节点 + 图上游可达审批节点（G9）；
+ *   - flowDecisionCandidates：流向决策候选 = 起草节点 + 该 MANUAL 节点图上游审批节点（G10）；
+ *   - outEdgeTargets：人工决策默认流向候选 = 本节点实际出边目标（G6）。
+ *
+ * 入参兼容两种形态（画布图快照与 load 平铺 VO）：
+ *   - nodes 元素 { nodeKey, nodeType, nodeName } 或 { nodeKey, fieldNodeType, fieldNodeName }（nodeKey 兜底 id）；
+ *   - lines 元素 { fromKey, toKey } 或 { fieldFromKey, fieldToKey } 或 { sourceNodeId, targetNodeId }。
+ * 返回 [{ nodeKey, nodeName }]；畸形数据（key 缺失/成环）不崩溃、有限步收敛。
+ */
+
+function ctxKeyOf(node) {
+  return node.nodeKey ?? node.id ?? ''
+}
+
+function ctxTypeOf(node) {
+  return node.nodeType || node.fieldNodeType || ''
+}
+
+function ctxNameOf(node) {
+  return node.nodeName ?? node.fieldNodeName ?? ''
+}
+
+function ctxFromOf(line) {
+  return line.fromKey ?? line.fieldFromKey ?? line.sourceNodeId ?? ''
+}
+
+function ctxToOf(line) {
+  return line.toKey ?? line.fieldToKey ?? line.targetNodeId ?? ''
+}
+
+/** 从 targetKey 沿连线逆向遍历的全部来源节点 key 集合（不含自身） */
+function collectUpstreamKeys(nodeList, lineList, targetKey) {
+  const incoming = new Map()
+  lineList.forEach((line) => {
+    const to = ctxToOf(line)
+    const from = ctxFromOf(line)
+    if (!to || !from) {
+      return
+    }
+    if (!incoming.has(to)) {
+      incoming.set(to, [])
+    }
+    incoming.get(to).push(from)
+  })
+  const visited = new Set()
+  const stack = [targetKey]
+  while (stack.length) {
+    const current = stack.pop()
+    ;(incoming.get(current) || []).forEach((from) => {
+      if (from !== targetKey && !visited.has(from)) {
+        visited.add(from)
+        stack.push(from)
+      }
+    })
+  }
+  return visited
+}
+
+/** 候选集 → 有序候选数组（draftKey 非空时起草节点置首，其余按 nodeKey 数值感知字典序） */
+function toCandidateList(nodeList, keySet, draftKey) {
+  const nameByKey = new Map(nodeList.map((node) => [ctxKeyOf(node), ctxNameOf(node)]))
+  return Array.from(keySet)
+    .map((key) => ({ nodeKey: key, nodeName: nameByKey.get(key) || '' }))
+    .sort((a, b) => {
+      if (draftKey) {
+        const rank = (key) => (key === draftKey ? 0 : 1)
+        return rank(a.nodeKey) - rank(b.nodeKey) || a.nodeKey.localeCompare(b.nodeKey, undefined, { numeric: true })
+      }
+      return a.nodeKey.localeCompare(b.nodeKey, undefined, { numeric: true })
+    })
+}
+
+/**
+ * 「起草节点 + 图上游审批节点」候选核心实现（rejectTargets 与 flowDecisions 候选同口径）：
+ * 起草节点固定置首，上游审批节点按 key 序排后。
+ */
+function upstreamHandlerCandidates(nodeList, lineList, nodeKey) {
+  const upstream = collectUpstreamKeys(nodeList, lineList, nodeKey)
+  const draft = nodeList.find((node) => ctxTypeOf(node) === 'DRAFT' && ctxKeyOf(node) !== nodeKey)
+  const approveKeys = nodeList.filter(
+    (node) => ctxTypeOf(node) === 'APPROVE' && ctxKeyOf(node) !== nodeKey && upstream.has(ctxKeyOf(node))
+  )
+  const keys = new Set(approveKeys.map(ctxKeyOf))
+  if (draft) {
+    keys.add(ctxKeyOf(draft))
+  }
+  return { keys, draftKey: draft ? ctxKeyOf(draft) : null }
+}
+
+/** 驳回目标候选（分册 §5.2 / 服务端校验 G9）：起草节点 + 图上游可达审批节点，起草节点置首 */
+export function rejectTargetCandidates(nodes, lines, nodeKey) {
+  const nodeList = Array.isArray(nodes) ? nodes.filter(Boolean) : []
+  const lineList = Array.isArray(lines) ? lines.filter(Boolean) : []
+  const { keys, draftKey } = upstreamHandlerCandidates(nodeList, lineList, nodeKey)
+  return toCandidateList(nodeList, keys, draftKey)
+}
+
+/** 流向决策候选（分册 §5.3 / 服务端校验 G10）：起草节点 + 该 MANUAL 节点图上游审批节点，起草节点置首 */
+export function flowDecisionCandidates(nodes, lines, nodeKey) {
+  const nodeList = Array.isArray(nodes) ? nodes.filter(Boolean) : []
+  const lineList = Array.isArray(lines) ? lines.filter(Boolean) : []
+  const { keys, draftKey } = upstreamHandlerCandidates(nodeList, lineList, nodeKey)
+  return toCandidateList(nodeList, keys, draftKey)
+}
+
+/** 人工决策默认流向候选（分册 §5.3 / 服务端校验 G6）：本节点实际出边目标 */
+export function outEdgeTargets(nodes, lines, nodeKey) {
+  const nodeList = Array.isArray(nodes) ? nodes.filter(Boolean) : []
+  const lineList = Array.isArray(lines) ? lines.filter(Boolean) : []
+  const existKeys = new Set(nodeList.map(ctxKeyOf))
+  const targets = new Set()
+  lineList.forEach((line) => {
+    const to = ctxToOf(line)
+    if (ctxFromOf(line) === nodeKey && to && existKeys.has(to)) {
+      targets.add(to)
+    }
+  })
+  return toCandidateList(nodeList, targets, false)
 }

@@ -107,6 +107,18 @@
       :formula-vars="formulaVars"
       @confirm="applyBranchResult"
     />
+
+    <!-- 节点配置弹窗（内置本组件：APPROVE/CC/MANUAL/ROBORT/FORK 多标签配置，分册 §5） -->
+    <FlowNodeConfigDialog
+      v-model:visible="nodeDialog.visible"
+      :node="nodeDialog.node"
+      :nodes="nodeDialog.context.nodes"
+      :lines="nodeDialog.context.lines"
+      :field-options="fieldOptions"
+      :ops-options="opsOptions"
+      :formula-vars="formulaVars"
+      @confirm="applyNodeConfigResult"
+    />
   </div>
 </template>
 
@@ -128,8 +140,12 @@
  *     提示「该节点类型只允许一条流出连线」；END 为 0，提示不允许拉出连线）；
  *   - 删除：Delete 键 / 画布删除，固定节点 N1/N2/N3 经 guards.beforeDelete 拦截，提示
  *     「开始/起草/结束节点为固定节点，不可删除」；删边自由；
- *   - 节点配置：双击节点或右侧【配置节点】→ emit node-config-request（固定节点
- *     START/DRAFT/END、CONDITION、JOIN 不触发，提示「该节点无节点配置」）；
+ *   - 节点配置：双击节点或右侧【配置节点】→ 打开内置 FlowNodeConfigDialog（P17-FE-003，
+ *     分册 §5 多标签：APPROVE 四标签 / CC 两标签 / MANUAL·ROBORT·FORK 各一标签），同时
+ *     emit node-config-request（固定节点 START/DRAFT/END、CONDITION、JOIN 不触发弹窗，
+ *     提示「该节点无节点配置」；事件供宿主感知与联动）；弹窗【确定】经 confirm 回抛
+ *     配置字段，画布 updateNodeProperties 局部合并回写并置脏（节点其余 properties 原样保留）；
+ *     候选（驳回目标/流向决策/默认流向）按打开时图上下文快照计算；
  *   - 分支配置：点击 CONDITION/FORK 出边连线或右侧【配置分支】→ 打开内置
  *     FlowBranchConfigDialog（分册 §4.5），同时 emit branch-config-request 通知宿主
  *     （弹窗为画布内置、宿主无需重复打开，事件供宿主感知与联动）；
@@ -149,6 +165,7 @@ import { ElMessage } from 'element-plus'
 import LogicFlow from '@logicflow/core'
 import FlowNodeMaterials from './FlowNodeMaterials.vue'
 import FlowBranchConfigDialog from './FlowBranchConfigDialog.vue'
+import FlowNodeConfigDialog from './FlowNodeConfigDialog.vue'
 import { NODE_TYPE_LABELS, registerFlowNodes } from './flowNodes'
 import {
   BRANCH_SOURCE_TYPES,
@@ -183,6 +200,18 @@ const props = defineProps({
    * 缺省时 FormulaDesigner 走宽松模式，占位符合法性权威校验在后端。
    */
   formulaVars: { type: Array, default: () => [] },
+  /**
+   * 审批人字段字典（v1_7 / P17-FE-003 新增 prop，宿主 FE-004 传入）：分类
+   * process_template.${fieldModelName}.fields（key=字段属性名，value=中文），
+   * 供节点配置弹窗「审批人字段」下拉；缺省为空（下拉无可选项）。
+   */
+  fieldOptions: { type: Object, default: () => ({}) },
+  /**
+   * 操作标识字典（v1_7 / P17-FE-003 新增 prop，宿主 FE-004 传入）：分类
+   * process_template.${fieldModelName}.ops（key=操作标识，value=中文），供节点配置
+   * 弹窗「审批权限」标签开关键集；缺省为空（标签提示未配置操作标识）。
+   */
+  opsOptions: { type: Object, default: () => ({}) },
 })
 
 const emit = defineEmits(['node-config-request', 'branch-config-request', 'graph-change'])
@@ -204,6 +233,13 @@ const branchDialog = reactive({
   nodeName: '',
   nodeType: 'CONDITION',
   branches: [],
+})
+
+/** 内置节点配置弹窗状态（P17-FE-003：node=节点摘要，context=打开时图上下文快照） */
+const nodeDialog = reactive({
+  visible: false,
+  node: null,
+  context: { nodes: [], lines: [] },
 })
 
 let lf = null
@@ -335,19 +371,12 @@ function bindCanvasEvents() {
     selectedNode.value = null
     selectedEdge.value = null
   })
-  // 节点配置入口：双击节点
+  // 节点配置入口：双击节点（固定节点/CONDITION/JOIN 拦截提示；其余打开内置节点配置弹窗）
   lf.on('node:dbclick', ({ data }) => {
     const node = projectNode(data)
     selectedNode.value = node
     selectedEdge.value = null
-    if (props.readonly) {
-      return
-    }
-    if (NO_NODE_CONFIG_TYPES.includes(node.nodeType)) {
-      ElMessage.info('该节点无节点配置')
-      return
-    }
-    emit('node-config-request', node)
+    openNodeConfigDialog(node)
   })
   // 撤销/重做按钮态（History 自带 100ms debounce 后触发）
   lf.on('history:change', ({ data }) => {
@@ -439,17 +468,64 @@ function handleMaterialDragStart(material) {
 
 /* ==================== 节点 / 分支配置 ==================== */
 
-/** 右侧【配置节点】入口（双击同逻辑；固定节点/条件分支/并行结束无配置） */
+/**
+ * 节点配置入口（双击节点与右侧【配置节点】共用；固定节点/条件分支/并行结束无配置）：
+ * 打开内置 FlowNodeConfigDialog（与分支弹窗同构），node-config-request 保留为宿主感知事件。
+ */
 function requestNodeConfig(node) {
-  if (NO_NODE_CONFIG_TYPES.includes(node.nodeType)) {
+  openNodeConfigDialog(node)
+}
+
+/** 打开内置节点配置弹窗：只读拦截 → 无配置类型拦截提示 → 快照图上下文 + emit 宿主感知事件 */
+function openNodeConfigDialog(node) {
+  if (props.readonly) {
+    return
+  }
+  if (!node || NO_NODE_CONFIG_TYPES.includes(node.nodeType)) {
     ElMessage.info('该节点无节点配置')
     return
   }
+  nodeDialog.node = {
+    nodeKey: node.nodeKey || node.id || '',
+    fieldNodeType: node.nodeType || '',
+    nodeName: node.nodeName || '',
+    properties: { ...(node.properties || {}) },
+  }
+  nodeDialog.context = graphContextSnapshot()
+  nodeDialog.visible = true
   emit('node-config-request', node)
 }
 
 /**
- * 节点配置回写（供 P17-FE-003/FE-004 宿主在配置弹窗确认后调用）：
+ * 当前画布图上下文快照（节点配置弹窗候选计算数据源，打开弹窗时采集）：
+ * nodes 元素 { nodeKey, nodeType, nodeName }（nodeKey 以节点 properties 为准、兜底画布 id）、
+ * lines 元素 { fromKey, toKey }。
+ */
+function graphContextSnapshot() {
+  if (!lf) {
+    return { nodes: [], lines: [] }
+  }
+  const raw = lf.getGraphRawData()
+  return {
+    nodes: raw.nodes.map((node) => ({
+      nodeKey: node.properties?.nodeKey || node.id || '',
+      nodeType: node.properties?.nodeType || '',
+      nodeName: node.properties?.nodeName || '',
+    })),
+    lines: raw.edges.map((edge) => ({
+      fromKey: edge.sourceNodeId,
+      toKey: edge.targetNodeId,
+    })),
+  }
+}
+
+/** 节点配置弹窗【确定】回写：仅弹窗渲染的配置字段经 updateNodeProperties 局部合并（其余 properties 原样保留）并置脏 */
+function applyNodeConfigResult(nodeKey, configFields) {
+  updateNodeProperties(nodeKey, configFields || {})
+}
+
+/**
+ * 节点配置回写（供 P17-FE-003 节点配置弹窗 / P17-FE-004 宿主调用）：
  * 合并 properties（配置平铺字段），nodeName 变化同步节点文本渲染。
  */
 function updateNodeProperties(nodeId, partial) {
