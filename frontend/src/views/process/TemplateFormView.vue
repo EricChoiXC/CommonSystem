@@ -47,218 +47,36 @@
       </el-row>
     </el-form>
 
-    <!-- ============ 下部：节点配置列表 ============ -->
-    <div class="node-section">
-      <div class="node-section-header">
-        <span class="node-section-title">节点配置</span>
-        <el-button v-if="!isDetail && canEdit" type="primary" plain size="small" @click="addApproveNode">添加审批节点</el-button>
+    <!-- ============ 下部：画布设计器三段（物料面板 / LogicFlow 画布 / 属性区） ============
+         节点配置（双击节点或【配置节点】）与分支配置（点击分支出边连线或【配置分支】）
+         由画布内置 FlowNodeConfigDialog / FlowBranchConfigDialog 承载，页面不再自建弹窗；
+         详情模式 readonly：不挂物料面板与编辑交互，仅渲染只读画布。 -->
+    <div class="designer-section">
+      <div class="designer-section-header">
+        <span class="designer-section-title">流程设计</span>
       </div>
-      <el-table :data="form.nodes" border stripe row-key="fieldId" size="default">
-        <el-table-column prop="fieldNo" label="节点编号" width="90" align="center" />
-        <el-table-column label="节点名称" min-width="160">
-          <template #default="{ row }">
-            <el-input
-              v-if="row.fieldNodeType === 'APPROVE' && !isDetail && canEdit"
-              v-model="row.fieldNodeName"
-              size="small"
-              placeholder="请输入节点名称"
-            />
-            <span v-else>{{ row.fieldNodeName }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="节点类型" min-width="110">
-          <template #default="{ row }">
-            <el-tag :type="nodeTypeTag(row.fieldNodeType)" size="small">{{ nodeTypeText(row.fieldNodeType) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="节点配置" min-width="140">
-          <template #default="{ row }">
-            <el-button
-              v-if="row.fieldNodeType === 'APPROVE'"
-              link
-              type="primary"
-              @click="openConfigDialog(row)"
-            >配置</el-button>
-            <span v-else class="node-config-empty">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column v-if="!isDetail && canEdit" label="操作" width="200" fixed="right">
-          <template #default="{ row }">
-            <template v-if="row.fieldNodeType === 'APPROVE'">
-              <el-button
-                link
-                type="primary"
-                :disabled="isFirstApprove(row)"
-                @click="moveNode(row, -1)"
-              >上移</el-button>
-              <el-button
-                link
-                type="primary"
-                :disabled="isLastApprove(row)"
-                @click="moveNode(row, 1)"
-              >下移</el-button>
-              <el-button
-                link
-                type="danger"
-                @click="removeApproveNode(row)"
-              >删除</el-button>
-            </template>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-      </el-table>
-      <div v-if="!isDetail && canEdit" class="node-tip">
-        固定节点（开始/草稿/结束）不可编辑；审批节点请点击「配置」设置审批来源、审批人、审批模式、节点触发等；结束节点编号随审批节点的创建自动顺延。
-      </div>
+      <FlowDesignerCanvas
+        ref="designerRef"
+        :nodes="graphNodes"
+        :lines="graphLines"
+        :readonly="isDetail"
+        :field-model-name="form.fieldModelName"
+        :field-options="modelFieldsDict"
+        :ops-options="modelOpsDict"
+        :formula-vars="formulaVars"
+      />
     </div>
-
-    <!-- ============ 节点配置弹框（多标签：基础 / 审批权限） ============ -->
-    <el-dialog
-      v-model="configDialogVisible"
-      :title="`节点配置：${configNode.fieldNodeName || ''}`"
-      width="600px"
-      :close-on-click-modal="false"
-    >
-      <el-tabs v-model="configActiveTab">
-        <!-- 基础标签：审批来源、审批人、审批模式、节点触发、触发条件、允许自动跳过、允许连续跳过 -->
-        <el-tab-pane label="基础" name="base">
-          <el-form :model="configForm" label-width="110px" :disabled="isDetail">
-            <el-form-item label="审批来源">
-              <el-select v-model="configForm.handlerSource" style="width: 100%">
-                <el-option v-for="opt in HANDLER_SOURCE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </el-form-item>
-            <el-form-item v-if="configForm.handlerSource === 'org'" label="审批人" required>
-              <AddressBook
-                v-model:field-id="configForm.handlerIds"
-                v-model:field-name="configForm.handlerNames"
-                org-type="PERSONPOST"
-                multi
-                :disabled="isDetail"
-              />
-            </el-form-item>
-            <el-form-item v-else label="审批人字段" required>
-              <el-select v-model="configForm.handlerField" style="width: 100%" placeholder="请选择审批人字段" filterable>
-                <el-option v-for="(label, key) in modelFieldsDict" :key="key" :label="label" :value="key" />
-              </el-select>
-              <div class="node-ops-tip">审批时读取该字段值解析出的组织架构（岗位/用户）作为审批人。</div>
-            </el-form-item>
-            <el-form-item label="审批模式">
-              <el-select v-model="configForm.approveMode" style="width: 100%">
-                <el-option v-for="opt in APPROVE_MODE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="节点触发">
-              <el-select v-model="configForm.triggerType" style="width: 100%">
-                <el-option v-for="opt in TRIGGER_TYPE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </el-form-item>
-            <!-- 触发条件：不可编辑输入框 + 「编辑」按钮，点击打开公式编辑弹窗，确认后回填 -->
-            <el-form-item v-if="configForm.triggerType === 'condition'" label="触发条件" required>
-              <el-input
-                :model-value="configForm.condition"
-                readonly
-                placeholder="请点击「编辑」填写判断公式"
-              >
-                <template #append>
-                  <el-button :disabled="isDetail" @click="openConditionDialog">编辑</el-button>
-                </template>
-              </el-input>
-            </el-form-item>
-            <el-form-item label="允许自动跳过">
-              <el-select v-model="configForm.autoSkip" style="width: 100%">
-                <el-option v-for="opt in AUTO_SKIP_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="允许连续跳过">
-              <el-select v-model="configForm.autoContinueSkip" style="width: 100%">
-                <el-option v-for="opt in AUTO_SKIP_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </el-form-item>
-          </el-form>
-        </el-tab-pane>
-        <!-- 审批权限标签：操作标识开关（按当前分类 process_template.${fieldModelName}.ops 字典渲染） -->
-        <el-tab-pane label="审批权限" name="auth">
-          <el-form :model="configForm" label-width="110px" :disabled="isDetail">
-            <el-form-item label="操作标识">
-              <div class="node-ops-list">
-                <div v-for="(label, key) in modelOpsDict" :key="key" class="node-ops-item">
-                  <el-switch v-model="configForm.ops[key]" :disabled="isDetail" />
-                  <span class="node-ops-label">{{ label }}</span>
-                </div>
-                <div v-if="!Object.keys(modelOpsDict).length" class="node-ops-tip">当前分类未配置可用的操作标识。</div>
-                <div v-else class="node-ops-tip">未开启的操作标识，该节点审批人不允许执行对应业务操作（默认不允许）。</div>
-              </div>
-            </el-form-item>
-          </el-form>
-        </el-tab-pane>
-      </el-tabs>
-      <template #footer>
-        <el-button @click="configDialogVisible = false">关闭</el-button>
-        <el-button v-if="!isDetail" type="primary" @click="confirmConfig">确定</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- ============ 触发条件编辑弹窗 ============ -->
-    <el-dialog
-      v-model="conditionDialogVisible"
-      title="触发条件编辑"
-      width="760px"
-      :close-on-click-modal="false"
-      append-to-body
-    >
-      <div class="condition-editor">
-        <!-- 左侧：fields 字段项 + 公式计算符，点击插入到右侧光标处 -->
-        <div class="condition-source">
-          <div class="condition-block-title">字段（fields）</div>
-          <div class="condition-chip-list">
-            <el-tag
-              v-for="(label, key) in modelFieldsDict"
-              :key="key"
-              class="condition-chip"
-              @click="insertCondition('${' + key + '}')"
-            >{{ label }}</el-tag>
-            <span v-if="!Object.keys(modelFieldsDict).length" class="condition-empty">当前分类未配置字段字典</span>
-          </div>
-          <div class="condition-block-title">公式计算符</div>
-          <div class="condition-chip-list">
-            <el-tag
-              v-for="op in CONDITION_OPERATORS"
-              :key="op.value"
-              class="condition-chip"
-              @click="insertCondition(op.value)"
-            >{{ op.label }}</el-tag>
-          </div>
-        </div>
-        <!-- 右侧：可编辑文本域，支持直接输入公式 -->
-        <div class="condition-input">
-          <el-input
-            ref="conditionInputRef"
-            v-model="conditionDraft"
-            type="textarea"
-            :rows="12"
-            placeholder="直接输入公式，或点击左侧字段/计算符插入到光标处"
-          />
-          <div class="condition-tip">占位符字段必须为文档实体类存在的字段；如：${amount} &gt; 1000</div>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="conditionDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmCondition">确认</el-button>
-      </template>
-    </el-dialog>
   </el-card>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { markTabToClose } from '@/utils/tabs'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import AddressBook from '@/components/AddressBook.vue'
+import FlowDesignerCanvas from '@/components/process/designer/FlowDesignerCanvas.vue'
 import { hasAuth } from '@/utils/auth'
 import { getInitID } from '@/api/common'
-import { getDictOptions, getDictTextMap } from '@/utils/dict'
 import { watchRouteQuery } from '@/utils/routeQuery'
 import {
   enableProcessTemplate,
@@ -271,51 +89,18 @@ import {
 /**
  * 流程模板新建/编辑/详情页：/processTemplate/create 新建、
  * /processTemplate/edit/:id 编辑、/processTemplate/detail/:id 查看。
- * 顶部操作按钮：保存、编辑、启停用、关闭（新建页无编辑/启停用）；
- * 上部显示模板名称/编号/备注，下部为节点配置列表（固定节点不可编辑，
- * 审批节点点击「配置」弹出多标签弹框维护：「基础」标签含审批来源（组织架构/表单字段）、
- * 审批人（来源=组织架构为地址本多选限岗位+用户，来源=表单字段从分类 fields 字典选字段）、
- * 审批模式（单签/会审）、节点触发（固定/条件判断）、触发条件（不可编辑输入框 + 「编辑」
- * 打开公式编辑弹窗：左侧 fields 字段项与公式计算符，点击插入右侧文本域光标处，确认后回填）、
- * 是否允许自动跳过、是否允许连续跳过；「审批权限」标签含操作标识开关）。
- * 依据 artificial/docs/设计文档/sys/process/流程核心业务.md「模板详情/模板编辑 页面」「触发条件编辑弹窗」「审批人配置」。
+ * 顶部操作按钮沿用现状口径：关闭、编辑（仅详情）、启停用（非新建）、保存（新建/编辑）；
+ * 上部显示模板名称/编号/所属模块/备注（校验与提交语义不变），
+ * 下部为画布设计器三段（左侧节点物料面板 + 中部 LogicFlow 画布 + 右侧属性区），
+ * 节点配置与分支配置经画布内置弹窗（FlowNodeConfigDialog / FlowBranchConfigDialog）维护。
+ * 保存链路：画布客户端图校验（G1~G7 可前端判定子集，错误逐条展示）→
+ * 画布组装 nodes + lines 全量提交（新建 save / 编辑 update PATCH 含 fieldId；
+ * 节点键归一 START=N1/DRAFT=N2/END=N3/中间 N4+ 顺延、field_no 开始1、起草2、中间3…n、
+ * 结束n+1，坐标不落库不提交，服务端 G1~G10 兜底）→ 成功后关标签回列表。
+ * 画布图改动置脏：【关闭】与路由离开时二次确认「流程图已修改，确认离开？」。
+ * 依据 docs/设计文档/sys/process/流程核心业务.md「模板详情/模板编辑 页面」、
+ * docs/设计文档/sys/process/流程v1_7前端UI设计分册.md §4（画布交互）、§4.6（graph 转换与保存数据组装）。
  */
-
-/** 节点类型文本映射（dict.process_node_type） */
-const NODE_TYPE_TEXT = ref({})
-
-const NODE_TYPE_TAG = {
-  START: 'info',
-  DRAFT: 'warning',
-  END: 'danger',
-  APPROVE: 'success',
-  ROBORT: 'primary'
-}
-
-/** 节点配置下拉选项（dict.process_approve_mode / process_trigger_type / process_auto_skip / process_handler_source） */
-const APPROVE_MODE_OPTIONS = ref([])
-const TRIGGER_TYPE_OPTIONS = ref([])
-const AUTO_SKIP_OPTIONS = ref([])
-const HANDLER_SOURCE_OPTIONS = ref([])
-
-/** 触发条件公式计算符（点击插入到公式编辑弹窗右侧文本域光标处） */
-const CONDITION_OPERATORS = [
-  { label: '(', value: '(' },
-  { label: ')', value: ')' },
-  { label: '+', value: '+' },
-  { label: '-', value: '-' },
-  { label: '*', value: '*' },
-  { label: '/', value: '/' },
-  { label: '>', value: '>' },
-  { label: '>=', value: '>=' },
-  { label: '<', value: '<' },
-  { label: '<=', value: '<=' },
-  { label: '==', value: '==' },
-  { label: '!=', value: '!=' },
-  { label: '&&', value: '&&' },
-  { label: '||', value: '||' },
-  { label: '!', value: '!' }
-]
 
 /** 编辑/启停用所需权限：与后端 module.update / module.enable / module.save 鉴权一致 */
 const AUTH_TEMPLATE_ADMIN = ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_TEMPLATE_ADMIN']
@@ -339,6 +124,15 @@ const modelOpsDict = ref({})
 /** 当前分类文档实体字段字典（process_template.${fieldModelName}.fields，key=字段属性名，value=中文描述） */
 const modelFieldsDict = ref({})
 
+/**
+ * 公式上下文变量声明（FormulaDesigner availableVars 契约：元素 { code, type?, label? }）。
+ * 由分类 fields 字典换算：code=字段属性名（公式占位符 ${code}）、label=中文描述；
+ * fields 字典未携带类型声明，type 缺省由 FormulaDesigner 按宽松模式处理（权威校验在后端）。
+ */
+const formulaVars = computed(() =>
+  Object.entries(modelFieldsDict.value).map(([code, label]) => ({ code, label }))
+)
+
 const form = reactive({
   fieldId: '',
   fieldName: '',
@@ -346,9 +140,16 @@ const form = reactive({
   fieldModelName: '',
   fieldRemark: '',
   fieldEnable: true,
-  fieldVersion: null,
-  nodes: []
+  fieldVersion: null
 })
+
+/** 画布图数据：load 响应 nodes/lines 平铺 VO 直传（无坐标，画布按拓扑自动分层布局）；
+ * 新建传空数组，由画布空图播种固定三节点链（开始 → 起草 → 结束） */
+const graphNodes = ref([])
+const graphLines = ref([])
+
+/** 画布组件实例（expose：validateGraph / getSavePayload / isDirty / resetDirty / fit） */
+const designerRef = ref(null)
 
 const pageTitle = computed(() => {
   if (isCreate.value) return '新建流程模板'
@@ -356,232 +157,9 @@ const pageTitle = computed(() => {
   return '流程模板详情'
 })
 
-function nodeTypeText(type) {
-  return NODE_TYPE_TEXT.value[type] || type || '-'
-}
-
-function nodeTypeTag(type) {
-  return NODE_TYPE_TAG[type] || 'info'
-}
-
-/* ============ 节点维护 ============ */
-
-/** 固定节点构造：开始(1) / 草稿(2) / 结束(置末) */
-function fixedNode(type, no, name) {
-  return { fieldId: '', fieldNo: no, fieldNodeName: name, fieldNodeType: type }
-}
-
-/** 按固定节点规则重新编号：START=1、DRAFT=2、审批节点顺延、END 置末 */
-function renumberNodes(nodes) {
-  const start = nodes.find((n) => n.fieldNodeType === 'START')
-  const draft = nodes.find((n) => n.fieldNodeType === 'DRAFT')
-  const end = nodes.find((n) => n.fieldNodeType === 'END')
-  const middles = nodes.filter((n) => !['START', 'DRAFT', 'END'].includes(n.fieldNodeType))
-  const result = []
-  if (start) result.push({ ...start, fieldNo: 1, fieldNodeName: '开始节点' })
-  if (draft) result.push({ ...draft, fieldNo: 2, fieldNodeName: '草稿节点' })
-  let no = 3
-  middles.forEach((n) => {
-    result.push({ ...n, fieldNo: no, fieldNodeName: n.fieldNodeName || `审批节点${no}` })
-    no += 1
-  })
-  if (end) result.push({ ...end, fieldNo: no, fieldNodeName: '结束节点' })
-  return result
-}
-
-/** 添加审批节点：插入到结束节点之前 */
-function addApproveNode() {
-  const nodes = form.nodes
-  const endIndex = nodes.findIndex((n) => n.fieldNodeType === 'END')
-  const node = {
-    fieldId: '',
-    fieldNodeName: '',
-    fieldNodeType: 'APPROVE',
-    handlerSource: 'org',
-    handlerIds: '',
-    handlerNames: '',
-    handlerField: '',
-    approveMode: 'single',
-    triggerType: 'fixed',
-    condition: '',
-    autoSkip: 'system',
-    autoContinueSkip: 'system'
-  }
-  if (endIndex >= 0) {
-    nodes.splice(endIndex, 0, node)
-  } else {
-    nodes.push(node)
-  }
-  form.nodes = renumberNodes(nodes)
-}
-
-function removeApproveNode(row) {
-  const index = form.nodes.findIndex((n) => n === row)
-  if (index >= 0) {
-    form.nodes.splice(index, 1)
-  }
-  form.nodes = renumberNodes(form.nodes)
-}
-
-/** 审批节点在数组中的下标列表（固定节点不参与移动） */
-function approveIndexes() {
-  const list = []
-  form.nodes.forEach((n, i) => {
-    if (n.fieldNodeType === 'APPROVE') list.push(i)
-  })
-  return list
-}
-
-/** 是否为第一个审批节点（首个不可上移） */
-function isFirstApprove(row) {
-  const idx = approveIndexes()
-  return idx.length < 2 || idx[0] === form.nodes.indexOf(row)
-}
-
-/** 是否为最后一个审批节点（末个不可下移） */
-function isLastApprove(row) {
-  const idx = approveIndexes()
-  return idx.length < 2 || idx[idx.length - 1] === form.nodes.indexOf(row)
-}
-
-/** 上移/下移审批节点：仅在审批节点之间交换相对顺序，随后按固定节点规则重新编号 */
-function moveNode(row, offset) {
-  const idx = approveIndexes()
-  const from = form.nodes.indexOf(row)
-  const pos = idx.indexOf(from)
-  const to = idx[pos + offset]
-  if (to == null) return
-  const arr = [...form.nodes]
-  const temp = arr[from]
-  arr[from] = arr[to]
-  arr[to] = temp
-  form.nodes = renumberNodes(arr)
-}
-
-/* ============ 节点配置弹框 ============ */
-
-const configDialogVisible = ref(false)
-const configTarget = ref(null)
-const configActiveTab = ref('base')
-const configNode = reactive({ fieldNodeName: '' })
-const configForm = reactive({
-  handlerSource: 'org',
-  handlerIds: '',
-  handlerNames: '',
-  handlerField: '',
-  approveMode: 'single',
-  triggerType: 'fixed',
-  condition: '',
-  autoSkip: 'system',
-  autoContinueSkip: 'system',
-  ops: {}
-})
-
-function openConfigDialog(row) {
-  configTarget.value = row
-  configActiveTab.value = 'base'
-  Object.assign(configNode, { fieldNodeName: row.fieldNodeName })
-  Object.assign(configForm, {
-    handlerSource: row.handlerSource || 'org',
-    handlerIds: row.handlerIds || '',
-    handlerNames: row.handlerNames || '',
-    handlerField: row.handlerField || '',
-    approveMode: row.approveMode || 'single',
-    triggerType: row.triggerType || 'fixed',
-    condition: row.condition || '',
-    autoSkip: row.autoSkip || 'system',
-    autoContinueSkip: row.autoContinueSkip || 'system'
-  })
-  // 操作标识回填：仅开启项落库（后端仅保留 true 项），未配置视为全部关闭（默认不允许）
-  const ops = {}
-  for (const key of Object.keys(modelOpsDict.value)) {
-    ops[key] = !!(row.ops && row.ops[key])
-  }
-  configForm.ops = ops
-  configDialogVisible.value = true
-}
-
-function confirmConfig() {
-  if (configForm.triggerType === 'condition' && !configForm.condition.trim()) {
-    ElMessage.warning('节点触发为条件判断时，触发条件不能为空')
-    return
-  }
-  if (configForm.handlerSource === 'field' && !configForm.handlerField) {
-    ElMessage.warning('审批来源为表单字段时，请选择审批人字段')
-    return
-  }
-  if (configForm.handlerSource === 'org' && !(configForm.handlerIds || '').trim()) {
-    ElMessage.warning('审批来源为组织架构时，审批人不能为空')
-    return
-  }
-  const row = configTarget.value
-  if (row) {
-    // 按审批来源保留对应明细：组织架构保留审批人，表单字段保留审批人字段
-    const fromOrg = configForm.handlerSource === 'org'
-    Object.assign(row, {
-      handlerSource: configForm.handlerSource,
-      handlerIds: fromOrg ? configForm.handlerIds : '',
-      handlerNames: fromOrg ? configForm.handlerNames : '',
-      handlerField: fromOrg ? '' : configForm.handlerField,
-      approveMode: configForm.approveMode,
-      triggerType: configForm.triggerType,
-      condition: configForm.condition,
-      autoSkip: configForm.autoSkip,
-      autoContinueSkip: configForm.autoContinueSkip
-    })
-    // 操作标识：仅提交开启项（false/未开启等同不允许，由后端默认不允许语义兜底）
-    const enabledOps = {}
-    for (const [key, enabled] of Object.entries(configForm.ops || {})) {
-      if (enabled) enabledOps[key] = true
-    }
-    row.ops = enabledOps
-  }
-  configDialogVisible.value = false
-}
-
-/* ============ 触发条件编辑弹窗 ============ */
-
-const conditionDialogVisible = ref(false)
-const conditionDraft = ref('')
-const conditionInputRef = ref(null)
-
-/** 打开公式编辑弹窗：以当前触发条件作为草稿 */
-function openConditionDialog() {
-  conditionDraft.value = configForm.condition || ''
-  conditionDialogVisible.value = true
-}
-
-/** 获取公式文本域 DOM，用于读取/设置光标位置 */
-function conditionTextarea() {
-  return conditionInputRef.value?.$el?.querySelector('textarea') || null
-}
-
-/** 将左侧点选的字段占位符/计算符插入到右侧文本域当前光标处（有选中文本则替换） */
-function insertCondition(text) {
-  const el = conditionTextarea()
-  const current = conditionDraft.value || ''
-  const start = el && el.selectionStart != null ? el.selectionStart : current.length
-  const end = el && el.selectionEnd != null ? el.selectionEnd : current.length
-  conditionDraft.value = current.slice(0, start) + text + current.slice(end)
-  const pos = start + text.length
-  nextTick(() => {
-    const target = conditionTextarea()
-    if (target) {
-      target.focus()
-      target.setSelectionRange(pos, pos)
-    }
-  })
-}
-
-/** 确认：将右侧文本回填到节点配置「基础」标签的触发条件输入框 */
-function confirmCondition() {
-  configForm.condition = (conditionDraft.value || '').trim()
-  conditionDialogVisible.value = false
-}
-
 /* ============ 初始化 ============ */
 
-/** 新建初始化：预取对象 ID，所属模块来自列表页路由 query */
+/** 新建初始化：预取对象 ID，所属模块来自列表页路由 query；节点链由画布空图播种 */
 async function initForCreate() {
   try {
     const res = await getInitID()
@@ -591,22 +169,24 @@ async function initForCreate() {
   }
   form.fieldModelName = route.query.modelName || ''
   modelLabel.value = route.query.modelLabel || ''
-  form.nodes = [
-    fixedNode('START', 1, '开始节点'),
-    fixedNode('DRAFT', 2, '草稿节点'),
-    fixedNode('END', 3, '结束节点')
-  ]
+}
+
+/** 清空画布图数据（新建模式重建时使用；空数组触发画布重新播种固定三节点链） */
+function resetGraph() {
+  graphNodes.value = []
+  graphLines.value = []
 }
 
 // 二次从流程模板列表页进入时实例复用、onMounted 不会重跑，
-// 监听 query 按带入模块重建新建表单（重置节点默认结构并刷新模型字典）
+// 监听 query 按带入模块重建新建表单（重置所属模块并清空画布重新播种）
 watchRouteQuery(route, (q) => {
   if (!isCreate.value || !('modelName' in q)) return
   initForCreate()
   loadModelConfig()
+  resetGraph()
 })
 
-/** 编辑/详情初始化：按路由 id 加载数据回填 */
+/** 编辑/详情初始化：按路由 id 加载数据回填（nodes + lines 直传画布渲染） */
 async function initForLoad() {
   const id = route.params.id
   if (!id) {
@@ -630,23 +210,8 @@ async function initForLoad() {
     form.fieldEnable = !!row.fieldEnable
     form.fieldVersion = row.fieldVersion
     modelLabel.value = ''
-    // 节点回填（编辑模式为可编辑副本）
-    form.nodes = (row.nodes || []).map((n) => ({
-      fieldId: n.fieldId || '',
-      fieldNo: n.fieldNo,
-      fieldNodeName: n.fieldNodeName,
-      fieldNodeType: n.fieldNodeType,
-      handlerSource: n.handlerSource || 'org',
-      handlerIds: n.handlerIds || '',
-      handlerNames: n.handlerNames || '',
-      handlerField: n.handlerField || '',
-      approveMode: n.approveMode || 'single',
-      triggerType: n.triggerType || 'fixed',
-      condition: n.condition || '',
-      autoSkip: n.autoSkip || 'system',
-      autoContinueSkip: n.autoContinueSkip || 'system',
-      ops: n.ops || {}
-    }))
+    graphNodes.value = row.nodes || []
+    graphLines.value = row.lines || []
   } catch (error) {
     ElMessage.error(error.message || '加载数据失败')
     goBack()
@@ -654,7 +219,6 @@ async function initForLoad() {
 }
 
 onMounted(async () => {
-  loadDictOptions()
   // 先完成初始化（确定 fieldModelName），再按分类加载操作标识/文档实体字段字典
   if (isCreate.value) {
     await initForCreate()
@@ -678,33 +242,33 @@ async function loadModelConfig() {
   }
 }
 
-/** 加载节点类型文本与节点配置选项（dict.process_node_type / process_approve_mode / process_trigger_type / process_auto_skip / process_handler_source）；失败时保持空选项，不阻塞页面 */
-async function loadDictOptions() {
+/* ============ 脏数据保护 ============ */
+
+/** 画布脏数据离开确认（流程图已修改时二次确认，分册 §4.4） */
+async function confirmDirtyLeave() {
+  if (!designerRef.value?.isDirty()) {
+    return true
+  }
   try {
-    const [nodeTypeTextMap, approveModeOptions, triggerTypeOptions, autoSkipOptions, handlerSourceOptions] = await Promise.all([
-      getDictTextMap('process_node_type'),
-      getDictOptions('process_approve_mode'),
-      getDictOptions('process_trigger_type'),
-      getDictOptions('process_auto_skip'),
-      getDictOptions('process_handler_source')
-    ])
-    NODE_TYPE_TEXT.value = nodeTypeTextMap
-    APPROVE_MODE_OPTIONS.value = approveModeOptions
-    TRIGGER_TYPE_OPTIONS.value = triggerTypeOptions
-    AUTO_SKIP_OPTIONS.value = autoSkipOptions
-    HANDLER_SOURCE_OPTIONS.value = handlerSourceOptions
+    await ElMessageBox.confirm('流程图已修改，确认离开？', '离开确认', { type: 'warning' })
+    return true
   } catch {
-    NODE_TYPE_TEXT.value = {}
-    APPROVE_MODE_OPTIONS.value = []
-    TRIGGER_TYPE_OPTIONS.value = []
-    AUTO_SKIP_OPTIONS.value = []
-    HANDLER_SOURCE_OPTIONS.value = []
+    return false
   }
 }
 
+/** 路由离开保护：画布有未保存改动时二次确认（确认离开即放弃改动，复位脏标记放行） */
+onBeforeRouteLeave(async () => {
+  const confirmed = await confirmDirtyLeave()
+  if (confirmed) {
+    designerRef.value?.resetDirty()
+  }
+  return confirmed
+})
+
 /* ============ 保存 / 启停用 / 关闭 ============ */
 
-/** 详情 → 编辑：切换到编辑路由（同一卡片标签跟随） */
+/** 详情 → 编辑：切换到编辑路由（同一卡片标签跟随；详情画布只读恒不置脏，无需离开确认） */
 function switchToEdit() {
   router.push(`/processTemplate/edit/${form.fieldId}`)
 }
@@ -718,25 +282,18 @@ async function handleSave() {
     ElMessage.warning('缺少所属模块，请返回列表页重新进入')
     return
   }
-  // 节点校验：按审批来源校验审批人/审批人字段、条件判断时触发条件必填（最终以后端校验为准）
-  for (const node of form.nodes) {
-    if (node.fieldNodeType !== 'APPROVE') continue
-    if (node.handlerSource === 'field') {
-      if (!node.handlerField) {
-        ElMessage.warning(`节点「${node.fieldNodeName || '审批节点'}」的审批人字段不能为空`)
-        return
-      }
-    } else if (!node.handlerIds || !node.handlerIds.trim()) {
-      ElMessage.warning(`节点「${node.fieldNodeName || '审批节点'}」的审批人不能为空`)
-      return
-    }
-    if (node.triggerType === 'condition' && !node.condition.trim()) {
-      ElMessage.warning(`节点「${node.fieldNodeName || '审批节点'}」触发条件不能为空`)
-      return
-    }
+  // 客户端图校验先行（N1→N3 连通、无孤立节点、出边约束、条件分支默认边唯一、
+  // FORK/JOIN 成对、人工决策默认流向、审批操作必含一个 handler_pass），逐条展示；
+  // 其余（G8 任务注册、G9/G10 候选合法性等）交服务端统一校验兜底，按 message 展示
+  const graphErrors = designerRef.value ? designerRef.value.validateGraph() : []
+  if (graphErrors.length) {
+    graphErrors.forEach((message) => ElMessage.error(message))
+    return
   }
   saving.value = true
   try {
+    // nodes + lines 全量组装（节点键/展示序号由画布按保存口径归一；坐标不提交）
+    const { nodes, lines } = designerRef.value.getSavePayload()
     const body = {
       fieldId: form.fieldId,
       fieldName: form.fieldName.trim(),
@@ -744,7 +301,8 @@ async function handleSave() {
       fieldModelName: form.fieldModelName,
       fieldRemark: form.fieldRemark.trim() || null,
       fieldEnable: form.fieldEnable,
-      nodes: form.nodes
+      nodes,
+      lines
     }
     if (isEdit.value) {
       await updateProcessTemplate(body)
@@ -753,6 +311,8 @@ async function handleSave() {
       await saveProcessTemplate(body)
       ElMessage.success('创建成功')
     }
+    // 复位脏标记后再关标签回列表，避免路由离开守卫二次确认
+    designerRef.value?.resetDirty()
     markTabToClose(route.path)
     router.push('/processTemplate')
   } catch (error) {
@@ -782,7 +342,12 @@ async function handleToggleEnable() {
   }
 }
 
-function goBack() {
+/** 关闭：画布有未保存改动时二次确认，确认后关标签回列表 */
+async function goBack() {
+  if (!(await confirmDirtyLeave())) {
+    return
+  }
+  designerRef.value?.resetDirty()
   router.push('/processTemplate')
 }
 </script>
@@ -792,123 +357,19 @@ export default { name: 'TemplateFormView' }
 </script>
 
 <style scoped>
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.header-btns {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.node-section {
+/* 下部画布设计器区（头部按钮区/表单布局样式复用全局 form-page.css，不在此重复定义） */
+.designer-section {
   margin-top: 16px;
   border-top: 1px solid var(--el-border-color-lighter);
   padding-top: 12px;
 }
 
-.node-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.designer-section-header {
   margin-bottom: 10px;
 }
 
-.node-section-title {
+.designer-section-title {
   font-size: 14px;
   font-weight: 600;
-}
-
-.node-config-empty {
-  color: var(--el-text-color-placeholder);
-}
-
-.node-tip {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-/* 节点配置弹框 - 操作标识开关区 */
-.node-ops-list {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.node-ops-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.node-ops-label {
-  font-size: 13px;
-}
-
-.node-ops-tip {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.5;
-}
-
-/* 触发条件编辑弹窗：左侧点选内容区 + 右侧可编辑文本域 */
-.condition-editor {
-  display: flex;
-  gap: 12px;
-  align-items: stretch;
-}
-
-.condition-source {
-  width: 260px;
-  flex-shrink: 0;
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-.condition-block-title {
-  font-size: 13px;
-  font-weight: 600;
-  margin: 4px 0 8px;
-}
-
-.condition-chip-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.condition-chip {
-  cursor: pointer;
-}
-
-.condition-chip:hover {
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
-}
-
-.condition-empty {
-  font-size: 12px;
-  color: var(--el-text-color-placeholder);
-}
-
-.condition-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.condition-tip {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.5;
 }
 </style>

@@ -54,16 +54,26 @@ export function queryProcessTemplateList(data) {
 }
 
 /**
- * 模板详情读取：返回模板基本字段 + 节点列表（含审批节点配置）。
+ * 模板详情读取：返回模板基本字段 + 节点列表 + 连线列表。
+ * v1_7 契约（接口清单 §4.2）：data.nodes 元素含 nodeKey（固定节点 N1/N2/N3、
+ * 中间节点 N4+ 顺延）与节点配置平铺字段（handlerSource/handlerFormula/skipMode/
+ * operations/tasks/joinMode 等）；data.lines 为连线数组（fieldId/fieldFromKey/fieldToKey/
+ * fieldLineType/fieldBranchOrder/fieldBranchName/fieldCondition/fieldIsDefault）。
+ * 节点坐标不落库：响应不含 x/y，画布按拓扑自动分层布局（T-08 定稿）。
  * @param {string} fieldId 模板 id
- * @returns {Promise<Object>} BaseResponse，data 为模板对象（含 nodes）
+ * @returns {Promise<Object>} BaseResponse，data 为模板对象（含 nodes + lines）
  */
 export function loadProcessTemplate(fieldId) {
   return request.get('/backend/sys/process/module/load', { params: { fieldId } })
 }
 
 /**
- * 模板新建：请求体为模板对象（含 nodes 节点列表），初始版本号 1。
+ * 模板新建：请求体为模板对象（含 nodes + lines 全量），初始版本号 1。
+ * v1_7 契约（接口清单 §4.3）：nodes 元素 { fieldId, nodeKey, fieldNo, fieldNodeName,
+ * fieldNodeType, ...配置平铺字段 }，lines 元素 { fieldId, fieldFromKey, fieldToKey,
+ * fieldLineType, ...分支字段 }；节点键由服务端按类型归一（START=N1/DRAFT=N2/END=N3/
+ * 中间节点按请求 nodes 数组顺序自 N4 顺延，N3 保留给结束节点），连线全量删除重建；
+ * 服务端执行 G1~G10 图校验，非法图拒绝保存并返回中文提示（前端按 message 展示）。
  * @param {Object} body 模板对象
  * @returns {Promise<Object>} BaseResponse，data 为保存后的模板详情
  */
@@ -72,7 +82,8 @@ export function saveProcessTemplate(body) {
 }
 
 /**
- * 模板编辑：请求体为模板对象（必须携带 fieldId）；历史版本归档，现版本号 +1。
+ * 模板编辑：请求体为模板对象（必须携带 fieldId，nodes + lines 全量提交，契约同 save）；
+ * 历史版本归档扩展为含连线快照，现版本号 +1。
  * @param {Object} body 模板对象
  * @returns {Promise<Object>} BaseResponse，data 为保存后的模板详情
  */
