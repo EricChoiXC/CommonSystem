@@ -33,6 +33,7 @@ import com.eric.base.sys.process.request.SysProcessAdminOperateRequest;
 import com.eric.base.sys.process.request.SysProcessOperateRequest;
 import com.eric.base.sys.process.resolver.ProcessResolver;
 import com.eric.base.sys.process.response.SysProcessExampleDetailVo;
+import com.eric.base.sys.process.response.SysProcessExampleLineVo;
 import com.eric.base.sys.process.response.SysProcessExamplePanelVo;
 import com.eric.base.sys.process.response.SysProcessNodeOptionVo;
 import com.eric.base.sys.process.response.SysProcessPanelOperationVo;
@@ -2770,6 +2771,12 @@ class SysProcessExampleServiceTest {
         assertEquals(1, detail.getWorkitems().size());
         assertEquals("张三", detail.getWorkitems().get(0).getFieldHandlerName());
         assertEquals(1, detail.getAuditNotes().size());
+        // 实例连线快照（接口清单 §5.3 lines[] 契约）：默认夹具 START→DRAFT→审批3→审批4→END 共 4 条
+        assertEquals(4, detail.getLines().size());
+        SysProcessExampleLineVo line = detail.getLines().get(0);
+        assertEquals(EXAMPLE_ID, line.getFieldExampleId());
+        assertEquals("N1", line.getFieldFromKey());
+        assertEquals("N2", line.getFieldToKey());
     }
 
     /**
@@ -2793,6 +2800,55 @@ class SysProcessExampleServiceTest {
         assertEquals(2, detail.getWorkitems().size());
         assertNull(detail.getWorkitems().get(0).getFieldFromWorkitemId());
         assertEquals(WI_U1, detail.getWorkitems().get(1).getFieldFromWorkitemId());
+    }
+
+    /**
+     * 契约补齐（P17-FE-005）：实例详情响应透出实例连线快照 lines（接口清单 §5.3 冻结契约，
+     * 字段同模板 lines[] 但 fieldExampleId 替代 fieldTemplateId），逐字段映射正确
+     * （含条件分支的分支序号 / 分支名 / 分支条件 / 默认分支标记）。
+     */
+    @Test
+    void loadDetailCarriesLineSnapshotWithBranchFields() {
+        // 注：BaseModel.setFieldId 对非 32 位 ID 自动归一重生成，夹具持有实体引用比对回显主键
+        SysProcessExampleLine normalSource = exampleLine("L1", "N1", "N2");
+        SysProcessExampleLine conditional = exampleLine("L9", "N3", "N4");
+        conditional.setFieldLineType(SysProcessConstants.LINE_TYPE_CONDITION);
+        conditional.setFieldBranchOrder(2);
+        conditional.setFieldBranchName("金额超限分支");
+        conditional.setFieldCondition("amount > 10000");
+        conditional.setFieldIsDefault(false);
+        when(exampleLineDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(List.of(normalSource, conditional));
+
+        SysProcessExampleDetailVo detail = service.load(EXAMPLE_ID);
+
+        assertEquals(2, detail.getLines().size());
+        SysProcessExampleLineVo normal = detail.getLines().get(0);
+        assertEquals(normalSource.getFieldId(), normal.getFieldId());
+        assertEquals(EXAMPLE_ID, normal.getFieldExampleId());
+        assertEquals("N1", normal.getFieldFromKey());
+        assertEquals("N2", normal.getFieldToKey());
+        assertEquals(SysProcessConstants.LINE_TYPE_NORMAL, normal.getFieldLineType());
+        assertEquals(Integer.valueOf(1), normal.getFieldBranchOrder());
+        assertNull(normal.getFieldBranchName());
+        assertNull(normal.getFieldCondition());
+        assertFalse(normal.getFieldIsDefault());
+        SysProcessExampleLineVo branch = detail.getLines().get(1);
+        assertEquals(SysProcessConstants.LINE_TYPE_CONDITION, branch.getFieldLineType());
+        assertEquals(Integer.valueOf(2), branch.getFieldBranchOrder());
+        assertEquals("金额超限分支", branch.getFieldBranchName());
+        assertEquals("amount > 10000", branch.getFieldCondition());
+        assertFalse(branch.getFieldIsDefault());
+    }
+
+    /** 契约补齐（P17-FE-005）：无连线实例 lines 为空表，不抛错。 */
+    @Test
+    void loadDetailLinesEmptyWhenExampleHasNoLines() {
+        when(exampleLineDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(List.of());
+
+        SysProcessExampleDetailVo detail = service.load(EXAMPLE_ID);
+
+        assertNotNull(detail.getLines());
+        assertTrue(detail.getLines().isEmpty());
     }
 
     /* ==================== 审批面板按钮集（P17-BE-013，operations 升级为按钮对象数组） ==================== */
@@ -2995,6 +3051,32 @@ class SysProcessExampleServiceTest {
         assertEquals(List.of(SysProcessConstants.OPERATE_TYPE_HANDLER_PASS), operationTypes(panel));
         assertEquals("同意", panel.getOperations().get(0).getOperateName());
         assertEquals(Set.of(SysProcessConstants.OP_ATTACHMENT), panel.getNodeOps());
+    }
+
+    /**
+     * 契约补齐（P17-FE-005）：审批面板响应透出实例连线快照 lines（接口清单 §5.4 冻结契约，
+     * 与 load 同源快照），供面板「流程」卡片渲染只读流程图；无连线实例 lines 为空表不抛错。
+     */
+    @Test
+    void panelCarriesLineSnapshotSameSourceAsLoad() {
+        // 注：BaseModel.setFieldId 对非 32 位 ID 自动归一重生成，夹具持有实体引用比对回显主键
+        SysProcessExampleLine first = exampleLine("L1", "N1", "N2");
+        when(exampleLineDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(List.of(first,
+                exampleLine("L2", "N2", "N3"), exampleLine("L3", "N3", "N4"), exampleLine("L4", "N4", "N5")));
+
+        SysProcessExamplePanelVo panel = panelAs(CREATOR_ID);
+        assertNotNull(panel.getLines());
+        assertEquals(4, panel.getLines().size());
+        SysProcessExampleLineVo line = panel.getLines().get(0);
+        assertEquals(first.getFieldId(), line.getFieldId());
+        assertEquals(EXAMPLE_ID, line.getFieldExampleId());
+        assertEquals("N1", line.getFieldFromKey());
+        assertEquals("N2", line.getFieldToKey());
+
+        when(exampleLineDao.selectListByExampleId(EXAMPLE_ID)).thenReturn(List.of());
+        SysProcessExamplePanelVo empty = panelAs(CREATOR_ID);
+        assertNotNull(empty.getLines());
+        assertTrue(empty.getLines().isEmpty());
     }
 
     /* ==================== 工具方法 ==================== */

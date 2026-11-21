@@ -130,14 +130,14 @@ public class SysProcessExampleController {
 
     /**
      * 流程实例详情：GET /backend/sys/process/example/load?fieldId=${id}
-     * 返回流程实例基本字段 + 流程实例节点 + 工作项 + 审批记录。
+     * 返回流程实例基本字段 + 流程实例节点 + 工作项 + 审批记录 + 实例连线快照（只读流程图）。
      *
      * @param fieldId 流程实例 ID
      * @return 统一响应，data 为流程实例详情；不存在返回 E_NOT_FOUND
      */
     @GetMapping("/load")
     @Operation(summary = "流程实例详情", description = "鉴权动作 sys.process.example.load（SYS_PROCESS_EXAMPLE_VIEWER "
-            + "及以上）；返回流程实例基本字段 + 节点 + 工作项 + 审批记录")
+            + "及以上）；返回实例 + 节点（含 nodeKey/runtime）+ 工作项 + 审批记录 + 连线")
     public BaseResponse<SysProcessExampleDetailVo> load(
             @Parameter(description = "流程实例 ID", required = true) @RequestParam("fieldId") String fieldId) {
         authorizationHelper.authorize(baseResolver, ACTION_PROCESS_EXAMPLE_LOAD, fieldId);
@@ -150,7 +150,8 @@ public class SysProcessExampleController {
 
     /**
      * 流程审批面板数据：GET /backend/sys/process/example/panel?fieldId=${id}
-     * 返回流程基本信息 + 节点 + 审批记录 + 当前用户可执行审批操作按钮集（供业务文档页嵌入审批组件展示）。
+     * 返回流程基本信息 + 节点 + 审批记录 + 实例连线快照（与 load 同源，只读流程图）
+     * + 当前用户可执行审批操作按钮集（供业务文档页嵌入审批组件展示）。
      * v1_7 起 operations 升级为按钮对象数组（按节点 operations 配置 ∩ 用户身份 ∩ 状态前置计算），
      * nodeOps 业务标识语义不变。
      *
@@ -159,8 +160,9 @@ public class SysProcessExampleController {
      */
     @GetMapping("/panel")
     @Operation(summary = "流程审批面板数据", description = "鉴权动作 sys.process.example.panel"
-            + "（SYS_PROCESS_EXAMPLE_VIEWER 及以上）；返回面板数据，operations 为按节点配置 ∩ 用户身份"
-            + "计算的按钮集（按钮对象数组，元素含 operateType/operateName/defaultContent，"
+            + "（SYS_PROCESS_EXAMPLE_VIEWER 及以上）；返回面板数据（含实例连线快照 lines，与 load 同源，"
+            + "供只读流程图渲染），operations 为按节点配置 ∩ 用户身份计算的按钮集"
+            + "（按钮对象数组，元素含 operateType/operateName/defaultContent，"
             + "handler_reject 附 rejectTargets、handler_pass/drafter_submit 附 flowChoices），"
             + "nodeOps 语义不变")
     public BaseResponse<SysProcessExamplePanelVo> panel(

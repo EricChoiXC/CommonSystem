@@ -42,6 +42,7 @@ import com.eric.base.sys.process.service.engine.ProcessFlowSupport;
 import com.eric.base.sys.process.service.engine.ProcessNotifySender;
 import com.eric.base.sys.process.response.SysProcessAuditNoteVo;
 import com.eric.base.sys.process.response.SysProcessExampleDetailVo;
+import com.eric.base.sys.process.response.SysProcessExampleLineVo;
 import com.eric.base.sys.process.response.SysProcessExampleNodeVo;
 import com.eric.base.sys.process.response.SysProcessExamplePanelVo;
 import com.eric.base.sys.process.response.SysProcessExampleVo;
@@ -1620,7 +1621,9 @@ public class SysProcessExampleService {
     }
 
     /**
-     * 流程实例详情：流程实例基本字段 + 流程实例节点 + 工作项 + 审批记录。
+     * 流程实例详情：流程实例基本字段 + 流程实例节点 + 工作项 + 审批记录 + 实例连线快照。
+     * <p>v1_7 起透出实例连线快照 {@code lines}（P17-FE-005 契约补齐，依据
+     * docs/设计文档/sys/process/流程v1_7接口清单.md §5.3），供实例详情页只读流程图渲染。</p>
      *
      * @param fieldId 流程实例 id
      * @return 详情；流程实例不存在时返回 null
@@ -1636,6 +1639,7 @@ public class SysProcessExampleService {
         List<SysProcessExampleWorkitem> workitems = workitemDao.selectListByExampleId(example.getFieldId());
         detail.setWorkitems(toWorkitemVos(workitems));
         detail.setAuditNotes(toAuditNoteVos(auditNoteDao.selectListByExampleId(example.getFieldId())));
+        detail.setLines(toLineVos(exampleLineDao.selectListByExampleId(example.getFieldId())));
         return detail;
     }
 
@@ -1647,6 +1651,9 @@ public class SysProcessExampleService {
      * 用户身份 ∩ 状态前置」计算（元素含 operateType/operateName/defaultContent，
      * handler_reject 附 rejectTargets、handler_pass / drafter_submit 附 flowChoices），
      * 旧操作标识语义由 operateType 承载；{@code nodeOps} 业务标识语义不变。</p>
+     * <p>v1_7 起透出实例连线快照 {@code lines}（P17-FE-005 契约补齐，与 {@link #load}
+     * 同源快照，依据 docs/设计文档/sys/process/流程v1_7接口清单.md §5.4），
+     * 供面板「流程」卡片渲染只读流程图。</p>
      *
      * @param fieldId 流程实例 id
      * @return 面板数据；流程实例不存在时返回 null
@@ -1660,6 +1667,7 @@ public class SysProcessExampleService {
         panel.setExample(toExampleVo(example));
         panel.setNodes(toNodeVos(nodeDao.selectListByExampleId(example.getFieldId())));
         panel.setAuditNotes(toAuditNoteVos(auditNoteDao.selectListByExampleId(example.getFieldId())));
+        panel.setLines(toLineVos(exampleLineDao.selectListByExampleId(example.getFieldId())));
         panel.setMyWorkitems(toWorkitemVos(workitemDao.selectByExampleAndHandler(example.getFieldId(),
                 currentUserIdOrNull())));
         panel.setOperations(computeOperations(example));
@@ -2636,6 +2644,32 @@ public class SysProcessExampleService {
             vo.setFieldNodeKey(ProcessFlowGraph.nodeKey(node));
             return vo;
         }).toList();
+    }
+
+    /**
+     * 实例连线快照 → 连线 VO 列表（load / panel 响应透出，接口清单 §5.3 / §5.4 lines[] 契约）；
+     * 无连线实例返回空表，排序沿用 {@link SysProcessExampleLineDao#selectListByExampleId} 既有顺序。
+     */
+    private List<SysProcessExampleLineVo> toLineVos(List<SysProcessExampleLine> lines) {
+        if (null == lines) {
+            return List.of();
+        }
+        return lines.stream().map(SysProcessExampleService::toLineVo).toList();
+    }
+
+    /** 连线实体 → 连线 VO（load / panel 响应回显；fieldExampleId 一并回显便于前端定位实例）。 */
+    private static SysProcessExampleLineVo toLineVo(SysProcessExampleLine line) {
+        SysProcessExampleLineVo vo = new SysProcessExampleLineVo();
+        vo.setFieldId(line.getFieldId());
+        vo.setFieldExampleId(line.getFieldExampleId());
+        vo.setFieldFromKey(line.getFieldFromKey());
+        vo.setFieldToKey(line.getFieldToKey());
+        vo.setFieldLineType(line.getFieldLineType());
+        vo.setFieldBranchOrder(line.getFieldBranchOrder());
+        vo.setFieldBranchName(line.getFieldBranchName());
+        vo.setFieldCondition(line.getFieldCondition());
+        vo.setFieldIsDefault(line.getFieldIsDefault());
+        return vo;
     }
 
     private List<SysProcessExampleWorkitemVo> toWorkitemVos(List<SysProcessExampleWorkitem> workitems) {

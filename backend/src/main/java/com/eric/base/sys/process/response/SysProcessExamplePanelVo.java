@@ -1,5 +1,6 @@
 package com.eric.base.sys.process.response;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.util.List;
@@ -48,4 +49,8 @@ public class SysProcessExamplePanelVo {
      * 供业务文档页按操作标识控制表单字段/附件的可编辑性。
      */
     private Set<String> nodeOps;
+
+    /** 实例连线快照（v1_7 新增，P17-FE-005 契约补齐，与 /load 同源快照） */
+    @Schema(description = "实例连线快照（v1_7 新增，与 /load 同源快照），供面板「流程」卡片渲染只读流程图")
+    private List<SysProcessExampleLineVo> lines;
 }
