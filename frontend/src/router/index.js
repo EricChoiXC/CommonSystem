@@ -286,6 +286,22 @@ const routes = [
         meta: { title: '流程监控', parent: '系统管理', group: '流程管理', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN'] }
       },
       {
+        // 审批一级菜单「我发起的」列表页（P17-FE-008）：全员可见（SYS_PROCESS_MY_VIEWER 默认
+        // 全员授予），叶子路由不设 meta.tab（仅动态子路由复用单标签，UI 分册 §2.3 冻结写法）
+        path: 'approval/created',
+        name: 'ApprovalCreated',
+        component: () => import('@/views/process/MyCreatedView.vue'),
+        meta: { title: '我发起的', parent: '审批', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_MY_VIEWER'] }
+      },
+      {
+        // 审批一级菜单「我参与的」列表页（P17-FE-008）：与我发起的同构叶子路由；
+        // processTemplate/processExample 既有动态路由 meta.tab 保留不动
+        path: 'approval/joined',
+        name: 'ApprovalJoined',
+        component: () => import('@/views/process/MyJoinedView.vue'),
+        meta: { title: '我参与的', parent: '审批', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_MY_VIEWER'] }
+      },
+      {
         path: 'i18nLanguage',
         name: 'I18nLanguageManage',
         component: () => import('@/views/i18n/I18nLanguageManageView.vue'),

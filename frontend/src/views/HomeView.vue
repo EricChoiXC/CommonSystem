@@ -366,6 +366,19 @@ const menus = [
         ]
       }
     ]
+  },
+  {
+    // 审批一级菜单（v1_7 P17-FE-008）：一级菜单直接挂叶子（与【工作台】形态一致），
+    // 走既有 group.leafChildren 渲染分支，不新增渲染层级；auth 为空所有登录用户可见，
+    // 页面可见性由叶子各自声明（SYS_PROCESS_MY_VIEWER 默认全员授予，SYS_ADMIN 经 hasAuth
+    // 超管短路天然可见）；分组下无可见子项时 filterMenuNode 自动隐藏整个分组。
+    // 「我的流程统计」页属 P17-FE-009（Wave 4），本期不建菜单项。
+    title: '审批',
+    auth: '',
+    children: [
+      { title: '我发起的', path: '/approval/created', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_MY_VIEWER'] },
+      { title: '我参与的', path: '/approval/joined', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_MY_VIEWER'] }
+    ]
   }
 ]
 
