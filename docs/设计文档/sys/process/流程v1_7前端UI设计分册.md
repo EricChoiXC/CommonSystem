@@ -8,8 +8,8 @@
 | 输入依据 | 《功能实现方案-改造分析与方案设计》（§3.3 节点类型与图形、§4 审批操作体系、§5 节点配置、§9 前端设计，D1~D8 已评审）；《流程核心业务.md》（P17-DOC-001 改造稿）；《流程管理v1_7研发任务清单.md》（P17-DOC-004 卡片）；`AGENTS.md` 第 6 节前端约束；现状前端代码基线 |
 | 适用版本 | v1_7 流程管理（连线 DAG 引擎 + 10 类节点 + 14 类审批操作 + @ProcessTask + 监控统计） |
 | 创建日期 | 2026-11-19 |
-| 文档版本 | V1.3 |
-| 文档状态 | 已确认（Wave 0 / P17-DOC-004 产出；V1.2 为 P17-FE-003 实施回写、V1.3 为 P17-FE-004 实施回写） |
+| 文档版本 | V1.4 |
+| 文档状态 | 已确认（Wave 0 / P17-DOC-004 产出；V1.2 为 P17-FE-003 实施回写、V1.3 为 P17-FE-004 实施回写、V1.4 为 P17-FE-005 实施回写） |
 | 承接关系 | 本文档供 P17-FE-001~009 实现、P17-QA-003 页面走查使用；系统模块层页面承接见 `docs/系统模块/系统模块UI设计文档.md` §3.3、§4.3.4（已引用本文档） |
 
 ### 1.1 范围与边界
@@ -27,6 +27,7 @@
 | V1.1 | 2026-11-21 | P17-FE-002 定稿回写：T-08 坐标不落库结论落 §4.4「节点移动」与 §4.6-4（load 无坐标、画布拓扑自动分层、保存不提交坐标）；§4.5 条件公式必填口径细化为「非默认出边必填、默认分支可空（兜底）」（对齐本节弹窗示意）；设计器画布已实现交互与本节逐条核对一致 |
 | V1.2 | 2026-11-21 | P17-FE-003 定稿回写：T-09 并行开始「无可流转分支时行为」配置键名定稿为 `noBranchMode`（error/continue，后端 SysProcessTemplateNodeConfigDo 已实现），落 §5.3 与 §12.3；节点配置弹窗已实现结构与本节逐条核对一致 |
 | V1.3 | 2026-11-21 | P17-FE-004 实施回写：§4.2 顶部按钮集按现状页面实际口径修正（新建【关闭】【保存】/ 编辑【关闭】【启停用】【保存】/ 详情【关闭】【编辑】【启停用】，无独立【返回】按钮）；TemplateFormView 已重写为画布设计器三段形态（顶部表单 + FlowDesignerCanvas，详情 readonly），节点/分支配置走画布内置弹窗，保存走 validateGraph → getSavePayload → save/update（nodes+lines 全量），画布改动置脏、【关闭】与路由离开二次确认 |
+| V1.4 | 2026-11-21 | P17-FE-005 实施回写：§6.2 连线「已流经/未流经」口径定稿（源节点 FINISH/PASS 且目标节点非 WAITING，REJECT 源出边按未流经展示，仅视觉）、只读实现方案核实结论（isSilentMode 下 node:dbclick 仍触发，沿用静默方案）、双击节点提示以 el-dialog 承载、实例节点字段口径（fieldNodeNo/fieldNodeKey）；§12.3 T-04 定稿（已随本任务归一 .detail-grid）、T-05 登记本期不加（保持待定） |
 
 ---
 
@@ -492,13 +493,13 @@ lines[] → LogicFlow edges：{ id: 连线 id 或 fromKey_toKey, sourceNodeId: f
 
 | 项 | 约定 |
 | --- | --- |
-| 组件 | 只读画布（`components/process/` 下的只读流程图组件，与设计器共用 LogicFlow 节点注册，见第 11 章组件目录规划） |
-| 数据源 | `loadProcessExample(fieldId)` 响应的 `nodes` + `lines`（实例快照，含 `nodeKey`/`fromKey`/`toKey`） |
+| 组件 | 只读画布（`components/process/ProcessFlowViewer.vue`，v1_7 已实现 P17-FE-005，与设计器共用 LogicFlow 节点注册；实例详情 + 面板「流程」卡片复用） |
+| 数据源 | `loadProcessExample(fieldId)` 响应的 `nodes` + `lines`（实例快照，含 `nodeKey`/`fromKey`/`toKey`）；**实例侧字段名以实现为准**：节点序号 `fieldNodeNo`、节点键 `fieldNodeKey`（viewer 内适配为 nodeKey/fieldNo，不改 graphTransform 签名） |
 | 布局 | 按 `lines` 做**自动分层布局**（无坐标数据时按拓扑层级排布）；有实例快照坐标时优先用坐标 |
 | 状态着色 | 按实例节点 `fieldStatus` 着色（见下表）；**着色规则为前端展示语义，不改变后端状态值** |
-| 连线态 | 已流经连线可用实线/主色，未流经连线用浅色虚线；不改变流转语义（仅视觉） |
-| 交互 | 只读：禁止拖拽/连线/删除；双击节点可弹出节点信息提示（节点名称、类型、状态、处理人摘要），不弹配置弹窗 |
-| 兼容 | **旧实例（线性迁移后）渲染正常**：迁移已为存量模板/在途实例生成线性连线快照（`DM-xxx-002`），无连线数据的异常实例降级为「按 `field_no` 顺序横向排布 + 提示图数据缺失」 |
+| 连线态 | 已流经连线可用实线/主色，未流经连线用浅色虚线；不改变流转语义（仅视觉）。**口径定稿（P17-FE-005 实施回写，自定项）**：已流经 = 源节点状态 ∈ {FINISH, PASS}（已随出边继续流转）且目标节点已被到达（状态非空且非 WAITING）；REJECT 源节点的出边按未流经展示（驳回未沿出边继续流转）——已流经实线主色 #409EFF、未流经浅灰虚线 #C0C4CC(6,4)，经自定义 flow-line 连线 model 的 properties.style 覆盖 |
+| 交互 | 只读：禁止拖拽/连线/删除；双击节点可弹出节点信息提示（节点名称、类型、状态、处理人摘要），不弹配置弹窗。**实现方案（P17-FE-005 实施回写）**：沿用「isSilentMode 静默 + node:dbclick 监听」——LogicFlow v2 安装包源码核实 NODE_DBCLICK 为无条件 emit（静默仅关闭文本编辑/拖拽/锚点/平移缩放），未采用「非静默 + editConfig 全禁 + guards」备选方案；提示形态以 **el-dialog**（append-to-body）承载（备选 el-popover 需节点屏幕坐标，静默模式无公开锚点定位 API） |
+| 兼容 | **旧实例（线性迁移后）渲染正常**：迁移已为存量模板/在途实例生成线性连线快照（`DM-xxx-002`），无连线数据的异常实例降级为「按 `field_no` 顺序横向排布 + 提示图数据缺失」。**实现口径（P17-FE-005）**：降级判定 = 连线缺省或连线键无法对齐节点；降级按 `fieldNodeNo` 升序横向排布 + el-alert「图数据缺失，按节点序号排布」；后端 load 暂未返回 lines 前统一走降级（`SysProcessExampleDetailVo` 契约待后端补齐，组件契约就绪） |
 | 空态 | `nodes` 为空时显示 `el-empty`「暂无流程节点信息」 |
 
 节点状态着色表：
@@ -809,22 +810,22 @@ frontend/src/
 │  └─ process.js                                  # 11.1 具名函数（改造 + 新增）
 ├─ components/process/
 │  ├─ ProcessApprovalPanel.vue                    # 现状：审批面板（v1_7 改造，仍从 components/index.js 出口）
-│  └─ designer/                                   # v1_7 新增目录（P17-FE-001/002/003）
+│  ├─ ProcessFlowViewer.vue                       # v1_7 已实现（P17-FE-005）：只读流程图（实例详情 + 面板「流程」卡片复用；不进出口，宿主相对导入）
+│  └─ designer/                                   # v1_7 新增目录（P17-FE-001/002/003 + FE-005 exampleGraph）
 │     ├─ FlowDesignerCanvas.vue                   # 画布容器（LogicFlow 实例、拖拽/连线/删除、readonly 模式）
 │     ├─ FlowNodeMaterials.vue                    # 左侧物料面板（10 类节点，固定节点不可拖拽）
 │     ├─ FlowNodeConfigDialog.vue                 # 节点配置弹窗（多标签，按 node_type 渲染）
 │     ├─ FlowBranchConfigDialog.vue               # 分支配置弹窗（条件/并行分支连线）
 │     ├─ FlowTaskDetailTable.vue                  # 流程任务明细表（审批/抄送/机器人节点复用）
 │     ├─ FlowFormulaDialog.vue                     # 公式编辑弹窗（复用 FormulaDesigner 或现状形态，见 5.4）
-│     └─ flowNodes.js                             # 10 类节点注册与形状定义（核心/扩展按需引入）
-├─ components/process/
-│  └─ ProcessFlowViewer.vue                       # v1_7 新增：只读流程图（实例详情 + 面板「流程」卡片复用）
+│     ├─ flowNodes.js                             # 10 类节点注册与形状定义（核心/扩展按需引入）
+│     └─ exampleGraph.js                          # v1_7 已实现（P17-FE-005）：实例 VO → 只读图数据适配（状态着色/连线态/降级布局，纯 JS）
 └─ views/process/
    ├─ ProcessSettingView.vue                      # 现状不变
    ├─ TemplateManageView.vue                      # 现状不变
-   ├─ TemplateFormView.vue                        # v1_7 改造：接入画布设计器（P17-FE-004）
+   ├─ TemplateFormView.vue                        # v1_7 已改造（P17-FE-004）：接入画布设计器
    ├─ ExampleManageView.vue                       # 现状不变
-   ├─ ExampleDetailView.vue                       # v1_7 改造：只读流程图（P17-FE-005）
+   ├─ ExampleDetailView.vue                       # v1_7 已改造（P17-FE-005）：只读流程图 + detail-grid 归一 + 特权操作扩展
    ├─ ProcessMonitorView.vue                      # v1_7 新增（P17-FE-007）
    ├─ ProcessStatisticView.vue                    # v1_7 新增（P17-FE-009）
    ├─ MyCreatedView.vue                           # v1_7 新增（P17-FE-008）
@@ -891,8 +892,8 @@ frontend/src/
 | T-01 | @ProcessTask 注册清单接口的路径、响应结构（`name` / `processTemplate[]` / `allowTaskType[]` / 中文描述） | 节点配置「流程任务」标签「执行任务」下拉（P17-FE-003） | 由 P17-BE-005 与 P17-DOC-002 定稿后回填本文档 11.1；定稿前该下拉以「接口未就绪」空态占位，禁止硬编码 |
 | T-02 | 流程监控「异常状态」的数据来源：由 `monitorList` 提供专门异常标志字段，还是前端按「状态 = PAUSE 且最近审批记录 = SYSTEM_ERROR」推导 | 监控页筛选与异常标记列（P17-FE-007） | 优先由后端字段承载（避免前端多表拼装与口径漂移）；P17-BE-015 定稿后回填 8.2 |
 | T-03 | 「我参与的」是否区分「待我审批 / 我已审批」参与方式筛选 | 我参与的页筛选区（P17-FE-008） | 若 `scope=myJoined` 响应含处理状态字段则增加单选筛选；否则本期不加 |
-| T-04 | 实例详情页「流程实例信息区」是否随 P17-FE-005 一并从 `el-descriptions` 迁移到 `form-page.css` 的 `.detail-grid` | 实例详情页布局一致性（D-05） | 建议一并迁移（同文件改动，避免二次返工）；若范围受限可留待 P17-DOC-010 统一处理 |
-| T-05 | `sys_process_task_log` 任务执行日志是否在实例详情页/面板展示 | 实例详情页、审批面板（P17-FE-005/006） | 建议 P17-BE-005 落地后可读后在实例详情页增加「任务日志」辅助表；本期不阻塞主流程 |
+| T-04 | 实例详情页「流程实例信息区」是否随 P17-FE-005 一并从 `el-descriptions` 迁移到 `form-page.css` 的 `.detail-grid` | 实例详情页布局一致性（D-05） | **已定稿（2026-11-21）：一并迁移**——P17-FE-005 已实施，流程实例信息区为 `.detail-grid` 八字段两列（字段与状态 tag 全保留），新增流程图区同规范 |
+| T-05 | `sys_process_task_log` 任务执行日志是否在实例详情页/面板展示 | 实例详情页、审批面板（P17-FE-005/006） | 建议 P17-BE-005 落地后可读后在实例详情页增加「任务日志」辅助表；本期不阻塞主流程。**P17-FE-005 登记（2026-11-21）：本期不加**——task_log 不在 load 响应契约内（`SysProcessExampleDetailVo` 无该字段），详情页未渲染任务日志表；待后端契约扩展后再评估 |
 | T-06 | 统计页是否需要指标卡下钻（点击指标卡跳转带条件列表） | 统计两页（P17-FE-009） | 本期不做下钻（保持只读展示）；如需下钻由后续版本单独立项 |
 | T-07 | `SYS_PROCESS_MY_VIEWER` 的最终权限码命名与默认全员授予方式（roles.yml + 库两处） | 审批一级菜单 3 页的路由 `meta.auth` 与菜单 `auth` | 以 P17-DOC-005 权限码设计确认结果为准；若命名变化，本文档 2.2/3.1 同步替换 |
 | T-08 | 设计器画布坐标（`x`/`y`）是否落库 | 模板保存/回显布局（P17-FE-002/004） | **已定稿（2026-11-21）：不落库**——load 响应 nodes 无 x/y、保存不提交坐标，画布按拓扑自动分层布局（4.4「节点移动」与 4.6-4 已同步回写）；P17-FE-002 已按此实现 |

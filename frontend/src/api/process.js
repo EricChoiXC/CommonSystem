@@ -132,8 +132,12 @@ export function queryProcessExampleList(data) {
 
 /**
  * 流程实例详情读取：返回流程实例基本字段 + 流程实例节点 + 工作项 + 审批记录。
+ * v1_7 契约（接口清单 §5.3）：data.nodes 元素含 fieldNodeKey（实例节点业务键）与
+ * fieldNodeNo（实例侧序号字段名，模板为 fieldNo）；data.lines 为实例连线快照
+ * （字段同模板 lines，fieldExampleId 替代 fieldTemplateId）——旧实例迁移已生成线性
+ * 连线快照，后端尚未返回 lines 时前端按节点序号降级排布（只读流程图渲染口径）。
  * @param {string} fieldId 流程实例 id
- * @returns {Promise<Object>} BaseResponse，data 为流程实例详情
+ * @returns {Promise<Object>} BaseResponse，data 为流程实例详情（example/nodes/workitems/auditNotes/lines）
  */
 export function loadProcessExample(fieldId) {
   return request.get('/backend/sys/process/example/load', { params: { fieldId } })
@@ -150,8 +154,12 @@ export function loadProcessExamplePanel(fieldId) {
 }
 
 /**
- * 流程实例特权操作：跳转/终审通过/作废/暂停/恢复（仅 SYS_PROCESS_EXAMPLE_ADMIN）。
- * @param {Object} body { fieldId, operateType, targetNodeId, content }
+ * 流程实例特权操作：跳转/终审通过/作废/暂停/恢复/更换审批人（仅 SYS_PROCESS_EXAMPLE_ADMIN）。
+ * v1_7 契约（接口清单 §5.5）：operateType 取 JUMP/FINISH/ABANDON/PAUSE/RESUME/CHANGE_HANDLER；
+ * JUMP 目标节点扩展为起草/审批/人工决策节点（targetNodeId 与 targetNodeKey 二者其一，
+ * 现状提交 targetNodeId）；CHANGE_HANDLER 携带 workitemId（待换人 PROCESSING 工作项）与
+ * changeToId（目标处理人用户 id），意见 content 必填。
+ * @param {Object} body { fieldId, operateType, targetNodeId?, workitemId?, changeToId?, content }
  * @returns {Promise<Object>} BaseResponse
  */
 export function adminOperateProcessExample(body) {

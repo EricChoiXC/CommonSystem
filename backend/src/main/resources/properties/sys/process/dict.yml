@@ -79,6 +79,7 @@ dict:
     ABANDON: 作废
     PAUSE: 暂停
     RESUME: 恢复
+    CHANGE_HANDLER: 更换审批人
   process_resume_mode:
     name: 驳回后重新提交流转方式
     desc: 工作项配置 resumeMode
