@@ -5,7 +5,7 @@ import { queryDictItemsByCode } from '@/api/dict'
  *
  * 统一从 dict 模块（/backend/sys/dict/items，按 typeCode 获取启用码值项）加载
  * 前端各页面/组件所需的码值下拉选项与文本映射，替代原先散落在各页面与 api 文件中的
- * 硬编码码值（详见 artificial/docs/设计文档/sys/dict/码值功能核心业务.md）。
+ * 硬编码码值（详见 docs/设计文档/sys/dict/码值功能核心业务.md）。
  *
  * - 带 Promise 缓存：同一 typeCode 只请求一次，并发调用共享同一请求；
  * - 请求失败会清除缓存允许下次重试，页面侧自行降级（空选项 / 原值回退）；

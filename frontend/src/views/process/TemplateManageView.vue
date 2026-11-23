@@ -136,7 +136,7 @@ import {
  * 选中项作为 field_model_name 固定放入查询）+ 右侧列表查询。
  * 右侧支持模板名称/编号模糊、使用启用筛选，单条件排序（创建时间/更新时间）与分页；
  * 操作列提供详情/编辑/启停用；新建/编辑/查看跳转独立路由页面。
- * 依据 artificial/docs/设计文档/sys/process/流程核心业务.md「流程模板」。
+ * 依据 docs/设计文档/sys/process/流程核心业务.md「流程模板」。
  */
 
 const SORT_OPTIONS = [

@@ -130,7 +130,7 @@ import DateTimePicker from '@/components/DateTimePicker.vue'
  * 筛选区：流程名称、流程编号、所属模块、发起人、创建时间、流程状态；
  * 排序区：创建时间（单条件排序）；按钮区：无（流程由实例所属模块创建）；
  * 操作列：详情（SYS_PROCESS_EXAMPLE_VIEWER 级权限用户可访问，后端最终鉴权）。
- * 依据 artificial/docs/设计文档/sys/process/流程核心业务.md「流程实例」。
+ * 依据 docs/设计文档/sys/process/流程核心业务.md「流程实例」。
  * 流程状态选项与文本（dict.process_example_status）由 dict 模块提供。
  */
 

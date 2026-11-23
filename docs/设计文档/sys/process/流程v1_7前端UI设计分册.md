@@ -8,8 +8,8 @@
 | 输入依据 | 《功能实现方案-改造分析与方案设计》（§3.3 节点类型与图形、§4 审批操作体系、§5 节点配置、§9 前端设计，D1~D8 已评审）；《流程核心业务.md》（P17-DOC-001 改造稿）；《流程管理v1_7研发任务清单.md》（P17-DOC-004 卡片）；`AGENTS.md` 第 6 节前端约束；现状前端代码基线 |
 | 适用版本 | v1_7 流程管理（连线 DAG 引擎 + 10 类节点 + 14 类审批操作 + @ProcessTask + 监控统计） |
 | 创建日期 | 2026-11-19 |
-| 文档版本 | V1.9 |
-| 文档状态 | 已确认（Wave 0 / P17-DOC-004 产出；V1.2 为 P17-FE-003 实施回写、V1.3 为 P17-FE-004 实施回写、V1.4 为 P17-FE-005 实施回写、V1.5 为 P17-FE-006 实施回写、V1.6 为 P17-FE-007 实施回写、V1.7 为 P17-FE-008 实施回写、V1.8 为 P17-INT-003 实施回写、V1.9 为 P17-FE-009 实施回写） |
+| 文档版本 | V1.10 |
+| 文档状态 | 已确认（Wave 0 / P17-DOC-004 产出；V1.2 为 P17-FE-003 实施回写、V1.3 为 P17-FE-004 实施回写、V1.4 为 P17-FE-005 实施回写、V1.5 为 P17-FE-006 实施回写、V1.6 为 P17-FE-007 实施回写、V1.7 为 P17-FE-008 实施回写、V1.8 为 P17-INT-003 实施回写、V1.9 为 P17-FE-009 实施回写、V1.10 为 P17-DOC-010 文档全量同步修订） |
 | 承接关系 | 本文档供 P17-FE-001~009 实现、P17-QA-003 页面走查使用；系统模块层页面承接见 `docs/系统模块/系统模块UI设计文档.md` §3.3、§4.3.4（已引用本文档） |
 
 ### 1.1 范围与边界
@@ -33,6 +33,7 @@
 | V1.7 | 2026-11-21 | P17-FE-008 实施回写：§9.1/§9.2 偏差注记（「当前节点」筛选不落——与监控页同源，后端 SysProcessExampleQuery 无对应字段；T-03 定稿——我参与的「参与方式」筛选与「我的处理状态」列均不落，后端 Query 无参与方式区分字段、list 响应无本人处理状态字段）；§12.3 T-03 状态更新为已定稿；§9 标注两页已交付、我的流程统计页仍待 P17-FE-009 |
 | V1.8 | 2026-11-21 | P17-INT-003 缺口处置回写：§7.3-8 补三条（转办收回渲染工作项选择并提交 workitemId=本人 ABANDON 弃置项、配套面板按钮身份补「转办发起人」；CHANGE_HANDLER 工作项选项优先消费 `operation.workitemCandidates`；抄送控件收窄 `orgType="PERSON"`）；§7.4 控件表同步（工作项选择按档拆分三行 + 抄送人行规格修正） |
 | V1.9 | 2026-11-23 | P17-FE-009 实施回写：§9.1 实施状态更新（审批一级菜单 3 叶子补齐，我的流程统计已交付）；§10 补实施状态——统计两页已交付，偏差登记 4 处（聚合表视图扩为按模板/按状态/按模块/人员工作量四视图消费 modelCounts；按模板表按契约裁为模板名称+数量两列；§10.2「我的流程明细」聚合小表不落——my 契约仅五项标量；人员工作量列按契约 handledCount/avgDurationMs 渲染）、耗时格式化与「在途/已办结由 statusCounts 展示级求和派生」口径登记 |
+| V1.10 | 2026-11-23 | P17-DOC-010 文档全量同步：§11.1 与 `api/process.js` 现状逐函数核对——基线函数计数更正（16 个）、`queryProcessMonitorList`/`queryProcessStatisticAdmin`/`queryProcessStatisticMy` 标注已实现、`loadProcessExample` 行实例节点字段名以实现统一（`fieldNodeKey`/`runtime`）、`operateProcessExample` 行登记「未实现，随宿主接入批次补齐」口径（统一操作通道由业务模块 audit 转发、当前无页面消费，负载补 `ccToIds`）；本节其余路由/菜单/activeMenu/组件目录与 `router/index.js`、`HomeView.vue` 现状逐项核对一致（INT-003 遗留④涉及的本册小节版本号与 §7.4 工作项控件三档拆分已随 V1.8 落稿，本次复核无缺漏） |
 
 ---
 
@@ -800,8 +801,8 @@ emit('submit', {
 
 ### 11.1 `src/api/process.js` 具名函数清单
 
-> 现状 9 个函数（`queryProcessSettingList` / `saveProcessSettings` / `resetProcessSetting` / `queryProcessTemplateModels` / `queryProcessTemplateList` / `loadProcessTemplate` / `saveProcessTemplate` / `updateProcessTemplate` / `enableProcessTemplate` / `setProcessTemplateDefault` / `queryProcessExampleModels` / `queryProcessExampleList` / `loadProcessExample` / `loadProcessExamplePanel` / `adminOperateProcessExample`）。
-> 下表「改造/新增」为 v1_7 待实现（P17-FE-004/005/006/007/008/009 同批落地）；接口路径与请求体以 P17-DOC-002 API 分册为准，本表只冻结**前端函数名与调用形态**。
+> 现状基线（2026-11-19）16 个函数（`queryProcessSettingList` / `saveProcessSettings` / `resetProcessSetting` / `queryProcessTemplateModels` / `queryProcessTemplateList` / `loadProcessTemplate` / `saveProcessTemplate` / `updateProcessTemplate` / `enableProcessTemplate` / `setProcessTemplateDefault` / `queryProcessExampleModels` / `queryProcessExampleList` / `loadProcessExample` / `loadProcessExamplePanel` / `queryProcessMonitorList` / `adminOperateProcessExample`——本节初版计数「9 个」系笔误，P17-DOC-010 以文件现状核对更正）。
+> 下表「改造/新增」中，`queryProcessMonitorList`（P17-FE-007）、`queryProcessStatisticAdmin` / `queryProcessStatisticMy`（P17-BE-016 后端先行、P17-FE-009 页面消费）**均已实现**；`operateProcessExample` **未实现**（见该行注记）。接口路径与请求体以 P17-DOC-002 API 分册为准，本表只冻结**前端函数名与调用形态**。
 
 | 具名函数 | 对应后端接口 | HTTP 方法 | 变更 |
 | --- | --- | --- | --- |
@@ -817,10 +818,10 @@ emit('submit', {
 | `setProcessTemplateDefault(body)` | `/backend/sys/process/module/setDefault` | PATCH | 现状不变 |
 | `queryProcessExampleModels()` | `/backend/sys/process/example/models` | GET | 现状不变 |
 | `queryProcessExampleList(data)` | `/backend/sys/process/example/list` | POST | **请求体扩展** `scope`：`admin`（默认）/ `myCreated` / `myJoined`；`my*` 由后端强制限本人 |
-| `loadProcessExample(fieldId)` | `/backend/sys/process/example/load` | GET | **响应扩展**：新增 `lines`（流程图渲染）；实例节点补 `nodeKey` / `fieldRuntime` |
+| `loadProcessExample(fieldId)` | `/backend/sys/process/example/load` | GET | **响应扩展**：新增 `lines`（流程图渲染）；实例节点补 `fieldNodeKey` / `runtime`（实例侧字段名，P17-DOC-010 以 `SysProcessExampleNodeVo` 实现统一口径） |
 | `loadProcessExamplePanel(fieldId)` | `/backend/sys/process/example/panel` | GET | **响应扩展**：`operations` 改为「按节点 `operations` 配置 ∩ 用户身份」计算并携带操作名称/默认意见；新增 `lines`、`rejectTargets`、`flowDecisions`、可选工作项与抄送所需数据 |
 | `adminOperateProcessExample(body)` | `/backend/sys/process/example/adminOperate` | POST | **沿用**（跳转/终审/作废/暂停/恢复）；**目标节点范围扩展** + 更换审批人参数（`changeToId`） |
-| **`operateProcessExample(body)`** | `/backend/sys/process/operation/operate` | POST | **新增**（统一操作入口）：`{ exampleId, operateType, workitemId, content, targetNodeId, rejectTargetKey, flowChoice, transferToIds, changeToId, resumeMode }`；**审批面板自身不调用**，供宿主业务页面/流程页面提交使用 |
+| **`operateProcessExample(body)`** | `/backend/sys/process/operation/operate` | POST | **新增（未实现，随宿主接入批次补齐，P17-DOC-010 登记）**：统一操作入口，负载 `{ exampleId, operateType, workitemId, content, targetNodeId, rejectTargetKey, flowChoice, transferToIds, changeToId, resumeMode, ccToIds }`；**审批面板自身不调用**——面板仅读 `loadProcessExamplePanel`，统一操作通道当前由业务模块 audit 转发（服务内调用，INT-003 经 HTTP 实测），公共系统内无页面消费该封装；待宿主业务页面接入统一操作入口时随批次补齐，不提前新增 |
 | **`queryProcessMonitorList(data)`** | `/backend/sys/process/example/monitorList` | POST | **新增**：监控列表（管理员，状态/异常筛选），分页与 `metadata.total` 口径同列表页 |
 | **`queryProcessStatisticAdmin(data)`** | `/backend/sys/process/statistic/admin` | POST | **新增**：管理员统计（按模块/模板/状态/时间区间数量、平均耗时、人员工作量 TopN） |
 | **`queryProcessStatisticMy(data)`** | `/backend/sys/process/statistic/my` | POST | **新增**：我的统计（今日发起/未办结/待审/今日已审/平均耗时） |
