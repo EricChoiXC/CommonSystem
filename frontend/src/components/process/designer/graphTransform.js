@@ -25,8 +25,8 @@
  * fieldTemplateId 由服务端按请求上下文回填，客户端不提交。
  *
  * 分支序号归一：CONDITION/FORK 的出边按 properties.branchOrder 升序（空值排后、保持稳定）
- * 重排后 1..n 回写 —— 分支配置弹窗的上移/下移只改弹窗内工作副本，画布回写与保存组装统一
- * 走本模块归一，保证 branch_order 与界面顺序一致。
+ * 重排后 1..n 回写 —— 条件/并行分支节点配置弹窗（V1.11/V1.12 节点级）的上移/下移只改弹窗内
+ * 工作副本，画布回写与保存组装统一走本模块归一，保证 branch_order 与界面顺序一致。
  *
  * 节点配置候选计算（v1_7 / P17-FE-003 追加）：rejectTargetCandidates（G9 驳回目标候选）/
  * flowDecisionCandidates（G10 流向决策候选）/ outEdgeTargets（G6 人工决策默认流向候选），

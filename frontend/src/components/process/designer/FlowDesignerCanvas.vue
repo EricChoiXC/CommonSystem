@@ -21,8 +21,7 @@
         <template v-if="!readonly">
           节点/连线选中后按 Delete（或 Backspace）删除，或用右键菜单「删除」/右侧【删除】按钮；
           固定节点（开始/起草/结束）不可删除；从节点锚点拉出连线；双击节点或点【配置节点】打开节点配置；
-          双击条件分支节点（或点【配置节点】/【配置条件分支】）配置条件分支；
-          点击并行分支节点的出边连线或【配置并行分支】配置并行分支
+          双击条件分支节点配置条件分支；双击并行开始节点（或点【配置并行分支】）配置并行分支
         </template>
         <template v-else>只读模式：画布仅支持缩放与平移查看</template>
       </div>
@@ -113,15 +112,16 @@
       </div>
     </div>
 
-    <!-- 分支配置弹窗（内置本组件：FORK 出边连线配置，分册 §4.5-2） -->
-    <FlowBranchConfigDialog
-      v-model:visible="branchDialog.visible"
-      :node-key="branchDialog.nodeKey"
-      :node-name="branchDialog.nodeName"
-      :node-type="branchDialog.nodeType"
-      :branches="branchDialog.branches"
+    <!-- 并行分支节点配置弹窗（内置本组件：FORK 节点级配置，分册 §4.5-2） -->
+    <FlowForkNodeConfigDialog
+      v-model:visible="forkDialog.visible"
+      :node-key="forkDialog.nodeKey"
+      :node-name="forkDialog.nodeName"
+      :join-mode="forkDialog.joinMode"
+      :no-branch-mode="forkDialog.noBranchMode"
+      :branches="forkDialog.branches"
       :formula-vars="formulaVars"
-      @confirm="applyBranchResult"
+      @confirm="applyForkResult"
     />
 
     <!-- 条件分支节点配置弹窗（内置本组件：CONDITION 节点级配置，分册 §4.5-1） -->
@@ -134,7 +134,7 @@
       @confirm="applyConditionResult"
     />
 
-    <!-- 节点配置弹窗（内置本组件：APPROVE/CC/MANUAL/ROBORT/FORK 多标签配置，分册 §5） -->
+    <!-- 节点配置弹窗（内置本组件：APPROVE/CC/MANUAL/ROBORT 多标签配置，分册 §5；CONDITION/FORK 走上方节点级分支配置弹窗） -->
     <FlowNodeConfigDialog
       v-model:visible="nodeDialog.visible"
       :node="nodeDialog.node"
@@ -179,9 +179,11 @@
  *     选中条件出边【配置条件分支】→ 打开内置 FlowConditionNodeConfigDialog
  *     （节点名称 + 默认条件分支 + 条件分支明细表），同时 emit node-config-request；
  *     【确定】回写节点名称与全部出边分支属性（分支数据仍落连线 properties，不冗余进节点）；
- *   - 并行分支配置：点击 FORK 出边连线或右侧【配置并行分支】→ 打开内置
- *     FlowBranchConfigDialog（分册 §4.5-2），同时 emit branch-config-request 通知宿主
- *     （弹窗为画布内置、宿主无需重复打开，事件供宿主感知与联动）；
+ *   - 并行分支配置（V1.12 改版，分册 §4.5-2）：双击 FORK 节点 / 右侧【配置节点】/
+ *     选中并行出边【配置并行分支】→ 打开内置 FlowForkNodeConfigDialog
+ *     （节点名称 + 汇聚配置 + 并行分支明细表），同时 emit node-config-request；
+ *     【确定】回写节点名称/汇聚配置与全部出边分支属性（原 FlowBranchConfigDialog
+ *     连线弹窗随本改版移除）；
  *   - 工具条：放大/缩小/适应画布/撤销/重做（撤销重做仅限本次编辑会话，undo 栈在每次
  *     props 重渲染时复位基线）；
  *   - 脏标记：任何图结构改动（节点/连线增删、配置回写）置 dirty，坐标拖动不落库（T-08）
@@ -197,8 +199,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { ElMessage } from 'element-plus'
 import LogicFlow from '@logicflow/core'
 import FlowNodeMaterials from './FlowNodeMaterials.vue'
-import FlowBranchConfigDialog from './FlowBranchConfigDialog.vue'
 import FlowConditionNodeConfigDialog from './FlowConditionNodeConfigDialog.vue'
+import FlowForkNodeConfigDialog from './FlowForkNodeConfigDialog.vue'
 import FlowNodeConfigDialog from './FlowNodeConfigDialog.vue'
 import { NODE_TYPE_LABELS, registerFlowNodes } from './flowNodes'
 import {
@@ -248,7 +250,7 @@ const props = defineProps({
   opsOptions: { type: Object, default: () => ({}) },
 })
 
-const emit = defineEmits(['node-config-request', 'branch-config-request', 'graph-change'])
+const emit = defineEmits(['node-config-request', 'graph-change'])
 
 /* ==================== 状态 ==================== */
 
@@ -262,20 +264,21 @@ const canRedo = ref(false)
 /** 右侧属性区：选中节点/连线摘要（非响应式 lf 实例挂 setup 普通变量） */
 const selectedNode = ref(null)
 const selectedEdge = ref(null)
-/** 内置并行分支配置弹窗状态（FORK 出边连线配置，分册 §4.5-2） */
-const branchDialog = reactive({
-  visible: false,
-  nodeKey: '',
-  nodeName: '',
-  nodeType: 'CONDITION',
-  branches: [],
-})
-
 /** 内置条件分支节点配置弹窗状态（CONDITION 节点级配置，分册 §4.5-1） */
 const conditionDialog = reactive({
   visible: false,
   nodeKey: '',
   nodeName: '',
+  branches: [],
+})
+
+/** 内置并行分支节点配置弹窗状态（FORK 节点级配置，分册 §4.5-2） */
+const forkDialog = reactive({
+  visible: false,
+  nodeKey: '',
+  nodeName: '',
+  joinMode: 'all',
+  noBranchMode: 'error',
   branches: [],
 })
 
@@ -331,7 +334,7 @@ function initLogicFlow() {
     grid: { size: 20, visible: true },
     keyboard: { enabled: true },
     edgeType: 'polyline',
-    // 节点名称/分支文本由配置弹窗与分支弹窗统一维护，关闭画布内自由文本编辑（自定项）
+    // 节点名称/分支文本由节点配置弹窗与条件/并行分支配置弹窗统一维护，关闭画布内自由文本编辑（自定项）
     textEdit: false,
     history: true,
     snapline: true,
@@ -424,12 +427,8 @@ function bindCanvasEvents() {
     const edge = projectEdge(data)
     selectedEdge.value = edge
     selectedNode.value = null
-    // 并行分支连线点击即开配置（分册 §4.5-2：FORK 出边连线配置）；
-    // 条件分支配置已改为节点级（分册 §4.5-1：双击条件分支节点或右侧【配置节点】打开），
-    // 条件出边点击仅展示右侧摘要，配置入口见【配置条件分支】按钮
-    if (!props.readonly && edge.sourceNodeType === 'FORK') {
-      openBranchDialog(edge)
-    }
+    // 分支连线点击仅展示右侧摘要（V1.11/V1.12：条件/并行分支配置均已改为节点级弹窗，
+    // 配置入口见节点双击、【配置节点】或右侧【配置条件分支】/【配置并行分支】按钮）
   })
   lf.on('blank:click', () => {
     closeContextMenu()
@@ -626,15 +625,15 @@ function handleMaterialDragStart(material) {
 
 /**
  * 节点配置入口（双击节点与右侧【配置节点】共用）：
- * 条件分支（CONDITION）走节点级条件分支配置弹窗（分册 §4.5-1）；
- * 固定节点/并行结束（START/DRAFT/END/JOIN）拦截提示「该节点无节点配置」；
- * 其余打开内置 FlowNodeConfigDialog（与条件分支弹窗同构），node-config-request 保留为宿主感知事件。
+ * 条件分支（CONDITION）走节点级条件分支配置弹窗、并行开始（FORK）走节点级并行分支配置
+ * 弹窗（分册 §4.5-1/4.5-2）；固定节点/并行结束（START/DRAFT/END/JOIN）拦截提示
+ * 「该节点无节点配置」；其余打开内置 FlowNodeConfigDialog，node-config-request 保留为宿主感知事件。
  */
 function requestNodeConfig(node) {
   openNodeConfigDialog(node)
 }
 
-/** 打开内置节点配置弹窗：只读拦截 → 条件分支节点级弹窗 → 无配置类型拦截提示 → 快照图上下文 + emit 宿主感知事件 */
+/** 打开内置节点配置弹窗：只读拦截 → 条件/并行节点级弹窗分流 → 无配置类型拦截提示 → 快照图上下文 + emit 宿主感知事件 */
 function openNodeConfigDialog(node) {
   if (props.readonly) {
     return
@@ -644,6 +643,10 @@ function openNodeConfigDialog(node) {
   }
   if (node.nodeType === 'CONDITION') {
     openConditionDialog(node.id || node.nodeKey)
+    return
+  }
+  if (node.nodeType === 'FORK') {
+    openForkDialog(node.id || node.nodeKey)
     return
   }
   if (NO_NODE_CONFIG_TYPES.includes(node.nodeType)) {
@@ -707,20 +710,7 @@ function updateNodeProperties(nodeId, partial) {
   markDirty()
 }
 
-/** 点击并行分支连线 / 右侧【配置并行分支】 → 收集该节点全部出边并打开内置弹窗 */
-function openBranchDialog(edge) {
-  if (!lf || !edge?.sourceNodeId) {
-    return
-  }
-  branchDialog.nodeKey = edge.sourceNodeId
-  branchDialog.nodeName = edge.sourceNodeName || ''
-  branchDialog.nodeType = edge.sourceNodeType
-  branchDialog.branches = collectBranches(edge.sourceNodeId)
-  branchDialog.visible = true
-  emit('branch-config-request', edge)
-}
-
-/** 连线属性区配置入口：条件分支出边跳转节点级条件分支配置弹窗，并行分支出边维持连线弹窗 */
+/** 连线属性区配置入口：条件/并行分支出边均跳转对应节点级配置弹窗 */
 function openEdgeBranchConfig(edge) {
   if (!edge) {
     return
@@ -728,7 +718,7 @@ function openEdgeBranchConfig(edge) {
   if (edge.sourceNodeType === 'CONDITION') {
     openConditionDialog(edge.sourceNodeId)
   } else {
-    openBranchDialog(edge)
+    openForkDialog(edge.sourceNodeId)
   }
 }
 
@@ -751,7 +741,28 @@ function openConditionDialog(nodeId) {
   emit('node-config-request', projectNode(model.getData()))
 }
 
-/** 收集分支源节点的全部出边（分支/条件分支弹窗工作副本数据源，edgeId 对应画布边，附出边目标节点摘要） */
+/**
+ * 打开并行分支节点配置弹窗（双击 FORK 节点 / 右侧【配置节点】/
+ * 选中并行出边【配置并行分支】共用）：收集节点配置与全部出边分支快照。
+ */
+function openForkDialog(nodeId) {
+  if (props.readonly || !lf || !nodeId) {
+    return
+  }
+  const model = lf.getNodeModelById(nodeId)
+  if (!model || model.properties?.nodeType !== 'FORK') {
+    return
+  }
+  forkDialog.nodeKey = model.properties?.nodeKey || nodeId
+  forkDialog.nodeName = model.properties?.nodeName || ''
+  forkDialog.joinMode = model.properties?.joinMode === 'any' ? 'any' : 'all'
+  forkDialog.noBranchMode = model.properties?.noBranchMode === 'continue' ? 'continue' : 'error'
+  forkDialog.branches = collectBranches(nodeId)
+  forkDialog.visible = true
+  emit('node-config-request', projectNode(model.getData()))
+}
+
+/** 收集分支源节点（CONDITION/FORK）的全部出边（条件/并行分支配置弹窗工作副本数据源，edgeId 对应画布边，附出边目标节点摘要） */
 function collectBranches(sourceNodeId) {
   const edges = lf.graphModel.getNodeOutgoingEdge(sourceNodeId) || []
   return edges.map((edge) => {
@@ -768,15 +779,15 @@ function collectBranches(sourceNodeId) {
   })
 }
 
-/** 并行分支弹窗【确定】回写：删边 + 分支属性/边文本更新（序号以上移下移结果为准） */
-function applyBranchResult({ branches, removedEdgeIds }) {
+/** 并行分支节点配置弹窗【确定】回写：节点名称/汇聚配置 + 全部出边分支属性/边文本（序号以上移下移结果为准） */
+function applyForkResult({ nodeKey, nodeName, joinMode, noBranchMode, branches }) {
   if (!lf) {
     return
   }
-  ;(removedEdgeIds || []).forEach((edgeId) => {
-    if (lf.getEdgeModelById(edgeId)) {
-      lf.deleteEdge(edgeId)
-    }
+  updateNodeProperties(nodeKey, {
+    nodeName: String(nodeName || '').trim(),
+    joinMode: joinMode === 'any' ? 'any' : 'all',
+    noBranchMode: noBranchMode === 'continue' ? 'continue' : 'error',
   })
   ;(branches || []).forEach((branch) => {
     if (!lf.getEdgeModelById(branch.edgeId)) {
@@ -786,12 +797,11 @@ function applyBranchResult({ branches, removedEdgeIds }) {
       branchOrder: branch.branchOrder,
       branchName: branch.branchName,
       condition: branch.condition,
-      isDefault: branch.isDefault === true,
+      isDefault: false,
     })
     lf.updateText(branch.edgeId, branchLineText(branch))
   })
   refreshSelectedEdgeAfterWrite()
-  markDirty()
 }
 
 /** 条件分支节点配置弹窗【确定】回写：节点名称 + 全部出边分支属性/边文本（序号以上移下移结果为准） */
@@ -938,7 +948,7 @@ function projectNode(data) {
   }
 }
 
-/** 连线 → 右侧摘要 / branch-config-request 载荷 */
+/** 连线 → 右侧摘要（branchEditable 标记源为条件/并行分支节点，配置按钮跳转对应节点级弹窗） */
 function projectEdge(data) {
   if (!data) {
     return null

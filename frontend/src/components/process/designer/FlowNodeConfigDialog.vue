@@ -206,26 +206,6 @@
         <FlowTaskDetailTable ref="taskTableRef" v-model:tasks="form.tasks" />
         <div class="field-tip">节点进入时按行序依次执行，任一任务失败转流程异常。</div>
       </el-tab-pane>
-
-      <!-- ============ FORK · 基本（汇聚配置，分册 §5.3；键名 T-09 定稿） ============ -->
-      <el-tab-pane v-if="isFork" label="基本" name="base">
-        <el-form label-width="120px" @submit.prevent>
-          <el-form-item label="节点名称" required>
-            <el-input v-model="form.nodeName" maxlength="100" placeholder="请输入节点名称" />
-          </el-form-item>
-          <el-form-item label="汇聚模式">
-            <el-radio-group v-model="form.joinMode">
-              <el-radio v-for="opt in JOIN_MODE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</el-radio>
-            </el-radio-group>
-          </el-form-item>
-          <el-form-item label="无可流转分支时">
-            <el-radio-group v-model="form.noBranchMode">
-              <el-radio v-for="opt in NO_BRANCH_MODE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</el-radio>
-            </el-radio-group>
-            <div class="field-tip">并行开始节点的全部出边分支激活条件均为否时的处理行为。</div>
-          </el-form-item>
-        </el-form>
-      </el-tab-pane>
     </el-tabs>
     <el-empty v-else description="该节点类型不支持节点配置" :image-size="60" />
 
@@ -238,15 +218,16 @@
 
 <script setup>
 /**
- * 流程设计器 · 节点配置弹窗（v1_7 / P17-FE-003，分册 §5 冻结）
+ * 流程设计器 · 节点配置弹窗（v1_7 / P17-FE-003，分册 §5 冻结；V1.12 FORK 移出）
  *
  * 按节点类型动态渲染 el-tabs（分册 §5.1）：
  *   - APPROVE＝基本 / 审批操作 / 审批权限 / 流程任务 四标签；
  *   - CC＝基本 / 流程任务 两标签；
  *   - MANUAL＝基本（流向决策 flowDecisions 多选 + 默认流向 defaultFlowKey）；
- *   - ROBORT＝基本（执行任务 tasks 明细表内嵌）；
- *   - FORK＝基本（汇聚配置 joinMode all|any + 无可流转分支行为 noBranchMode error|continue，
- *     T-09 定稿键名）。
+ *   - ROBORT＝基本（执行任务 tasks 明细表内嵌）。
+ * 并行开始（FORK）自 V1.12 起移出本弹窗：走节点级并行分支配置弹窗
+ * FlowForkNodeConfigDialog（分册 §4.5-2，汇聚配置 + 并行分支明细表）；
+ * 条件分支（CONDITION）自 V1.11 起走 FlowConditionNodeConfigDialog（分册 §4.5-1）。
  * 弹窗宽度 760px（≥760）、:close-on-click-modal="false"；【确定】只做客户端校验并经
  * confirm 事件回抛配置字段（画布统一经 updateNodeProperties 局部合并回写、置脏），
  * 不调接口（随画布整体保存提交）；【关闭】/遮罩/ESC 放弃本次编辑。
@@ -281,8 +262,6 @@ import {
   CC_SOURCE_OPTIONS,
   EMPTY_HANDLER_MODE_OPTIONS,
   HANDLER_SOURCE_OPTIONS,
-  JOIN_MODE_OPTIONS,
-  NO_BRANCH_MODE_OPTIONS,
   OPERATE_TYPE_LABELS,
   OPERATION_SEGMENTS,
   RESOLVE_MODE_OPTIONS,
@@ -321,8 +300,9 @@ const props = defineProps({
 const emit = defineEmits(['update:visible', 'confirm'])
 
 /** 支持节点配置弹窗的节点类型（分册 §5.1；START/DRAFT/END/JOIN 由画布拦截不进本弹窗，
- *  CONDITION 由画布分流至条件分支节点配置弹窗 FlowConditionNodeConfigDialog，也不进本弹窗） */
-const SUPPORTED_NODE_TYPES = ['APPROVE', 'CC', 'MANUAL', 'ROBORT', 'FORK']
+ *  CONDITION/FORK 由画布分流至条件/并行分支节点配置弹窗 FlowConditionNodeConfigDialog /
+ *  FlowForkNodeConfigDialog，也不进本弹窗） */
+const SUPPORTED_NODE_TYPES = ['APPROVE', 'CC', 'MANUAL', 'ROBORT']
 
 const activeTab = ref('base')
 const taskTableRef = ref(null)
@@ -336,7 +316,6 @@ const isApprove = computed(() => nodeType.value === 'APPROVE')
 const isCc = computed(() => nodeType.value === 'CC')
 const isManual = computed(() => nodeType.value === 'MANUAL')
 const isRobort = computed(() => nodeType.value === 'ROBORT')
-const isFork = computed(() => nodeType.value === 'FORK')
 const nodeKey = computed(() => props.node?.nodeKey || '')
 
 const dialogTitle = computed(() => `节点配置：${props.node?.nodeName || ''}（${nodeKey.value || '-'}）`)

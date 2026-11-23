@@ -3,21 +3,23 @@
  *
  * 纯 JS 模块：不 import Vue / Element Plus / LogicFlow，可被 node 冒烟脚本直接断言。
  * 承载 FlowNodeConfigDialog 的字段规格、旧模板回显归一、skipMode 旧值兼容、审批操作
- * 三段明细拆分合并与 G7 校验、流程任务明细行与 params JSON 预检、配置字段回写组装。
+ * 三段明细拆分合并与 G7 校验、流程任务明细行与 params JSON 预检、配置字段回写组装；
+ * 并导出汇聚模式/无可流转分支行为枚举（JOIN_MODE_OPTIONS / NO_BRANCH_MODE_OPTIONS，
+ * V1.12 起由 FlowForkNodeConfigDialog 消费——FORK 已移出节点配置弹窗）。
  *
  * 契约来源（冲突时以接口清单为准）：
  *   - 《流程v1_7接口清单》§4.2 nodes[] 节点 VO 全字段（配置字段平铺）；
  *   - 《流程v1_7前端UI设计分册》§5.1（标签结构）/ §5.2（审批节点基本标签）/
- *     §5.3（CC·MANUAL·ROBORT·FORK 字段，FORK「无可流转分支行为」键名 noBranchMode 为
- *     T-09 定稿）/ §5.5（流程任务明细表）；
+ *     §5.3（CC·MANUAL·ROBORT 字段；FORK 汇聚配置自 V1.12 起落并行分支节点配置弹窗
+ *     §4.5-2，joinMode「无可流转分支行为」键名 noBranchMode 为 T-09 定稿）/ §5.5（流程任务明细表）；
  *   - 《流程核心业务.md》「审批操作矩阵」14 类操作标识——可选操作类型按段取
  *     drafter_* / handler_* / processed_* 前缀共 11 类，admin_* 为特权操作不入节点配置；
  *   - 后端 `SysProcessTemplateNodeConfigDo`（Do v2）：字段一一对应；params 为
  *     Map<String,Object>（JSON 对象）；operations 元素 {operateType, operateName, defaultContent}。
  *
  * 自定项登记（分册未冻结细节，P17-DOC-010 走查时可调）：
- *   - 下拉枚举（approveMode/skipMode/autoContinueSkip/emptyHandlerMode/joinMode/noBranchMode）
- *     按分册与接口清单冻结值内置本模块（设计器组件不依赖运行期码值字典）；
+ *   - 下拉枚举（approveMode/skipMode/autoContinueSkip/emptyHandlerMode；joinMode/noBranchMode
+ *     由并行分支节点配置弹窗消费）按分册与接口清单冻结值内置本模块（设计器组件不依赖运行期码值字典）；
  *   - 审批操作中非三段前缀（drafter_/handler_/processed_）的行（如 admin_*）不进弹窗、
  *     回写时丢弃（admin_* 不入节点配置为矩阵冻结口径）；
  *   - skipMode 回写口径：未改动保留原值（含旧值 yes/no 与缺省→system），改动才写新枚举值；
@@ -66,13 +68,13 @@ export const EMPTY_HANDLER_MODE_OPTIONS = [
   { value: 'error', label: '不跳过（转流程异常）' },
 ]
 
-/** 汇聚模式（分册 §5.3：all 默认 / any） */
+/** 汇聚模式（分册 §5.3：all 默认 / any；V1.12 起由并行分支节点配置弹窗 FlowForkNodeConfigDialog 消费） */
 export const JOIN_MODE_OPTIONS = [
   { value: 'all', label: '全部激活分支到达后流出' },
   { value: 'any', label: '任一激活分支到达即流出' },
 ]
 
-/** 无可流转分支时行为（T-09 定稿键名 noBranchMode：error 默认 / continue） */
+/** 无可流转分支时行为（T-09 定稿键名 noBranchMode：error 默认 / continue；V1.12 起由 FlowForkNodeConfigDialog 消费） */
 export const NO_BRANCH_MODE_OPTIONS = [
   { value: 'error', label: '报错（转流程异常）' },
   { value: 'continue', label: '继续（全部出边分支均激活）' },
@@ -380,9 +382,6 @@ export function echoFormState(node, opsEcho = {}) {
     // MANUAL · 基本
     flowDecisions: Array.isArray(props.flowDecisions) ? props.flowDecisions.filter(Boolean) : [],
     defaultFlowKey: props.defaultFlowKey || '',
-    // FORK · 基本（joinMode 仅 any 生效，其余取 all；noBranchMode 仅 continue 生效，其余取 error——Do v2 同口径）
-    joinMode: props.joinMode === 'any' ? 'any' : 'all',
-    noBranchMode: props.noBranchMode === 'continue' ? 'continue' : 'error',
     // APPROVE · 审批操作（三段分组工作副本）
     operations: splitOperationsBySegment(normalizeOperationsEcho(props.operations)),
     // 流程任务（弹窗明细行）
@@ -463,12 +462,6 @@ export function buildConfigFields(nodeType, form) {
       return {
         nodeName: String(form.nodeName || '').trim(),
         tasks: taskRowsToVo(form.tasks),
-      }
-    case 'FORK':
-      return {
-        nodeName: String(form.nodeName || '').trim(),
-        joinMode: form.joinMode === 'any' ? 'any' : 'all',
-        noBranchMode: form.noBranchMode === 'continue' ? 'continue' : 'error',
       }
     default:
       return { nodeName: String(form.nodeName || '').trim() }
