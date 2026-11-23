@@ -738,6 +738,28 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 - **前端契约**：`src/api/formula.js` 十个具名函数（`listFormulas` / `loadFormula` / `saveFormula` / `updateFormula` / `enableFormula` / `deleteFormula` / `getFormulaOptions` / `getFormulaFunctions` / `validateFormula` / `simulateFormula`）经 `api/index.js` 实例以 `/backend/sys/formula/**` 相对路径请求；`update` / `enable` 用 PATCH、`delete` 用 DELETE，与后端方法一一对应。
 - **存量弱公式不迁移**：既有流程节点触发条件（`triggerType=condition` + `${field}`）v1.4 不改 process 代码；v1.7 流程改造时迁移为统一公式（`${field}` 语法与本模块 `${code}` 同源）。
 
+### 4.12 自定义表单模块（v1_5，设计期占位）
+
+#### 4.12.1 模块目标与接口边界
+
+- 提供动态表单引擎能力：表单定义与不可变版本管理（草稿 CRUD、发布快照、版本列表、回滚 = 重发布副本）+ 表单数据引擎（JSON 存储、保存 / 回显 / 删除 / 查询、服务端动态校验与字段权限裁剪、级联复核、公式服务端重算），为 v1.8 BPM 提供表单与字段级权限元数据底座。
+- 模块 key `form`；包 `com.eric.base.sys.form`；基础路径 `/backend/sys/form/{define|data}/...`（定义面 / 数据面两组次级模块）；权限码候选 `SYS_FORM_ADMIN`（定义面），数据面口径（R06：登录即可提交 / 查询本人数据 + 管理员全量，数据归属按创建人判定）随 F15-DOC-005 裁决；接口标识常量（15 个 `ACTION_*`）定义于 `SysFormConstants`；`FormResolver` 继承 `BaseResolver` 按动作判定（`SYS_ADMIN` 自动放行，分支不列举），Controller 经 `authorize(action, documentId)` 最终鉴权——未登录抛 `UNAUTHORIZED`、无权限抛 `FORBIDDEN`、数据归属越权 `CS_FORM_DATA_FORBIDDEN`（HTTP 200 + code 体系，全工程惯例）。
+- **本章为 Wave 0 设计期占位（F15-DOC-002 产出）**：接口未实现，随 F15-BE-006 编码落地并与 Swagger 注解同批收口（`@Tag` / `@Operation` / `@Parameter` / `@Schema`，`@Operation.description` 以「鉴权动作 …」开头，见 3.5）。
+
+#### 4.12.2 接口分组一览
+
+| 接口组 | 次级模块 | 接口与方法 | 准入 |
+| --- | --- | --- | --- |
+| 表单定义 | `define` | `POST /list`、`POST /save`、`GET /load?fieldId=`、`PATCH /update`、`PATCH /enable`、`DELETE /delete?fieldId=` | `SYS_FORM_ADMIN` |
+| 版本管理 | `define` | `POST /publish`、`GET /versions?fieldId=`、`POST /rollback` | `SYS_FORM_ADMIN` |
+| 表单数据 | `data` | `GET /schema?formId=`、`POST /save`、`POST /validate`、`GET /load?fieldId=`、`POST /list`、`DELETE /delete?fieldId=` | 登录即可 + 数据归属（R06 倾向，终稿随 F15-DOC-005） |
+
+#### 4.12.3 设计期口径与契约权威
+
+- **`ACTION_*` 清单**：`sys.form.define.*`（9 项）+ `sys.form.data.*`（6 项），全集、常量名与 resolver 分支判定口径见分册 §6。
+- **错误码前缀**：`CS_FORM_*`（16 项，编码查重 / Schema 结构与上限 / 版本状态非法流转 / 有数据禁删 / 未知字段拒绝 / 数据校验失败 / 数据归属越权 / 级联复核 / 规则熔断等）；公式相关失败复用 `CS_FORMULA_*` 语义（映射关系登记于分册 §7.2，不新造）。承载方式对齐 4.10.6 / 4.11.6：业务错误码以异常 message 前缀承载、`BaseResponse.code` 统一 `BAD_REQUEST`（鉴权类除外）。
+- **契约权威口径**：字段级请求 / 响应契约、发布校验链与保存校验链、状态机约束、组件物料一期前端静态注册（不设后端组件接口）、要点第 9 步 REST 风格到仓库矩阵的转化说明，统一见 [自定义表单API接口设计分册](../v1_5-自定义表单/自定义表单API接口设计分册.md)（本总文档不重复字段卡片）；与本文档冲突时以分册为准并回写本文档（对齐 4.3.4 / 4.11 的先例口径）。
+
 ## 5. 待确认事项
 
 - 组织架构模块中“角色分配”和“角色权限”的需求表述存在表名映射不一致，需在详细设计任务中确认接口术语。
