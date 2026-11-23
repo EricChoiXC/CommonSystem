@@ -114,10 +114,11 @@ export const LINE_TYPE_BY_SOURCE = {
 export const BRANCH_SOURCE_TYPES = ['CONDITION', 'FORK']
 
 /**
- * 无节点配置弹窗的节点类型（分册 §5.1：固定节点 START/DRAFT/END、条件分支 CONDITION、
- * 并行结束 JOIN；FORK 有「汇聚配置」，不在此列）。
+ * 无节点配置弹窗的节点类型（分册 §5.1：固定节点 START/DRAFT/END、并行结束 JOIN；
+ * FORK 有「汇聚配置」，不在此列。CONDITION 自 V1.11 起改为节点级条件分支配置弹窗
+ * FlowConditionNodeConfigDialog（分册 §4.5-1），由画布 openNodeConfigDialog 单独分流，不在此列）。
  */
-export const NO_NODE_CONFIG_TYPES = ['START', 'DRAFT', 'END', 'CONDITION', 'JOIN']
+export const NO_NODE_CONFIG_TYPES = ['START', 'DRAFT', 'END', 'JOIN']
 
 /**
  * 节点 save 元素按类型透传的配置平铺字段（接口清单 §4.2 nodes[] 全表；固定节点与

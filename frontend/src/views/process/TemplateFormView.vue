@@ -48,8 +48,9 @@
     </el-form>
 
     <!-- ============ 下部：画布设计器三段（物料面板 / LogicFlow 画布 / 属性区） ============
-         节点配置（双击节点或【配置节点】）与分支配置（点击分支出边连线或【配置分支】）
-         由画布内置 FlowNodeConfigDialog / FlowBranchConfigDialog 承载，页面不再自建弹窗；
+         节点配置（双击节点或【配置节点】）、条件分支配置（双击条件分支节点或【配置节点】/【配置条件分支】）
+         与并行分支配置（点击分支出边连线或【配置并行分支】）由画布内置 FlowNodeConfigDialog /
+         FlowConditionNodeConfigDialog / FlowBranchConfigDialog 承载，页面不再自建弹窗；
          详情模式 readonly：不挂物料面板与编辑交互，仅渲染只读画布。 -->
     <div class="designer-section">
       <div class="designer-section-header">
@@ -92,7 +93,8 @@ import {
  * 顶部操作按钮沿用现状口径：关闭、编辑（仅详情）、启停用（非新建）、保存（新建/编辑）；
  * 上部显示模板名称/编号/所属模块/备注（校验与提交语义不变），
  * 下部为画布设计器三段（左侧节点物料面板 + 中部 LogicFlow 画布 + 右侧属性区），
- * 节点配置与分支配置经画布内置弹窗（FlowNodeConfigDialog / FlowBranchConfigDialog）维护。
+ * 节点配置、条件分支节点级配置与并行分支连线配置经画布内置弹窗
+ * （FlowNodeConfigDialog / FlowConditionNodeConfigDialog / FlowBranchConfigDialog）维护。
  * 保存链路：画布客户端图校验（G1~G7 可前端判定子集，错误逐条展示）→
  * 画布组装 nodes + lines 全量提交（新建 save / 编辑 update PATCH 含 fieldId；
  * 节点键归一 START=N1/DRAFT=N2/END=N3/中间 N4+ 顺延、field_no 开始1、起草2、中间3…n、

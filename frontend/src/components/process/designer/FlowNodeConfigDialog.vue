@@ -320,7 +320,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update:visible', 'confirm'])
 
-/** 支持节点配置弹窗的节点类型（分册 §5.1；START/DRAFT/END/CONDITION/JOIN 由画布拦截不进本弹窗） */
+/** 支持节点配置弹窗的节点类型（分册 §5.1；START/DRAFT/END/JOIN 由画布拦截不进本弹窗，
+ *  CONDITION 由画布分流至条件分支节点配置弹窗 FlowConditionNodeConfigDialog，也不进本弹窗） */
 const SUPPORTED_NODE_TYPES = ['APPROVE', 'CC', 'MANUAL', 'ROBORT', 'FORK']
 
 const activeTab = ref('base')

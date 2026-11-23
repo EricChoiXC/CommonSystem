@@ -4,7 +4,7 @@
     <FlowNodeMaterials v-if="!readonly" class="designer-left" @drag-start="handleMaterialDragStart" />
 
     <!-- 中：工具条 + LogicFlow 画布 + 提示条 -->
-    <div class="designer-center">
+    <div ref="designerCenterRef" class="designer-center">
       <div class="designer-toolbar">
         <span class="toolbar-label">画布工具</span>
         <el-button size="small" :disabled="!lfReady" @click="zoomIn">放大</el-button>
@@ -19,10 +19,20 @@
       <div ref="canvasRef" class="designer-canvas"></div>
       <div class="designer-hints">
         <template v-if="!readonly">
+          节点/连线选中后按 Delete（或 Backspace）删除，或用右键菜单「删除」/右侧【删除】按钮；
           固定节点（开始/起草/结束）不可删除；从节点锚点拉出连线；双击节点或点【配置节点】打开节点配置；
-          点击条件分支/并行分支节点的出边连线或【配置分支】配置分支
+          双击条件分支节点（或点【配置节点】/【配置条件分支】）配置条件分支；
+          点击并行分支节点的出边连线或【配置并行分支】配置并行分支
         </template>
         <template v-else>只读模式：画布仅支持缩放与平移查看</template>
+      </div>
+      <!-- 右键菜单：节点/连线「删除」入口（分册 §4.4；固定节点命中 beforeDelete 守卫拦截提示） -->
+      <div
+        v-if="contextMenu.visible"
+        class="designer-context-menu"
+        :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+      >
+        <button class="context-menu-item" type="button" @click="handleContextDelete">删除</button>
       </div>
     </div>
 
@@ -54,6 +64,9 @@
             配置节点
           </el-button>
           <div v-else class="props-tip">该节点无节点配置</div>
+          <el-button class="props-btn" type="danger" plain @click="deleteSelectedNode">
+            删除节点
+          </el-button>
         </template>
       </template>
       <template v-else-if="selectedEdge">
@@ -87,9 +100,12 @@
           v-if="!readonly && selectedEdge.branchEditable"
           class="props-btn"
           type="primary"
-          @click="openBranchDialog(selectedEdge)"
+          @click="openEdgeBranchConfig(selectedEdge)"
         >
-          配置分支
+          {{ selectedEdge.sourceNodeType === 'CONDITION' ? '配置条件分支' : '配置并行分支' }}
+        </el-button>
+        <el-button v-if="!readonly" class="props-btn" type="danger" plain @click="deleteSelectedEdge">
+          删除连线
         </el-button>
       </template>
       <div v-else class="props-empty">
@@ -97,7 +113,7 @@
       </div>
     </div>
 
-    <!-- 分支配置弹窗（内置本组件：CONDITION/FORK 出边连线配置，分册 §4.5） -->
+    <!-- 分支配置弹窗（内置本组件：FORK 出边连线配置，分册 §4.5-2） -->
     <FlowBranchConfigDialog
       v-model:visible="branchDialog.visible"
       :node-key="branchDialog.nodeKey"
@@ -106,6 +122,16 @@
       :branches="branchDialog.branches"
       :formula-vars="formulaVars"
       @confirm="applyBranchResult"
+    />
+
+    <!-- 条件分支节点配置弹窗（内置本组件：CONDITION 节点级配置，分册 §4.5-1） -->
+    <FlowConditionNodeConfigDialog
+      v-model:visible="conditionDialog.visible"
+      :node-key="conditionDialog.nodeKey"
+      :node-name="conditionDialog.nodeName"
+      :branches="conditionDialog.branches"
+      :formula-vars="formulaVars"
+      @confirm="applyConditionResult"
     />
 
     <!-- 节点配置弹窗（内置本组件：APPROVE/CC/MANUAL/ROBORT/FORK 多标签配置，分册 §5） -->
@@ -138,16 +164,23 @@
  *     默认命名「审批节点N」——序号仅展示不参与流转）；
  *   - 连线：节点四锚点按住拉出；出边数达上限拦截（START/DRAFT/APPROVE/CC/ROBORT/JOIN 为 1，
  *     提示「该节点类型只允许一条流出连线」；END 为 0，提示不允许拉出连线）；
- *   - 删除：Delete 键 / 画布删除，固定节点 N1/N2/N3 经 guards.beforeDelete 拦截，提示
- *     「开始/起草/结束节点为固定节点，不可删除」；删边自由；
+ *   - 删除：选中 + Delete（或 Backspace）键 / 右键菜单「删除」/ 右侧属性区【删除节点】/【删除连线】，
+ *     均经 lf.deleteNode / lf.deleteEdge 走 guards.beforeDelete：固定节点 N1/N2/N3 拦截并提示
+ *     「开始/起草/结束节点为固定节点，不可删除」；删边自由（分支源节点最后一条出边由保存期
+ *     G3 校验拦截）。LogicFlow 2.2.5 内置快捷键仅注册 backspace，初始化时补注册 Delete 键
+ *     （分册 §4.4 冻结「Delete 键」入口）；右键菜单与右侧删除按钮为实施补齐项；
  *   - 节点配置：双击节点或右侧【配置节点】→ 打开内置 FlowNodeConfigDialog（P17-FE-003，
  *     分册 §5 多标签：APPROVE 四标签 / CC 两标签 / MANUAL·ROBORT·FORK 各一标签），同时
- *     emit node-config-request（固定节点 START/DRAFT/END、CONDITION、JOIN 不触发弹窗，
+ *     emit node-config-request（固定节点 START/DRAFT/END、JOIN 不触发弹窗，
  *     提示「该节点无节点配置」；事件供宿主感知与联动）；弹窗【确定】经 confirm 回抛
  *     配置字段，画布 updateNodeProperties 局部合并回写并置脏（节点其余 properties 原样保留）；
  *     候选（驳回目标/流向决策/默认流向）按打开时图上下文快照计算；
- *   - 分支配置：点击 CONDITION/FORK 出边连线或右侧【配置分支】→ 打开内置
- *     FlowBranchConfigDialog（分册 §4.5），同时 emit branch-config-request 通知宿主
+ *   - 条件分支配置（V1.11 改版，分册 §4.5-1）：双击 CONDITION 节点 / 右侧【配置节点】/
+ *     选中条件出边【配置条件分支】→ 打开内置 FlowConditionNodeConfigDialog
+ *     （节点名称 + 默认条件分支 + 条件分支明细表），同时 emit node-config-request；
+ *     【确定】回写节点名称与全部出边分支属性（分支数据仍落连线 properties，不冗余进节点）；
+ *   - 并行分支配置：点击 FORK 出边连线或右侧【配置并行分支】→ 打开内置
+ *     FlowBranchConfigDialog（分册 §4.5-2），同时 emit branch-config-request 通知宿主
  *     （弹窗为画布内置、宿主无需重复打开，事件供宿主感知与联动）；
  *   - 工具条：放大/缩小/适应画布/撤销/重做（撤销重做仅限本次编辑会话，undo 栈在每次
  *     props 重渲染时复位基线）；
@@ -160,11 +193,12 @@
  *   - END 锚点仍显示（flowNodes 未区分锚点），拉线被出边约束拦截并提示；
  *   - 撤销/重做按钮态经 LogicFlow history:change 事件驱动（History 自带 debounce 100ms）。
  */
-import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import LogicFlow from '@logicflow/core'
 import FlowNodeMaterials from './FlowNodeMaterials.vue'
 import FlowBranchConfigDialog from './FlowBranchConfigDialog.vue'
+import FlowConditionNodeConfigDialog from './FlowConditionNodeConfigDialog.vue'
 import FlowNodeConfigDialog from './FlowNodeConfigDialog.vue'
 import { NODE_TYPE_LABELS, registerFlowNodes } from './flowNodes'
 import {
@@ -219,6 +253,8 @@ const emit = defineEmits(['node-config-request', 'branch-config-request', 'graph
 /* ==================== 状态 ==================== */
 
 const canvasRef = ref(null)
+/** 画布中部容器引用（右键菜单坐标换算基准） */
+const designerCenterRef = ref(null)
 const lfReady = ref(false)
 const dirty = ref(false)
 const canUndo = ref(false)
@@ -226,7 +262,7 @@ const canRedo = ref(false)
 /** 右侧属性区：选中节点/连线摘要（非响应式 lf 实例挂 setup 普通变量） */
 const selectedNode = ref(null)
 const selectedEdge = ref(null)
-/** 内置分支配置弹窗状态 */
+/** 内置并行分支配置弹窗状态（FORK 出边连线配置，分册 §4.5-2） */
 const branchDialog = reactive({
   visible: false,
   nodeKey: '',
@@ -235,11 +271,34 @@ const branchDialog = reactive({
   branches: [],
 })
 
+/** 内置条件分支节点配置弹窗状态（CONDITION 节点级配置，分册 §4.5-1） */
+const conditionDialog = reactive({
+  visible: false,
+  nodeKey: '',
+  nodeName: '',
+  branches: [],
+})
+
 /** 内置节点配置弹窗状态（P17-FE-003：node=节点摘要，context=打开时图上下文快照） */
 const nodeDialog = reactive({
   visible: false,
   node: null,
   context: { nodes: [], lines: [] },
+})
+
+/** 右侧属性区：选中节点是否无节点配置（固定节点/JOIN，分册 §5.1 拦截口径；CONDITION 有节点级配置弹窗） */
+const noNodeConfig = computed(() => {
+  const node = selectedNode.value
+  return !node || NO_NODE_CONFIG_TYPES.includes(node.nodeType)
+})
+
+/** 右键菜单状态：节点/连线「删除」入口（分册 §4.4），kind = 'node' | 'edge' */
+const contextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  kind: '',
+  id: '',
 })
 
 let lf = null
@@ -281,6 +340,7 @@ function initLogicFlow() {
   })
   registerFlowNodes(lf)
   bindCanvasEvents()
+  registerDeleteKeyShortcut()
   lfReady.value = true
 }
 
@@ -355,28 +415,51 @@ function bindCanvasEvents() {
   })
   // 右侧属性区选中摘要
   lf.on('node:click', ({ data }) => {
+    closeContextMenu()
     selectedNode.value = projectNode(data)
     selectedEdge.value = null
   })
   lf.on('edge:click', ({ data }) => {
+    closeContextMenu()
     const edge = projectEdge(data)
     selectedEdge.value = edge
     selectedNode.value = null
-    // 分支连线点击即开配置（分册 §4.4：点击条件分支/并行分支节点的出边连线打开分支配置弹窗）
-    if (!props.readonly && isBranchSource(edge.sourceNodeType)) {
+    // 并行分支连线点击即开配置（分册 §4.5-2：FORK 出边连线配置）；
+    // 条件分支配置已改为节点级（分册 §4.5-1：双击条件分支节点或右侧【配置节点】打开），
+    // 条件出边点击仅展示右侧摘要，配置入口见【配置条件分支】按钮
+    if (!props.readonly && edge.sourceNodeType === 'FORK') {
       openBranchDialog(edge)
     }
   })
   lf.on('blank:click', () => {
+    closeContextMenu()
     selectedNode.value = null
     selectedEdge.value = null
   })
-  // 节点配置入口：双击节点（固定节点/CONDITION/JOIN 拦截提示；其余打开内置节点配置弹窗）
+  // 节点配置入口：双击节点（固定节点/JOIN 拦截提示；CONDITION 分流至条件分支节点配置弹窗；
+  // 其余打开内置节点配置弹窗）
   lf.on('node:dbclick', ({ data }) => {
+    closeContextMenu()
     const node = projectNode(data)
     selectedNode.value = node
     selectedEdge.value = null
     openNodeConfigDialog(node)
+  })
+  // 右键菜单：节点/连线提供「删除」入口（分册 §4.4；节点/连线原生右键菜单 LogicFlow 已拦截）
+  lf.on('node:contextmenu', ({ e, data }) => {
+    openContextMenu('node', data.id, e)
+  })
+  lf.on('edge:contextmenu', ({ e, data }) => {
+    openContextMenu('edge', data.id, e)
+  })
+  // 空白处右键：拦掉浏览器默认菜单并收起（避免残留上一次菜单）
+  lf.on('blank:contextmenu', ({ e }) => {
+    e?.preventDefault?.()
+    closeContextMenu()
+  })
+  // 缩放/平移后右键菜单坐标失效，直接收起
+  lf.on('graph:transform', () => {
+    closeContextMenu()
   })
   // 撤销/重做按钮态（History 自带 100ms debounce 后触发）
   lf.on('history:change', ({ data }) => {
@@ -396,6 +479,79 @@ function handleBeforeDelete(data) {
     return false
   }
   return true
+}
+
+/* ==================== 删除入口（Delete 键 / 右键菜单 / 属性区按钮） ==================== */
+
+/**
+ * 补注册 Delete 键删除快捷键（分册 §4.4 冻结「Delete 键」入口）：
+ * LogicFlow 2.2.5 内置快捷键只绑定 backspace（keyboard/shortcut.js），Windows 常用的
+ * Delete 键无响应；回调与内置 backspace 同构（删边 → 删节点，均经 beforeDelete 守卫）。
+ */
+function registerDeleteKeyShortcut() {
+  lf.keyboard.on(['delete'], () => {
+    if (props.readonly) {
+      return true
+    }
+    const elements = lf.graphModel.getSelectElements(true)
+    lf.clearSelectElements()
+    elements.edges.forEach((edge) => edge.id && lf.deleteEdge(edge.id))
+    elements.nodes.forEach((node) => node.id && lf.deleteNode(node.id))
+    return false
+  })
+}
+
+/** 打开右键菜单：坐标换算到画布中部容器，右/下边缘内收避免溢出裁切 */
+function openContextMenu(kind, id, e) {
+  if (props.readonly || !e) {
+    return
+  }
+  const rect = designerCenterRef.value?.getBoundingClientRect()
+  if (!rect) {
+    return
+  }
+  contextMenu.x = Math.max(0, Math.min(e.clientX - rect.left, rect.width - 108))
+  contextMenu.y = Math.max(0, Math.min(e.clientY - rect.top, rect.height - 40))
+  contextMenu.kind = kind
+  contextMenu.id = id
+  contextMenu.visible = true
+}
+
+/** 关闭右键菜单（画布任意点击/空白右键/缩放平移/删除执行后） */
+function closeContextMenu() {
+  contextMenu.visible = false
+  contextMenu.kind = ''
+  contextMenu.id = ''
+}
+
+/** 右键菜单「删除」：节点/连线统一走 lf API（内部经 beforeDelete 守卫拦截固定节点并提示） */
+function handleContextDelete() {
+  const { kind, id } = contextMenu
+  closeContextMenu()
+  if (props.readonly || !lf || !id) {
+    return
+  }
+  if (kind === 'node') {
+    lf.deleteNode(id)
+  } else if (kind === 'edge') {
+    lf.deleteEdge(id)
+  }
+}
+
+/** 右侧属性区【删除节点】：经 lf.deleteNode（beforeDelete 守卫拦截固定节点并提示） */
+function deleteSelectedNode() {
+  if (props.readonly || !selectedNode.value) {
+    return
+  }
+  lf.deleteNode(selectedNode.value.id)
+}
+
+/** 右侧属性区【删除连线】：经 lf.deleteEdge（删边自由；分支源节点最后一条出边由保存期 G3 校验拦截） */
+function deleteSelectedEdge() {
+  if (props.readonly || !selectedEdge.value) {
+    return
+  }
+  lf.deleteEdge(selectedEdge.value.id)
 }
 
 /** 新连线落地：自环/重复拦截（自定项）→ 出边数上限拦截（分册 §4.4）→ 初始化业务属性 */
@@ -469,19 +625,28 @@ function handleMaterialDragStart(material) {
 /* ==================== 节点 / 分支配置 ==================== */
 
 /**
- * 节点配置入口（双击节点与右侧【配置节点】共用；固定节点/条件分支/并行结束无配置）：
- * 打开内置 FlowNodeConfigDialog（与分支弹窗同构），node-config-request 保留为宿主感知事件。
+ * 节点配置入口（双击节点与右侧【配置节点】共用）：
+ * 条件分支（CONDITION）走节点级条件分支配置弹窗（分册 §4.5-1）；
+ * 固定节点/并行结束（START/DRAFT/END/JOIN）拦截提示「该节点无节点配置」；
+ * 其余打开内置 FlowNodeConfigDialog（与条件分支弹窗同构），node-config-request 保留为宿主感知事件。
  */
 function requestNodeConfig(node) {
   openNodeConfigDialog(node)
 }
 
-/** 打开内置节点配置弹窗：只读拦截 → 无配置类型拦截提示 → 快照图上下文 + emit 宿主感知事件 */
+/** 打开内置节点配置弹窗：只读拦截 → 条件分支节点级弹窗 → 无配置类型拦截提示 → 快照图上下文 + emit 宿主感知事件 */
 function openNodeConfigDialog(node) {
   if (props.readonly) {
     return
   }
-  if (!node || NO_NODE_CONFIG_TYPES.includes(node.nodeType)) {
+  if (!node) {
+    return
+  }
+  if (node.nodeType === 'CONDITION') {
+    openConditionDialog(node.id || node.nodeKey)
+    return
+  }
+  if (NO_NODE_CONFIG_TYPES.includes(node.nodeType)) {
     ElMessage.info('该节点无节点配置')
     return
   }
@@ -542,7 +707,7 @@ function updateNodeProperties(nodeId, partial) {
   markDirty()
 }
 
-/** 点击分支连线 / 右侧【配置分支】 → 收集该节点全部出边并打开内置弹窗 */
+/** 点击并行分支连线 / 右侧【配置并行分支】 → 收集该节点全部出边并打开内置弹窗 */
 function openBranchDialog(edge) {
   if (!lf || !edge?.sourceNodeId) {
     return
@@ -555,19 +720,55 @@ function openBranchDialog(edge) {
   emit('branch-config-request', edge)
 }
 
-/** 收集分支源节点的全部出边（分支弹窗工作副本数据源，edgeId 对应画布边） */
-function collectBranches(sourceNodeId) {
-  const edges = lf.graphModel.getNodeOutgoingEdge(sourceNodeId) || []
-  return edges.map((edge) => ({
-    edgeId: edge.id,
-    branchName: edge.properties?.branchName || '',
-    branchOrder: normalizeBranchOrder(edge.properties?.branchOrder),
-    condition: edge.properties?.condition || '',
-    isDefault: edge.properties?.isDefault === true,
-  }))
+/** 连线属性区配置入口：条件分支出边跳转节点级条件分支配置弹窗，并行分支出边维持连线弹窗 */
+function openEdgeBranchConfig(edge) {
+  if (!edge) {
+    return
+  }
+  if (edge.sourceNodeType === 'CONDITION') {
+    openConditionDialog(edge.sourceNodeId)
+  } else {
+    openBranchDialog(edge)
+  }
 }
 
-/** 分支弹窗【确定】回写：删边 + 分支属性/边文本更新（序号以上移下移结果为准） */
+/**
+ * 打开条件分支节点配置弹窗（双击 CONDITION 节点 / 右侧【配置节点】/
+ * 选中条件出边【配置条件分支】共用）：收集节点名称与全部出边分支快照。
+ */
+function openConditionDialog(nodeId) {
+  if (props.readonly || !lf || !nodeId) {
+    return
+  }
+  const model = lf.getNodeModelById(nodeId)
+  if (!model || model.properties?.nodeType !== 'CONDITION') {
+    return
+  }
+  conditionDialog.nodeKey = model.properties?.nodeKey || nodeId
+  conditionDialog.nodeName = model.properties?.nodeName || ''
+  conditionDialog.branches = collectBranches(nodeId)
+  conditionDialog.visible = true
+  emit('node-config-request', projectNode(model.getData()))
+}
+
+/** 收集分支源节点的全部出边（分支/条件分支弹窗工作副本数据源，edgeId 对应画布边，附出边目标节点摘要） */
+function collectBranches(sourceNodeId) {
+  const edges = lf.graphModel.getNodeOutgoingEdge(sourceNodeId) || []
+  return edges.map((edge) => {
+    const targetModel = lf.getNodeModelById(edge.targetNodeId)
+    return {
+      edgeId: edge.id,
+      branchName: edge.properties?.branchName || '',
+      branchOrder: normalizeBranchOrder(edge.properties?.branchOrder),
+      condition: edge.properties?.condition || '',
+      isDefault: edge.properties?.isDefault === true,
+      targetNodeKey: targetModel?.properties?.nodeKey || edge.targetNodeId || '',
+      targetNodeName: targetModel?.properties?.nodeName || '',
+    }
+  })
+}
+
+/** 并行分支弹窗【确定】回写：删边 + 分支属性/边文本更新（序号以上移下移结果为准） */
 function applyBranchResult({ branches, removedEdgeIds }) {
   if (!lf) {
     return
@@ -589,12 +790,41 @@ function applyBranchResult({ branches, removedEdgeIds }) {
     })
     lf.updateText(branch.edgeId, branchLineText(branch))
   })
-  if (selectedEdge.value && !lf.getEdgeModelById(selectedEdge.value.id)) {
+  refreshSelectedEdgeAfterWrite()
+  markDirty()
+}
+
+/** 条件分支节点配置弹窗【确定】回写：节点名称 + 全部出边分支属性/边文本（序号以上移下移结果为准） */
+function applyConditionResult({ nodeKey, nodeName, branches }) {
+  if (!lf) {
+    return
+  }
+  updateNodeProperties(nodeKey, { nodeName: String(nodeName || '').trim() })
+  ;(branches || []).forEach((branch) => {
+    if (!lf.getEdgeModelById(branch.edgeId)) {
+      return
+    }
+    lf.setProperties(branch.edgeId, {
+      branchOrder: branch.branchOrder,
+      branchName: branch.branchName,
+      condition: branch.condition,
+      isDefault: branch.isDefault === true,
+    })
+    lf.updateText(branch.edgeId, branchLineText(branch))
+  })
+  refreshSelectedEdgeAfterWrite()
+}
+
+/** 分支/条件分支回写后刷新右侧连线摘要（边属性已变，被删边清空选中） */
+function refreshSelectedEdgeAfterWrite() {
+  if (!selectedEdge.value) {
+    return
+  }
+  if (!lf.getEdgeModelById(selectedEdge.value.id)) {
     selectedEdge.value = null
-  } else if (selectedEdge.value) {
+  } else {
     selectedEdge.value = projectEdge(lf.getEdgeModelById(selectedEdge.value.id).getData())
   }
-  markDirty()
 }
 
 /* ==================== 工具条 ==================== */
@@ -773,6 +1003,7 @@ function lineTypeLabel(lineType) {
   display: flex;
   flex: 1;
   flex-direction: column;
+  position: relative;
   min-width: 0;
 }
 
@@ -815,6 +1046,36 @@ function lineTypeLabel(lineType) {
   background: var(--el-fill-color-lighter);
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+/* 右键菜单：画布中部容器内绝对定位（分册 §4.4 右键菜单「删除」入口） */
+.designer-context-menu {
+  position: absolute;
+  z-index: 20;
+  min-width: 96px;
+  padding: 4px;
+  background: var(--el-bg-color-overlay);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 4px;
+  box-shadow: var(--el-box-shadow-light);
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--el-text-color-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-menu-item:hover {
+  background: var(--el-fill-color-light);
+  color: var(--el-color-primary);
 }
 
 .designer-right {

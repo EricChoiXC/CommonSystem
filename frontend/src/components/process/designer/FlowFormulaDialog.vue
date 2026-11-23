@@ -25,8 +25,9 @@
  *
  * 供节点配置弹窗的 handlerFormula（审批人公式）/ ccFormula（抄送对象公式）使用：
  * 不可编辑 el-input +【编辑】打开公共 FormulaDesigner 弹窗，【确认回写】回填 v-model、
- * 取消/关闭放弃本次编辑。条件分支与并行启动条件已由 FlowBranchConfigDialog 直连
- * FormulaDesigner（FE-002 交付，expectedReturnType=BOOLEAN），二者口径一致：
+ * 取消/关闭放弃本次编辑。条件分支（FlowConditionNodeConfigDialog，V1.11 起节点级配置）
+ * 与并行启动条件（FlowBranchConfigDialog）均直连 FormulaDesigner
+ * （expectedReturnType=BOOLEAN），与本组件口径一致：
  * 入口形态（只读输入框 + 编辑按钮）、确认回填 / 取消放弃契约相同（分册 §5.4 冻结两条
  * 实现路径 A/B 的交互契约一致，FE-003 交付登记保留分支弹窗直连形态、节点公式走本组件）。
  *
