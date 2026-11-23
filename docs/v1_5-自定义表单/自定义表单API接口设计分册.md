@@ -76,14 +76,14 @@
 | 版本管理 | `define` | `/publish` | POST | `sys.form.define.publish` | `SYS_FORM_ADMIN` |
 | 版本管理 | `define` | `/versions?fieldId=` | GET | `sys.form.define.versions` | `SYS_FORM_ADMIN` |
 | 版本管理 | `define` | `/rollback` | POST | `sys.form.define.rollback` | `SYS_FORM_ADMIN` |
-| 表单数据 | `data` | `/schema?formId=` | GET | `sys.form.data.schema` | 登录即可（R06 倾向） |
-| 表单数据 | `data` | `/save` | POST | `sys.form.data.save` | 登录即可（R06 倾向） |
-| 表单数据 | `data` | `/validate` | POST | `sys.form.data.validate` | 登录即可（R06 倾向） |
+| 表单数据 | `data` | `/schema?formId=` | GET | `sys.form.data.schema` | 登录即可（R06 已定稿） |
+| 表单数据 | `data` | `/save` | POST | `sys.form.data.save` | 登录即可（R06 已定稿） |
+| 表单数据 | `data` | `/validate` | POST | `sys.form.data.validate` | 登录即可（R06 已定稿） |
 | 表单数据 | `data` | `/load?fieldId=` | GET | `sys.form.data.load` | 登录即可 + 数据归属 |
 | 表单数据 | `data` | `/list` | POST | `sys.form.data.list` | 登录即可 + 归属强制过滤 |
 | 表单数据 | `data` | `/delete?fieldId=` | DELETE | `sys.form.data.delete` | 登录即可 + 数据归属 |
 
-> 数据面「登录即可 + 数据归属」口径为 **R06 倾向口径**：登录即可提交 / 查询本人数据（按创建人 `field_creator_id` 判定，先例日程归属判定），`SYS_FORM_ADMIN` 可查询全部。**R06 数据归属口径最终以 F15-DOC-005 裁决为准，若裁决变化（含是否增设数据面独立权限码）由 F15-DOC-005 回写本分册**（见 §10）。
+> 数据面「登录即可 + 数据归属」口径原为 **R06 倾向口径**：登录即可提交 / 查询本人数据（按创建人 `field_creator_id` 判定，先例日程归属判定），`SYS_FORM_ADMIN` 可查询全部。**R06 已定稿（2026-11-23，F15-DOC-005），定稿与上述倾向一致**（一期不增设 `SYS_FORM_DATA_ADMIN`），权威口径见 [自定义表单功能详细设计](自定义表单功能详细设计.md) §12.2；本表准入不变。
 
 ---
 
@@ -321,7 +321,7 @@
 
 | 项 | 契约 |
 | --- | --- |
-| 鉴权动作 | `sys.form.data.schema`（登录即可，R06 倾向），无 `documentId` |
+| 鉴权动作 | `sys.form.data.schema`（登录即可，R06 已定稿），无 `documentId` |
 | 请求参数 | `formId`（表单主档 ID，`@Parameter` 必填） |
 
 前置拒绝：表单不存在 → `CS_FORM_NOT_FOUND`；表单停用（填写入口关闭）→ `CS_FORM_DISABLED`；无已发布版本（主档 DRAFT）→ `CS_FORM_NO_PUBLISHED_VERSION`。
@@ -332,7 +332,7 @@
 
 | 项 | 契约 |
 | --- | --- |
-| 鉴权动作 | `sys.form.data.save`（登录即可，R06 倾向），无 `documentId` |
+| 鉴权动作 | `sys.form.data.save`（登录即可，R06 已定稿），无 `documentId` |
 | 请求体 | `SysFormDataSaveRequest` |
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -365,7 +365,7 @@
 
 | 项 | 契约 |
 | --- | --- |
-| 鉴权动作 | `sys.form.data.validate`（登录即可，R06 倾向），无 `documentId` |
+| 鉴权动作 | `sys.form.data.validate`（登录即可，R06 已定稿），无 `documentId` |
 | 请求体 | `SysFormDataValidateRequest { formId, businessId?, formData }`（与 save 同构，无 `fieldId`——不落库） |
 
 用途：填写页提交前预检与业务集成方预检通道——服务端动态校验（规则条件必填 / 条件范围 / 条件正则）、级联复核、公式重算等权威裁决前端无法复算（渲染器 `expose.validate()` 仅本地预演），本接口提供**与 save 完全共用同一校验引擎与校验链（S0~S6，同序同语义）**、不落库的预检入口。
@@ -393,7 +393,7 @@
 
 | 项 | 契约 |
 | --- | --- |
-| 鉴权动作 | `sys.form.data.load`（登录即可 + 数据归属，R06 倾向），`documentId = fieldId`（数据行 ID） |
+| 鉴权动作 | `sys.form.data.load`（登录即可 + 数据归属，R06 已定稿），`documentId = fieldId`（数据行 ID） |
 | 请求参数 | `fieldId`（数据行 ID） |
 
 前置拒绝：数据行不存在 → `CS_FORM_DATA_NOT_FOUND`；非本人且非管理员（数据归属判定见 §4.8）→ `CS_FORM_DATA_FORBIDDEN`。
@@ -414,7 +414,7 @@
 
 | 项 | 契约 |
 | --- | --- |
-| 鉴权动作 | `sys.form.data.list`（登录即可，R06 倾向），无 `documentId` |
+| 鉴权动作 | `sys.form.data.list`（登录即可，R06 已定稿），无 `documentId` |
 | 请求体 | `{ body, pages: { pageNo, pageSize, needPage }, sortField, sortOrder }` |
 
 请求 `body` 筛选条件（功能设计 §6.2）：
@@ -433,14 +433,14 @@
 
 | 项 | 契约 |
 | --- | --- |
-| 鉴权动作 | `sys.form.data.delete`（登录即可 + 数据归属，R06 倾向），`documentId = fieldId`（数据行 ID） |
+| 鉴权动作 | `sys.form.data.delete`（登录即可 + 数据归属，R06 已定稿），`documentId = fieldId`（数据行 ID） |
 | 请求参数 | `fieldId`（数据行 ID） |
 
 前置拒绝：数据行不存在 → `CS_FORM_DATA_NOT_FOUND`；非创建人且非管理员 → `CS_FORM_DATA_FORBIDDEN`（F15-BE-003：删除为创建人或管理员）。
 
 响应：`data = Void`。
 
-### 4.8 数据归属口径（R06 倾向，终稿随 F15-DOC-005）
+### 4.8 数据归属口径（R06 已定稿，F15-DOC-005）
 
 | 语义 | 口径 |
 | --- | --- |
@@ -449,7 +449,7 @@
 | 管理员全量查询 | 会话用户持有 `SYS_FORM_ADMIN`（或 `SYS_ADMIN`）时 list 不过滤归属、load / delete 放行他人数据 |
 | 三种拒绝语义 | 未登录 → `UNAUTHORIZED`（鉴权层）；无接口权限 → `FORBIDDEN`（resolver 层，登录即可口径下仅未登录触发）；**非本人非管理员访问他人数据 → `CS_FORM_DATA_FORBIDDEN`（`code = FORBIDDEN` + message 前缀，resolver + Service 双层保证）** |
 
-> 本节为 **R06 倾向口径**：**数据归属口径最终以 F15-DOC-005 裁决为准，若裁决变化（登录即可范围调整、增设 `SYS_FORM_DATA_ADMIN` 等数据面权限码、归属判定细则）由 F15-DOC-005 回写本分册**（§6 准入表与 resolver 分支同步修订）。
+> 本节原为 **R06 倾向口径**。**R06 已定稿（2026-11-23，F15-DOC-005）：定稿与上表倾向一致**——登录即可范围不变、不增设 `SYS_FORM_DATA_ADMIN` 等数据面权限码、归属按创建人判定（Service 层强制），**本节与 §6 准入表 / resolver 分支不变**；权威口径见 [自定义表单功能详细设计](自定义表单功能详细设计.md) §12.2（三种拒绝语义的可独立读通描述亦在彼处）。
 
 ---
 
@@ -483,9 +483,9 @@
 | 7 | `ACTION_FORM_DEFINE_PUBLISH` | `sys.form.define.publish` | `POST /define/publish` | `SYS_FORM_ADMIN` |
 | 8 | `ACTION_FORM_DEFINE_VERSIONS` | `sys.form.define.versions` | `GET /define/versions?fieldId=` | `SYS_FORM_ADMIN` |
 | 9 | `ACTION_FORM_DEFINE_ROLLBACK` | `sys.form.define.rollback` | `POST /define/rollback` | `SYS_FORM_ADMIN` |
-| 10 | `ACTION_FORM_DATA_SCHEMA` | `sys.form.data.schema` | `GET /data/schema?formId=` | 登录即可（R06 倾向） |
-| 11 | `ACTION_FORM_DATA_SAVE` | `sys.form.data.save` | `POST /data/save` | 登录即可（R06 倾向） |
-| 12 | `ACTION_FORM_DATA_VALIDATE` | `sys.form.data.validate` | `POST /data/validate` | 登录即可（R06 倾向） |
+| 10 | `ACTION_FORM_DATA_SCHEMA` | `sys.form.data.schema` | `GET /data/schema?formId=` | 登录即可（R06 已定稿） |
+| 11 | `ACTION_FORM_DATA_SAVE` | `sys.form.data.save` | `POST /data/save` | 登录即可（R06 已定稿） |
+| 12 | `ACTION_FORM_DATA_VALIDATE` | `sys.form.data.validate` | `POST /data/validate` | 登录即可（R06 已定稿） |
 | 13 | `ACTION_FORM_DATA_LOAD` | `sys.form.data.load` | `GET /data/load?fieldId=` | 登录即可 + 数据归属 |
 | 14 | `ACTION_FORM_DATA_LIST` | `sys.form.data.list` | `POST /data/list` | 登录即可 + 归属强制过滤 |
 | 15 | `ACTION_FORM_DATA_DELETE` | `sys.form.data.delete` | `DELETE /data/delete?fieldId=` | 登录即可 + 数据归属 |
@@ -501,7 +501,7 @@
 | `sys.form.data.` | 登录即可（`resolveLoggedIn()`，先例公式组件四接口） | 数据面 6 个动作统一分支；数据归属（本人 / 管理员全量）由 Service 层强制判定（§4.8），resolver 不做归属判定 |
 | 其他 / 未登记 | 拒绝 | 最小授权兜底 |
 
-> 数据面是否增设独立权限码（如 `SYS_FORM_DATA_ADMIN`）随 F15-DOC-005（R06）裁决；若裁决变化，由 F15-DOC-005 回写本节准入表与 §4.8。
+> **R06 已定稿（2026-11-23，F15-DOC-005）：不增设 `SYS_FORM_DATA_ADMIN` 等数据面独立权限码**，数据面 6 动作维持登录即可 + Service 层归属控制，本节准入表与 §4.8 不变；详见 [自定义表单功能详细设计](自定义表单功能详细设计.md) §12.2。
 
 ---
 
@@ -611,8 +611,8 @@
 | # | 开放点 | 归属 | 本分册已给口径 |
 | --- | --- | --- | --- |
 | 1 | 三表基类归属（主档 `MainModel`；版本行 / 数据行 `MainModel` vs `BaseModel`——版本行只增不改候选流水形态）、草稿行与发布行同表承载形态、`field_schema_json` / `field_form_data` JSON 列与索引清单 | F15-DOC-003（数据库分册，R05） | 请求 / 响应字段已按 `field_` 前缀与功能设计 §5/§6 草案列名登记；索引须支撑本分册查询路径（`/data/list` 按 `field_form_id` + 归属 + 时间，`/define/versions` 按 `field_form_id`，编码唯一约束 `uk_form_code` 与 §3.5「编码禁改」配套）。**已定稿（2026-11-23，F15-DOC-003）**：基类归属 `sys_form` / `sys_form_version` = `MainModel`（版本行否决流水候选——草稿行发布前被 `/define/update` 反复原地重写）、`sys_form_data` = `BaseModel`（一期只增不改 + 物理删除）；草稿行与发布行**同表承载**（`sys_form_version` 单表 `field_status` 区分，草稿行 `field_version` 为 NULL、发布时原地冻结回填）；索引清单 `uk_form_code` / `idx_form_version_form` / `uk_form_version_form_version`（并发发布防护）/ `idx_form_data_form` / `idx_form_data_business`，见[自定义表单数据库设计分册](自定义表单数据库设计分册.md) §4/§5/§9.1 |
-| 2 | 数据面口径终稿（R06）：登录即可范围、是否增设 `SYS_FORM_DATA_ADMIN` 等数据面权限码、归属判定细则 | F15-DOC-005 | §4.8 / §6 倾向口径已定（登录即可提交 / 本人查询 + `SYS_FORM_ADMIN` 全量，创建人判定先例日程）；**若裁决变化由 F15-DOC-005 回写本分册 §4.8 / §6** |
-| 3 | `SYS_FORM_ADMIN` 权限码 NAME 与 `SysFormConstants.ROLE_SYS_FORM_ADMIN` 逐字一致、`moduleGroup.yml`（key `form`）清单固化 | F15-DOC-005 / F15-OPS-001 | ACTION 全集（§6.1）即 moduleGroup 接口分组清单的依据 |
+| 2 | 数据面口径终稿（R06）：登录即可范围、是否增设 `SYS_FORM_DATA_ADMIN` 等数据面权限码、归属判定细则 | F15-DOC-005 | **已定稿（2026-11-23，F15-DOC-005）**：与 §4.8 / §6 倾向一致——数据面 6 接口登录即可、归属按创建人 `field_creator_id` 判定（Service 层强制过滤 / 拒绝，先例日程归属）、`SYS_FORM_ADMIN` 管理全部表单与数据、一期不增设 `SYS_FORM_DATA_ADMIN`（数据面无独立管理动作面，字段级可见性归 v1.8 BPM 节点权限）；本分册 §2.5 / §4.8 / §6 口径不变，权威口径见功能详细设计 §12.2（含三种拒绝语义逐接口落地描述） |
+| 3 | `SYS_FORM_ADMIN` 权限码 NAME 与 `SysFormConstants.ROLE_SYS_FORM_ADMIN` 逐字一致、`moduleGroup.yml`（key `form`）清单固化 | F15-DOC-005 / F15-OPS-001 | **口径已由 F15-DOC-005 定稿（2026-11-23）**：roles.yml 条目形态（`ROLE_LIST` / `ROLE_MAP`，NAME「自定义表单管理员」）与 moduleGroup（key `form`、name「自定义表单」、remark「自定义表单模块（15 接口统一开关）」）见功能详细设计 §12.1 / §12.4；**yml 三件套落地归 F15-OPS-001，落地时须同批扩展 `ModuleGroupYmlParseTest`（keySet 精确断言纳入 `form` + name / remark 断言，F18 / F14 先例教训）**；ACTION 全集（§6.1）即 moduleGroup 接口分组清单的依据 |
 | 4 | 未知字段提交策略差异回写：功能设计 §6.1 第②步「倾向裁剪 + 告警」与本分册定稿「拒绝（`CS_FORM_UNKNOWN_FIELD`）」表述统一 | F15-DOC-006（文档收口回查） | 本分册定稿为准（§7.4①）；功能设计 §6.1 第②步建议改写为「字段白名单校验（未知字段拒绝）」 |
 | 5 | 一期无数据实例更新接口（`PATCH /data/update` 不设）；若 UI 分册 / 联调期出现「数据再编辑」诉求 | F15-DOC-004 / F15-INT-002 评估 | §4.3 已登记：实例更新须补 PATCH 接口（同保存校验链 + readonly 值变更拒绝语义）并回写本分册 |
 | 6 | 历史版本 Schema 内容预览（版本行详情接口）一期不设；UI 分册若出现版本对比 / 预览页面 | F15-DOC-004 评估 | §3.9 已登记：如需再补 `GET /define/version?fieldId=`（版本行详情）并回写本分册 |
