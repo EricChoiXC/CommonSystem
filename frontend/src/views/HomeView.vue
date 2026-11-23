@@ -289,7 +289,9 @@ const menus = [
           { title: '模板管理', path: '/processTemplate', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_TEMPLATE_ADMIN', 'SYS_PROCESS_TEMPLATE_VIEWER'] },
           { title: '流程实例', path: '/processExample', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN', 'SYS_PROCESS_EXAMPLE_VIEWER'] },
           // 流程监控（v1_7 P17-FE-007）：管理员级监控列表，菜单 path 与路由 process/monitor 对应
-          { title: '流程监控', path: '/process/monitor', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN'] }
+          { title: '流程监控', path: '/process/monitor', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN'] },
+          // 流程统计（v1_7 P17-FE-009）：管理员级统计页（指标卡 + 聚合表），与流程监控并列
+          { title: '流程统计', path: '/process/statistic', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN'] }
         ]
       },
       {
@@ -368,16 +370,17 @@ const menus = [
     ]
   },
   {
-    // 审批一级菜单（v1_7 P17-FE-008）：一级菜单直接挂叶子（与【工作台】形态一致），
-    // 走既有 group.leafChildren 渲染分支，不新增渲染层级；auth 为空所有登录用户可见，
+    // 审批一级菜单（v1_7 P17-FE-008，P17-FE-009 补第 3 叶子）：一级菜单直接挂叶子（与【工作台】
+    // 形态一致），走既有 group.leafChildren 渲染分支，不新增渲染层级；auth 为空所有登录用户可见，
     // 页面可见性由叶子各自声明（SYS_PROCESS_MY_VIEWER 默认全员授予，SYS_ADMIN 经 hasAuth
     // 超管短路天然可见）；分组下无可见子项时 filterMenuNode 自动隐藏整个分组。
-    // 「我的流程统计」页属 P17-FE-009（Wave 4），本期不建菜单项。
     title: '审批',
     auth: '',
     children: [
       { title: '我发起的', path: '/approval/created', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_MY_VIEWER'] },
-      { title: '我参与的', path: '/approval/joined', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_MY_VIEWER'] }
+      { title: '我参与的', path: '/approval/joined', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_MY_VIEWER'] },
+      // 我的流程统计（v1_7 P17-FE-009）：全员可见五项指标统计页，叶子 auth 照抄路由 meta.auth
+      { title: '我的流程统计', path: '/approval/statistic', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_MY_VIEWER'] }
     ]
   }
 ]

@@ -286,6 +286,14 @@ const routes = [
         meta: { title: '流程监控', parent: '系统管理', group: '流程管理', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN'] }
       },
       {
+        // 流程统计页（P17-FE-009）：管理员级统计（指标卡 + 聚合表，UI 分册 §10.1 冻结布局）；
+        // 叶子路由不设 meta.tab（仅动态子路由复用单标签）
+        path: 'process/statistic',
+        name: 'ProcessStatistic',
+        component: () => import('@/views/process/ProcessStatisticView.vue'),
+        meta: { title: '流程统计', parent: '系统管理', group: '流程管理', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_EXAMPLE_ADMIN'] }
+      },
+      {
         // 审批一级菜单「我发起的」列表页（P17-FE-008）：全员可见（SYS_PROCESS_MY_VIEWER 默认
         // 全员授予），叶子路由不设 meta.tab（仅动态子路由复用单标签，UI 分册 §2.3 冻结写法）
         path: 'approval/created',
@@ -300,6 +308,14 @@ const routes = [
         name: 'ApprovalJoined',
         component: () => import('@/views/process/MyJoinedView.vue'),
         meta: { title: '我参与的', parent: '审批', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_MY_VIEWER'] }
+      },
+      {
+        // 审批一级菜单「我的流程统计」统计页（P17-FE-009）：全员可见五项指标统计页，
+        // 补齐审批菜单第 3 个叶子（UI 分册 §2.3 冻结写法）；叶子路由不设 meta.tab
+        path: 'approval/statistic',
+        name: 'ApprovalStatistic',
+        component: () => import('@/views/process/MyStatisticView.vue'),
+        meta: { title: '我的流程统计', parent: '审批', auth: ['SYS_PROCESS_ADMIN', 'SYS_PROCESS_MY_VIEWER'] }
       },
       {
         path: 'i18nLanguage',

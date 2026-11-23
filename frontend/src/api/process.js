@@ -179,3 +179,30 @@ export function queryProcessMonitorList(data) {
 export function adminOperateProcessExample(body) {
   return request.post('/backend/sys/process/example/adminOperate', body)
 }
+
+/* ==================== 流程统计（statistic） ==================== */
+
+/**
+ * 流程统计（管理员）：区间内实例总数、按状态/模块/模板的数量分布、平均办结耗时与
+ * 人员工作量 TopN（v1_7 新增，接口清单 §7.1；仅 SYS_PROCESS_EXAMPLE_ADMIN）。
+ * avgDurationMs 只计已完成（FINISH）实例（field_finish_time - field_create_time 自然时长毫秒，
+ * 无完成实例为 0）；handlerWorkloads 按已办工作量降序取前 topN（缺省 10）。
+ * @param {Object} [data] { body: { fieldModelName?, fieldTemplateId?, fieldStatus?,
+ *   fieldCreateTimeBegin?, fieldCreateTimeEnd?, topN? } }（body 可整体缺省，缺省按全量统计）
+ * @returns {Promise<Object>} BaseResponse，data 为管理员统计结果
+ *   （totalCount / statusCounts / modelCounts / templateCounts / avgDurationMs / handlerWorkloads）
+ */
+export function queryProcessStatisticAdmin(data) {
+  return request.post('/backend/sys/process/statistic/admin', data || {})
+}
+
+/**
+ * 我的流程统计：今日发起 / 我的未办结 / 待审 / 今日已审 / 平均耗时五项指标
+ * （v1_7 新增，接口清单 §7.2；登录即可）。无请求体，统计对象由会话定位
+ * （后端不接收任何 userId 参数，防越权）；avgDurationMs 为本人参与且已办结
+ * 实例的平均办结时长（毫秒，无办结实例为 0）。
+ * @returns {Promise<Object>} BaseResponse，data 为我的统计五项指标
+ */
+export function queryProcessStatisticMy() {
+  return request.post('/backend/sys/process/statistic/my')
+}
