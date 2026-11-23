@@ -610,7 +610,7 @@
 
 | # | 开放点 | 归属 | 本分册已给口径 |
 | --- | --- | --- | --- |
-| 1 | 三表基类归属（主档 `MainModel`；版本行 / 数据行 `MainModel` vs `BaseModel`——版本行只增不改候选流水形态）、草稿行与发布行同表承载形态、`field_schema_json` / `field_form_data` JSON 列与索引清单 | F15-DOC-003（数据库分册，R05） | 请求 / 响应字段已按 `field_` 前缀与功能设计 §5/§6 草案列名登记；索引须支撑本分册查询路径（`/data/list` 按 `field_form_id` + 归属 + 时间，`/define/versions` 按 `field_form_id`，编码唯一约束 `uk_form_code` 与 §3.5「编码禁改」配套） |
+| 1 | 三表基类归属（主档 `MainModel`；版本行 / 数据行 `MainModel` vs `BaseModel`——版本行只增不改候选流水形态）、草稿行与发布行同表承载形态、`field_schema_json` / `field_form_data` JSON 列与索引清单 | F15-DOC-003（数据库分册，R05） | 请求 / 响应字段已按 `field_` 前缀与功能设计 §5/§6 草案列名登记；索引须支撑本分册查询路径（`/data/list` 按 `field_form_id` + 归属 + 时间，`/define/versions` 按 `field_form_id`，编码唯一约束 `uk_form_code` 与 §3.5「编码禁改」配套）。**已定稿（2026-11-23，F15-DOC-003）**：基类归属 `sys_form` / `sys_form_version` = `MainModel`（版本行否决流水候选——草稿行发布前被 `/define/update` 反复原地重写）、`sys_form_data` = `BaseModel`（一期只增不改 + 物理删除）；草稿行与发布行**同表承载**（`sys_form_version` 单表 `field_status` 区分，草稿行 `field_version` 为 NULL、发布时原地冻结回填）；索引清单 `uk_form_code` / `idx_form_version_form` / `uk_form_version_form_version`（并发发布防护）/ `idx_form_data_form` / `idx_form_data_business`，见[自定义表单数据库设计分册](自定义表单数据库设计分册.md) §4/§5/§9.1 |
 | 2 | 数据面口径终稿（R06）：登录即可范围、是否增设 `SYS_FORM_DATA_ADMIN` 等数据面权限码、归属判定细则 | F15-DOC-005 | §4.8 / §6 倾向口径已定（登录即可提交 / 本人查询 + `SYS_FORM_ADMIN` 全量，创建人判定先例日程）；**若裁决变化由 F15-DOC-005 回写本分册 §4.8 / §6** |
 | 3 | `SYS_FORM_ADMIN` 权限码 NAME 与 `SysFormConstants.ROLE_SYS_FORM_ADMIN` 逐字一致、`moduleGroup.yml`（key `form`）清单固化 | F15-DOC-005 / F15-OPS-001 | ACTION 全集（§6.1）即 moduleGroup 接口分组清单的依据 |
 | 4 | 未知字段提交策略差异回写：功能设计 §6.1 第②步「倾向裁剪 + 告警」与本分册定稿「拒绝（`CS_FORM_UNKNOWN_FIELD`）」表述统一 | F15-DOC-006（文档收口回查） | 本分册定稿为准（§7.4①）；功能设计 §6.1 第②步建议改写为「字段白名单校验（未知字段拒绝）」 |
