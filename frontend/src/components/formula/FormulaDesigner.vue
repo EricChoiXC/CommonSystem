@@ -3,6 +3,7 @@
     :model-value="visible"
     title="公式设计"
     width="1000px"
+    append-to-body
     :close-on-click-modal="false"
     @update:model-value="handleVisibleChange"
     @open="handleOpen"
@@ -222,6 +223,12 @@ import { getDatasourceTargets } from '@/api/datasource'
  * /validate；校验失败只展示、不阻断继续编辑；试算失败（success=false）与接口
  * 异常同样仅提示、不阻断弹窗操作。前端不做语法解析裁决——引用码粗提取仅用于
  * 装配 vars 入参（见 buildValidateVars 注释）。
+ *
+ * 渲染层：el-dialog 固定 append-to-body 直挂 body 顶层。本组件常被嵌套在宿主
+ * 弹窗内打开（流程设计器条件分支明细表经 FlowFormulaDialog 逐行内嵌、并行分支
+ * 与节点配置弹窗直连），el-table 单元格自带 position:relative + z-index 层叠
+ * 上下文，不传送时弹窗被困在单元格内，会被相邻行/边框补丁等盖住（V1.11 走查
+ * 修复）；直挂 body 后经 PopupManager 取更高 z-index，始终压过宿主弹窗。
  *
  * 数据加载：弹窗首次打开时并行拉取 options / functions / targets 三接口
  * （loaded 置位后不重复拉取），单个接口失败仅 ElMessage 警告、对应分组展示
