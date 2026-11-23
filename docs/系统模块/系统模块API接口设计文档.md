@@ -224,7 +224,7 @@ callback 回跳 `bind` 值（`{channel}:{reason}`，前端经 `route.query.bind`
 | 流程实例 | `example` | `list` 请求体扩展 `scope`（`admin` 默认 / `myCreated` / `myJoined`，`my*` 强制本人数据过滤）；`load` 响应扩展 `lines` 与节点 `nodeKey`/`runtime`；`panel` 响应扩展 `operations`（按节点配置 ∩ 用户身份计算的按钮集）与图数据（`nodeOps` 业务标识逻辑不变）；`adminOperate` 目标节点范围扩展为任意审批/起草/人工决策节点 |
 | 流程审批操作 | `operation` | **新增**统一操作入口 `POST /backend/sys/process/operation/operate`（`operateType` 覆盖 14 类操作标识） |
 | 流程监控 | `example` | **新增** `POST /backend/sys/process/example/monitorList`（管理员级，在途/异常筛选） |
-| 流程统计 | `statistic` | **新增** `POST /backend/sys/process/statistic/admin`（管理员统计）与 `POST /backend/sys/process/statistic/my`（我的统计），只读聚合、不侵入流转 SQL |
+| 流程统计 | `statistic` | **新增** `POST /backend/sys/process/statistic/admin`（管理员统计）与 `POST /backend/sys/process/statistic/my`（我的统计），只读聚合、不侵入流转 SQL（统计专用 Mapper）；`admin` 仅 `SYS_PROCESS_EXAMPLE_ADMIN`、`my` 登录即可，`my` 统计对象只取会话、不接收 userId（@Tag 流程-流程统计） |
 
 - **新增权限**：权限码 `SYS_PROCESS_MY_VIEWER`（我发起的/我参与的/我的流程统计，`roles.yml` 默认全员授予）；监控与统计（管理员）复用 `SYS_PROCESS_EXAMPLE_ADMIN`。新增 `ACTION_*`：`sys.process.example.operate`、`sys.process.example.monitorList`、`sys.process.statistic.admin`、`sys.process.statistic.my`（全集与判定口径见分册 §8/§9）。
 - **契约明细**：字段级请求/响应契约、14 类操作 × 参数 × 留痕矩阵、`CS_PROCESS_*` 错误码与在线文档注解文案，统一见 [流程 v1_7 接口清单](../设计文档/sys/process/流程v1_7接口清单.md)（本总文档不重复字段卡片）。

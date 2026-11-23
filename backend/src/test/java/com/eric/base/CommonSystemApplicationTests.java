@@ -45,6 +45,7 @@ import com.eric.base.sys.task.mapper.SysTaskMainMapper;
 import com.eric.base.sys.process.mapper.SysProcessAuditNoteMapper;
 import com.eric.base.sys.process.mapper.SysProcessExampleLineMapper;
 import com.eric.base.sys.process.mapper.SysProcessExampleMapper;
+import com.eric.base.sys.process.mapper.SysProcessStatisticMapper;
 import com.eric.base.sys.process.mapper.SysProcessExampleNodeMapper;
 import com.eric.base.sys.process.mapper.SysProcessExampleWorkitemMapper;
 import com.eric.base.sys.process.mapper.SysProcessTemplateHistoryMapper;
@@ -333,6 +334,12 @@ class CommonSystemApplicationTests {
 		SysProcessOrgUserMapper sysProcessOrgUserMapper() {
 			// P17-BE-002 审批人解析只读 Mapper：SysProcessOrgUserDao 依赖本 Mapper
 			return Mockito.mock(SysProcessOrgUserMapper.class);
+		}
+
+		@Bean
+		SysProcessStatisticMapper sysProcessStatisticMapper() {
+			// P17-BE-016 流程统计只读 Mapper：SysProcessStatisticDao 依赖本 Mapper
+			return Mockito.mock(SysProcessStatisticMapper.class);
 		}
 
 		/* ==================== 系统模块补充 Mapper（日历/用户密码历史） ==================== */

@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eric.base.sys.process.mapper.SysProcessStatisticMapper">
+
+    <!--
+        流程统计专用只读聚合（v1_7 P17-BE-016，依据 docs/设计文档/sys/process/流程v1_7接口清单.md §7）：
+        仅 SELECT 聚合语句，不写任何流转表、不复用/不改动流转 SQL（流转语句归各实体 Mapper）。
+        列名全部 field_ 前缀，与实体注解（SysProcessExample / SysProcessExampleWorkitem /
+        SysProcessAuditNote / SysProcessTemplate）声明的真实列名一致。
+        口径约定：
+        - 管理员统计筛选条件（模块/模板/状态/创建时间区间）对实例维度的全部聚合生效；
+        - 平均办结耗时 = 只计 field_status = 'FINISH' 且 field_finish_time 非空的实例，
+          自然时长 field_finish_time - field_create_time（Q-05 定稿口径），毫秒（MICROSECOND / 1000）；
+        - 人员工作量 = HANDLER_PASS 审批留痕关联工作项的实际处理人
+          （field_expect_handler_id 优先、回退 field_handler_id，与办结待阅收件人同口径）；
+        - 我的统计的本人条件（field_creator_id / field_handler_id = myUserId）与
+          「我发起的 / 我参与的」列表（SysProcessExampleMapper.ExampleScopeFilters）同口径；
+          myUserId 由 Service 从会话注入，未登录为 null，比对 NULL 恒不成立（零泄露）。
+    -->
+
+    <!-- 管理员统计概览（总数 + 平均办结耗时）映射 -->
+    <resultMap id="SysProcessStatisticAdminOverviewMap" type="com.eric.base.sys.process.response.SysProcessStatisticAdminVo">
+        <result column="total_count" property="totalCount"/>
+        <result column="avg_duration_ms" property="avgDurationMs"/>
+    </resultMap>
+
+    <resultMap id="SysProcessStatisticStatusCountMap" type="com.eric.base.sys.process.model.SysProcessStatisticStatusCountDo">
+        <result column="field_status" property="fieldStatus"/>
+        <result column="total_count" property="count"/>
+    </resultMap>
+
+    <resultMap id="SysProcessStatisticModelCountMap" type="com.eric.base.sys.process.model.SysProcessStatisticModelCountDo">
+        <result column="field_model_name" property="fieldModelName"/>
+        <result column="total_count" property="count"/>
+    </resultMap>
+
+    <resultMap id="SysProcessStatisticTemplateCountMap" type="com.eric.base.sys.process.model.SysProcessStatisticTemplateCountDo">
+        <result column="field_template_id" property="fieldTemplateId"/>
+        <result column="field_template_name" property="fieldTemplateName"/>
+        <result column="total_count" property="count"/>
+    </resultMap>
+
+    <resultMap id="SysProcessStatisticHandlerWorkloadMap" type="com.eric.base.sys.process.model.SysProcessStatisticHandlerWorkloadDo">
+        <result column="field_handler_id" property="fieldHandlerId"/>
+        <result column="field_handler_name" property="fieldHandlerName"/>
+        <result column="handled_count" property="handledCount"/>
+        <result column="avg_duration_ms" property="avgDurationMs"/>
+    </resultMap>
+
+    <resultMap id="SysProcessStatisticMyMap" type="com.eric.base.sys.process.response.SysProcessStatisticMyVo">
+        <result column="today_created_count" property="todayCreatedCount"/>
+        <result column="my_processing_count" property="myProcessingCount"/>
+        <result column="pending_approve_count" property="pendingApproveCount"/>
+        <result column="today_approved_count" property="todayApprovedCount"/>
+        <result column="avg_duration_ms" property="avgDurationMs"/>
+    </resultMap>
+
+    <!--
+        管理员统计共用筛选条件（概览 / 状态 / 模块 / 模板 / 人员工作量五处同构引用，
+        保证各分布与 totalCount 同口径；e 为 sys_process_example 别名）。
+    -->
+    <sql id="StatisticExampleFilters">
+        <if test="query.fieldModelName != null and query.fieldModelName != ''">AND e.field_model_name = #{query.fieldModelName}</if>
+        <if test="query.fieldTemplateId != null and query.fieldTemplateId != ''">AND e.field_template_id = #{query.fieldTemplateId}</if>
+        <if test="query.fieldStatus != null and query.fieldStatus != ''">AND e.field_status = #{query.fieldStatus}</if>
+        <if test="query.fieldCreateTimeBegin != null">AND e.field_create_time &gt;= #{query.fieldCreateTimeBegin}</if>
+        <if test="query.fieldCreateTimeEnd != null">AND e.field_create_time &lt;= #{query.fieldCreateTimeEnd}</if>
+    </sql>
+
+    <!-- 管理员统计概览：筛选范围内实例总数 + 平均办结耗时（只计 FINISH 实例，无办结实例为 0） -->
+    <select id="selectAdminOverview" resultMap="SysProcessStatisticAdminOverviewMap">
+        SELECT COUNT(*) AS total_count,
+        IFNULL(ROUND(AVG(CASE WHEN e.field_status = 'FINISH' AND e.field_finish_time IS NOT NULL
+            THEN TIMESTAMPDIFF(MICROSECOND, e.field_create_time, e.field_finish_time) END) / 1000), 0) AS avg_duration_ms
+        FROM sys_process_example e
+        <where>
+            <include refid="StatisticExampleFilters"/>
+        </where>
+    </select>
+
+    <!-- 按流程状态的数量分布（与概览共用筛选条件） -->
+    <select id="selectStatusCounts" resultMap="SysProcessStatisticStatusCountMap">
+        SELECT e.field_status, COUNT(*) AS total_count
+        FROM sys_process_example e
+        <where>
+            <include refid="StatisticExampleFilters"/>
+        </where>
+        GROUP BY e.field_status
+        ORDER BY total_count DESC, e.field_status ASC
+    </select>
+
+    <!-- 按所属模块的数量分布（与概览共用筛选条件） -->
+    <select id="selectModelCounts" resultMap="SysProcessStatisticModelCountMap">
+        SELECT e.field_model_name, COUNT(*) AS total_count
+        FROM sys_process_example e
+        <where>
+            <include refid="StatisticExampleFilters"/>
+        </where>
+        GROUP BY e.field_model_name
+        ORDER BY total_count DESC, e.field_model_name ASC
+    </select>
+
+    <!-- 按流程模板的数量分布（只读关联 sys_process_template 补全模板名称，模板缺失时名称为 null） -->
+    <select id="selectTemplateCounts" resultMap="SysProcessStatisticTemplateCountMap">
+        SELECT e.field_template_id, t.field_name AS field_template_name, COUNT(*) AS total_count
+        FROM sys_process_example e
+        LEFT JOIN sys_process_template t ON t.field_id = e.field_template_id
+        <where>
+            <include refid="StatisticExampleFilters"/>
+        </where>
+        GROUP BY e.field_template_id, t.field_name
+        ORDER BY total_count DESC, e.field_template_id ASC
+    </select>
+
+    <!--
+        人员工作量 TopN：以 HANDLER_PASS 审批留痕为事实来源，关联其工作项取实际处理人
+        （field_expect_handler_id 优先、回退 field_handler_id；皆空行不计）；
+        handledCount = 通过留痕条数（同一工作项收回后再审批按多次计）；
+        avgDuration_ms = 该处理人经办的 FINISH 实例平均办结耗时（毫秒，无办结实例为 0）。
+        处理人名称经 sys_org_element 只读关联补全（field_org_type = 3 人员，不写 org 数据）；
+        按已办工作量降序、处理人 id 升序稳定排序后 LIMIT #{topN} 截取。
+    -->
+    <select id="selectHandlerWorkloads" resultMap="SysProcessStatisticHandlerWorkloadMap">
+        SELECT t.field_handler_id, u.field_name AS field_handler_name,
+        COUNT(*) AS handled_count,
+        IFNULL(ROUND(AVG(CASE WHEN t.field_status = 'FINISH' AND t.field_finish_time IS NOT NULL
+            THEN TIMESTAMPDIFF(MICROSECOND, t.field_create_time, t.field_finish_time) END) / 1000), 0) AS avg_duration_ms
+        FROM (
+            SELECT COALESCE(NULLIF(w.field_expect_handler_id, ''), w.field_handler_id) AS field_handler_id,
+            e.field_status, e.field_create_time, e.field_finish_time
+            FROM sys_process_audit_note an
+            INNER JOIN sys_process_example_workitem w ON w.field_id = an.field_workitem_id
+            INNER JOIN sys_process_example e ON e.field_id = an.field_example_id
+            <where>
+                an.field_handle_type = 'HANDLER_PASS'
+                AND COALESCE(NULLIF(w.field_expect_handler_id, ''), w.field_handler_id) IS NOT NULL
+                <include refid="StatisticExampleFilters"/>
+            </where>
+        ) t
+        LEFT JOIN sys_org_element u ON u.field_id = t.field_handler_id AND u.field_org_type = 3
+        GROUP BY t.field_handler_id
+        ORDER BY handled_count DESC, t.field_handler_id ASC
+        LIMIT #{topN}
+    </select>
+
+    <!--
+        我的统计：五项指标一次聚合（myUserId 为 Service 从会话注入的过滤身份；
+        dayBegin / dayEnd 为今日窗口：今日零点（含）至明日零点（不含））。
+        - 今日发起：本人起草（field_creator_id）且创建时间在今日；
+        - 我的未办结：本人发起且状态 ∈ DRAFT / PROCESSING / RETURN / PAUSE；
+        - 待审：本人为处理人（field_handler_id）且工作项状态 PROCESSING；
+        - 今日已审：本人办结（field_handler_id，状态 FINISH）且完成时间在今日；
+        - 平均耗时：本人参与（工作项处理人为本人，与「我参与的」口径一致）且实例 FINISH 的平均办结时长。
+    -->
+    <select id="selectMyStatistic" resultMap="SysProcessStatisticMyMap">
+        SELECT
+        (SELECT COUNT(*) FROM sys_process_example e
+        WHERE e.field_creator_id = #{myUserId}
+        AND e.field_create_time &gt;= #{dayBegin} AND e.field_create_time &lt; #{dayEnd}) AS today_created_count,
+        (SELECT COUNT(*) FROM sys_process_example e
+        WHERE e.field_creator_id = #{myUserId}
+        AND e.field_status IN ('DRAFT', 'PROCESSING', 'RETURN', 'PAUSE')) AS my_processing_count,
+        (SELECT COUNT(*) FROM sys_process_example_workitem w
+        WHERE w.field_handler_id = #{myUserId}
+        AND w.field_status = 'PROCESSING') AS pending_approve_count,
+        (SELECT COUNT(*) FROM sys_process_example_workitem w
+        WHERE w.field_handler_id = #{myUserId}
+        AND w.field_status = 'FINISH'
+        AND w.field_finish_time &gt;= #{dayBegin} AND w.field_finish_time &lt; #{dayEnd}) AS today_approved_count,
+        (SELECT IFNULL(ROUND(AVG(TIMESTAMPDIFF(MICROSECOND, e.field_create_time, e.field_finish_time)) / 1000), 0)
+        FROM sys_process_example e
+        WHERE e.field_status = 'FINISH' AND e.field_finish_time IS NOT NULL
+        AND EXISTS (SELECT 1 FROM sys_process_example_workitem w
+        WHERE w.field_example_id = e.field_id AND w.field_handler_id = #{myUserId})) AS avg_duration_ms
+    </select>
+
+</mapper>
