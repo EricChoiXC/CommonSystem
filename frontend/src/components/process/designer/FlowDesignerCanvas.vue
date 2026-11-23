@@ -164,6 +164,9 @@
  *     默认命名「审批节点N」——序号仅展示不参与流转）；
  *   - 连线：节点四锚点按住拉出；出边数达上限拦截（START/DRAFT/APPROVE/CC/ROBORT/JOIN 为 1，
  *     提示「该节点类型只允许一条流出连线」；END 为 0，提示不允许拉出连线）；
+ *   - 边端点调整（实施补齐项）：选中连线后拖拽起/终点调整点改连其他节点（adjustEdgeStartAndEnd），
+ *     换连点沿用新拉连线同一套拦截（自环/重复/出边上限，违例恢复原连线），既有业务属性
+ *     （lineId/条件/分支配置）保留不重置；只读模式强制关闭；
  *   - 删除：选中 + Delete（或 Backspace）键 / 右键菜单「删除」/ 右侧属性区【删除节点】/【删除连线】，
  *     均经 lf.deleteNode / lf.deleteEdge 走 guards.beforeDelete：固定节点 N1/N2/N3 拦截并提示
  *     「开始/起草/结束节点为固定节点，不可删除」；删边自由（分支源节点最后一条出边由保存期
@@ -334,6 +337,9 @@ function initLogicFlow() {
     grid: { size: 20, visible: true },
     keyboard: { enabled: true },
     edgeType: 'polyline',
+    // 边端点调整：连线起/终点显示调整点，拖拽可直接改连其他节点（框架删老边建同 id 新边）。
+    // 注意 v2 computeConfig 中构造参数最后合并、会覆盖静默配置，故 readonly 须显式传 false。
+    adjustEdgeStartAndEnd: !props.readonly,
     // 节点名称/分支文本由节点配置弹窗与条件/并行分支配置弹窗统一维护，关闭画布内自由文本编辑（自定项）
     textEdit: false,
     history: true,
@@ -415,6 +421,20 @@ function bindCanvasEvents() {
   lf.on('edge:delete', () => {
     clearStaleSelection()
     markDirty()
+  })
+  // 边端点调整换连点（adjustEdgeStartAndEnd）：框架内部「删老边 → 建同 id 新边」后抛出，
+  // 事件携带新旧边完整数据（edge:add 已先于本事件触发）。若新连线已被 handleEdgeAdd
+  // 拦截删除（自环/重复/出边超限），此处恢复原连线，避免拦截后连线凭空消失被误存。
+  lf.on('edge:exchange-node', ({ data }) => {
+    if (props.readonly) {
+      return
+    }
+    const newEdge = data?.newEdge
+    if (!newEdge || lf.getEdgeModelById(newEdge.id)) {
+      return
+    }
+    // 原连线在换连点前即合法（自环/重复/出边均通过），恢复必重新通过校验且不重置业务属性
+    lf.addEdge({ ...data.oldEdge })
   })
   // 右侧属性区选中摘要
   lf.on('node:click', ({ data }) => {
@@ -585,14 +605,19 @@ function handleEdgeAdd(data) {
     removeNewEdge(limit === 0 ? '该节点不允许拉出连线' : '该节点类型只允许一条流出连线')
     return
   }
-  lf.setProperties(data.id, {
-    lineId: genLocalId(),
-    lineType: LINE_TYPE_BY_SOURCE[sourceType] || 'NORMAL',
-    branchOrder: null,
-    branchName: '',
-    condition: '',
-    isDefault: false,
-  })
+  // 换连点重建的连线（边端点调整，同 id）已携带既有业务属性（lineId/条件/分支配置），
+  // 保留不重置；lineType/branchOrder 由保存契约按源节点类型重推导（graphTransform.toSavePayload），
+  // 画布属性无需刷新。仅锚点新拉的连线初始化业务属性。
+  if (!data.properties?.lineId) {
+    lf.setProperties(data.id, {
+      lineId: genLocalId(),
+      lineType: LINE_TYPE_BY_SOURCE[sourceType] || 'NORMAL',
+      branchOrder: null,
+      branchName: '',
+      condition: '',
+      isDefault: false,
+    })
+  }
   markDirty()
 }
 
