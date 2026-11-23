@@ -33,7 +33,10 @@ import { h, RectNode, RectNodeModel, DiamondNode, DiamondNodeModel } from '@logi
  * 渲染实现说明（ LogicFlow v2 + preact 实测口径）：
  *   - preact 对 SVG 属性不做 camelCase → kebab-case 转换，故本文件自绘 SVG 一律写
  *     kebab-case 属性（'font-size' / 'text-anchor' / 'dominant-baseline' / 'stroke-width'）；
- *   - getShape / getText 使用节点中心相对坐标（BaseNode 渲染树外层 transform translate(x, y)）。
+ *   - LogicFlow v2 节点渲染树外层 transform 为恒等矩阵（rotate=0 时 translate(-x,-y)+
+ *     translate(x,y) 抵消），自绘 getShape / getText 一律使用**画布绝对坐标**：以
+ *     model.x / model.y 为节点中心（v1 的「节点中心相对坐标」口径在 v2 下会把文本
+ *     与自绘形状画到画布原点附近，v1_7 走查已复现，勿回退）。
  *
  * ⚠ ROBORT 为存量历史拼写（存量代码/数据/文档一致沿用），任何代码、注释、文案禁止写成 ROBOT。
  */
@@ -104,7 +107,8 @@ function truncateNodeText(text, maxWidth, fontSize) {
 /**
  * 节点内两行文本：节点名称（上） + 类型中文名（下）。
  * 名称超宽省略号截断，两行各挂 SVG <title> 悬浮展示全名。
- * 坐标为节点中心相对坐标；layout：{ fontSize, nameMaxWidth, nameDy, typeDy }。
+ * 坐标为画布绝对坐标（v2 口径，见文件头说明）：以 model.x / model.y（节点中心）为基准，
+ * nameDy / typeDy 为相对中心的纵向偏移。
  */
 function renderTwoLineText(model, layout) {
   const { fontSize, nameMaxWidth, nameDy, typeDy } = layout
@@ -116,8 +120,8 @@ function renderTwoLineText(model, layout) {
     h(
       'text',
       {
-        x: 0,
-        y: nameDy,
+        x: model.x,
+        y: model.y + nameDy,
         'text-anchor': 'middle',
         'dominant-baseline': 'central',
         'font-size': `${fontSize}px`,
@@ -129,8 +133,8 @@ function renderTwoLineText(model, layout) {
     h(
       'text',
       {
-        x: 0,
-        y: typeDy,
+        x: model.x,
+        y: model.y + typeDy,
         'text-anchor': 'middle',
         'dominant-baseline': 'central',
         'font-size': `${fontSize - 1}px`,
@@ -141,7 +145,7 @@ function renderTwoLineText(model, layout) {
   ])
 }
 
-/** 按形状推导节点文本两行的字号 / 最大宽 / 行位（节点中心相对坐标） */
+/** 按形状推导节点文本两行的字号 / 最大宽 / 纵向偏移（相对节点中心） */
 function buildTextLayout(def) {
   const width = def.defaultSize.width
   switch (def.shapeKind) {
@@ -238,17 +242,15 @@ function createDiamondFlowNode(def) {
  * LogicFlow 无半圆 base：view 重写 getShape 以 path 绘制「半圆弧 + 直边闭合」；
  * model 继承 RectNodeModel，保留 bounding box 120×60 与四向锚点
  * （上锚点 = 弧顶或直边中点、下锚点相对，左右锚点 = 直边端点）。
- * path 相对节点中心：上半圆 sweep=1（弧经顶部 y=-30，直边 y=+30），
- * 下半圆 sweep=0（弧经底部 y=+30，直边 y=-30）。
+ * path 以画布绝对坐标绘制（v2 口径，见文件头说明）：以 model.x / model.y 为节点中心，
+ * 上半圆 sweep=1（弧经顶部 y=model.y-30，直边 y=model.y+30），
+ * 下半圆 sweep=0（弧经底部 y=model.y+30，直边 y=model.y-30）。
  */
 function createHalfCircleFlowNode(def) {
   const { width, height } = def.defaultSize
   const radius = width / 2
   const halfHeight = height / 2
   const top = def.shapeKind === 'half-circle-top'
-  const shapePath = top
-    ? `M ${-radius} ${halfHeight} A ${radius} ${radius} 0 0 1 ${radius} ${halfHeight} Z`
-    : `M ${-radius} ${-halfHeight} A ${radius} ${radius} 0 0 0 ${radius} ${-halfHeight} Z`
   const textLayout = buildTextLayout(def)
   class FlowHalfCircleModel extends RectNodeModel {
     setAttributes() {
@@ -271,7 +273,11 @@ function createHalfCircleFlowNode(def) {
   }
   class FlowHalfCircleView extends RectNode {
     getShape() {
-      const style = this.props.model.getNodeStyle()
+      const model = this.props.model
+      const style = model.getNodeStyle()
+      const shapePath = top
+        ? `M ${model.x - radius} ${model.y + halfHeight} A ${radius} ${radius} 0 0 1 ${model.x + radius} ${model.y + halfHeight} Z`
+        : `M ${model.x - radius} ${model.y - halfHeight} A ${radius} ${radius} 0 0 0 ${model.x + radius} ${model.y - halfHeight} Z`
       return h('path', {
         class: 'lf-basic-shape',
         d: shapePath,

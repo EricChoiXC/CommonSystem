@@ -134,6 +134,9 @@ const emit = defineEmits(['node-dblclick'])
 const canvasRef = ref(null)
 let lf = null
 
+/** 只读连线注册类型（与 initLogicFlow 的 edgeType 及 buildExampleGraphData 的 edgeType 保持同值） */
+const FLOW_LINE_TYPE = 'flow-line'
+
 /** 状态色板（内置五态 + 宿主 statusColors 覆盖合并） */
 const statusStyles = computed(() => {
   const override = props.statusColors || {}
@@ -145,7 +148,7 @@ const statusStyles = computed(() => {
 })
 
 /** 图数据（empty/graph/degraded 三模式，见 exampleGraph.js） */
-const graph = computed(() => buildExampleGraphData(props.nodes, props.lines, statusStyles.value))
+const graph = computed(() => buildExampleGraphData(props.nodes, props.lines, statusStyles.value, FLOW_LINE_TYPE))
 
 /** 图例项（色板随 statusColors 覆盖联动） */
 const legendItems = computed(() =>
@@ -219,7 +222,7 @@ function initLogicFlow() {
   lf = new LogicFlow({
     container: canvasRef.value,
     grid: false,
-    edgeType: 'flow-line',
+    edgeType: FLOW_LINE_TYPE,
     textEdit: false,
     snapline: false,
     keyboard: { enabled: false },
@@ -228,7 +231,7 @@ function initLogicFlow() {
   })
   // 10 类节点注册复用（与设计器同一注册面）；只读连线注册（properties.style 覆盖）
   registerFlowNodes(lf)
-  lf.register({ type: 'flow-line', view: PolylineEdge, model: FlowLineModel })
+  lf.register({ type: FLOW_LINE_TYPE, view: PolylineEdge, model: FlowLineModel })
   lf.on('node:dbclick', ({ data }) => openNodeInfo(data))
 }
 

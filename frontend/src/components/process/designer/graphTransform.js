@@ -341,6 +341,10 @@ export function normalizeBranchOrder(value) {
  * @param nodes  load 响应 nodes[]（接口清单 §4.2 平铺 VO）
  * @param lines  load 响应 lines[]
  * @param options.seedFixedTrio 空图时是否播种固定三节点（编辑模式 true，只读渲染 false）
+ * @param options.edgeType 渲染边的 LogicFlow 注册类型（缺省 'polyline'，与设计器画布
+ *   edgeType 配置一致；实例只读流程图传入其自注册的 'flow-line'）。LogicFlow v2 的
+ *   graphDataToModel 只在 type 为 null/undefined 时回退画布 edgeType，且边 model 最终
+ *   以数据里的 type 注册视图 —— 渲染数据必须显式携带 type，否则连线不渲染（v1_7 走查）。
  * @returns {{ nodes: Array, edges: Array }} 可直接传 lf.render() 的图数据
  */
 export function toGraphData(nodes, lines, options = {}) {
@@ -352,6 +356,7 @@ export function toGraphData(nodes, lines, options = {}) {
   }
   const positions = computeLayout(nodeList, lineList)
   const typeByKey = new Map(nodeList.map((node) => [nodeKeyOf(node), nodeTypeOf(node)]))
+  const edgeType = options.edgeType || 'polyline'
   const lfNodes = nodeList.map((node) => {
     const key = nodeKeyOf(node)
     const nodeType = nodeTypeOf(node)
@@ -378,6 +383,7 @@ export function toGraphData(nodes, lines, options = {}) {
       const props = buildEdgeProperties(line, typeByKey.get(line.fieldFromKey))
       return {
         id: props.lineId || genLocalId(),
+        type: edgeType,
         sourceNodeId: line.fieldFromKey,
         targetNodeId: line.fieldToKey,
         text: branchLineText(props) || undefined,

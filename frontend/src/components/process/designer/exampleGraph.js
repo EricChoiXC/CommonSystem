@@ -131,16 +131,18 @@ function buildLinearNodes(nodeList, statusStyles) {
  * @param nodes load 响应 nodes[]（实例节点 VO）
  * @param lines load 响应 lines[]（实例连线快照；可能缺省——旧后端/异常实例）
  * @param statusStyles 节点状态色映射（缺省 DEFAULT_STATUS_STYLES；宿主可覆盖）
+ * @param edgeType 渲染边 LogicFlow 注册类型（缺省 'polyline'；ProcessFlowViewer 传入
+ *   其自注册的 'flow-line'，保证 properties.style 覆盖连线样式生效）
  * @returns {{ mode: 'empty'|'graph'|'degraded', lfNodes: Array, lfEdges: Array }}
  */
-export function buildExampleGraphData(nodes, lines, statusStyles = DEFAULT_STATUS_STYLES) {
+export function buildExampleGraphData(nodes, lines, statusStyles = DEFAULT_STATUS_STYLES, edgeType = 'polyline') {
   const adapted = adaptExampleNodes(nodes)
   if (adapted.length === 0) {
     return { mode: 'empty', lfNodes: [], lfEdges: [] }
   }
   const lineList = Array.isArray(lines) ? lines.filter(Boolean) : []
   const statusByKey = new Map(adapted.map((node) => [node.nodeKey, node.fieldStatus || '']))
-  const graph = toGraphData(adapted, lineList, { seedFixedTrio: false })
+  const graph = toGraphData(adapted, lineList, { seedFixedTrio: false, edgeType })
   if (graph.edges.length === 0) {
     // 无连线数据（旧实例未生成快照 / 连线键无法对齐节点）→ 按 fieldNodeNo 横向排布降级
     return { mode: 'degraded', lfNodes: buildLinearNodes(adapted, statusStyles), lfEdges: [] }
