@@ -158,7 +158,17 @@ export function isEmptyValue(value) {
   if (Array.isArray(value)) return value.length === 0
   if (typeof value === 'object') {
     if (Array.isArray(value.ids)) return value.ids.length === 0 && (!Array.isArray(value.names) || value.names.length === 0)
-    if (value.fieldId !== undefined) return String(value.fieldId).trim() === ''
+    // 载荷 {ids,names} 双键形态：键存在但非数组（null 等脏形态）→ 按拆分后空态判定，
+    // 不落入「对象有键即非空」的兜底分支（F15-FE-005 修正：原实现对 {ids:null} 误判为非空）
+    if (value.ids !== undefined || value.names !== undefined) {
+      return splitJoined(value.ids).length === 0 && splitJoined(value.names).length === 0
+    }
+    // 组件双绑定 {fieldId,fieldName} 形态：null/undefined 同空串处理（AddressBook 契约空串=未选，
+    // F15-FE-005 修正：原实现 String(null)='null' 对 {fieldId:null} 误判为非空）
+    if (value.fieldId !== undefined || value.fieldName !== undefined) {
+      const fieldId = value.fieldId === null || value.fieldId === undefined ? '' : String(value.fieldId)
+      return fieldId.trim() === ''
+    }
     return Object.keys(value).length === 0
   }
   return false

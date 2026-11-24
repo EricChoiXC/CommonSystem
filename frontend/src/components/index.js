@@ -13,5 +13,6 @@ import CateTableSelector from './CateTableSelector.vue'
 import ImportDialog from './ImportDialog.vue'
 import ProcessApprovalPanel from './process/ProcessApprovalPanel.vue'
 import FormulaDesigner from './formula/FormulaDesigner.vue'
+import FormRenderer from './form/FormRenderer.vue'
 
-export { AddressBook, Attachment, DateTimePicker, DatasourceTable, NumberRuleComposer, Selector, TreeSelector, CateTableSelector, ImportDialog, ProcessApprovalPanel, FormulaDesigner }
+export { AddressBook, Attachment, DateTimePicker, DatasourceTable, NumberRuleComposer, Selector, TreeSelector, CateTableSelector, ImportDialog, ProcessApprovalPanel, FormulaDesigner, FormRenderer }
