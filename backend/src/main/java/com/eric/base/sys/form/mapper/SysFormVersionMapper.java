@@ -19,8 +19,10 @@ import java.util.List;
  *              {@link IBaseMapper}；基础 update 承载「草稿行内容重写」语义（仅
  *              SET field_schema_json + 审计两列，WHERE 守护 field_status='DRAFT'
  *              防御终态行被写，分册 §5.2.6⑤）；selectList 条件 fieldFormId /
- *              fieldStatus 精确 + 分页；selectByFormId 供版本列表（field_version
- *              降序，草稿行排序位置随 F15-BE-002 定稿——分册 §9.3 条目 1）；
+ *              fieldStatus 精确 + 分页；selectByFormId 供版本列表（草稿行恒排最前、
+ *              其余 field_version 降序——F15-BE-002 定稿并回写 API 分册 §3.9 /
+ *              数据库分册 §9.3 条目 1）；selectVersionNumberById 供管理列表行
+ *              fieldCurrentVersion 组装（按行主键轻量点查版本号，F15-BE-002）；
  *              selectMaxVersion 供发布/回滚「现存最大版本号 + 1」分配（并发竞争
  *              由 uk_form_version_form_version 唯一索引兜底，分册 §5.2.4）；
  *              freezeDraft / deprecate 为状态机流转语句（WHERE 守护起始态，与应用层
@@ -40,15 +42,25 @@ public interface SysFormVersionMapper extends IBaseMapper<SysFormVersion> {
     long selectCount(@Param("model") SysFormVersion model);
 
     /**
-     * 版本列表（F15-DB-001，分册 §5.2.6①）：按表单主档 ID 取全部版本行，按
-     * field_version 降序（走 idx_form_version_form 索引）。草稿行 field_version 为
-     * NULL（版本号仅发布动作分配），其在降序结果中的排序位置随 F15-BE-002 定稿
-     * 并回写 API 分册 §3.9——分册 §9.3 待确认事项条目 1，不阻塞建表。
+     * 版本列表（F15-DB-001，分册 §5.2.6①）：按表单主档 ID 取全部版本行，排序定稿
+     * （F15-BE-002，回写 API 分册 §3.9 / 数据库分册 §9.3 条目 1）——草稿行恒排最前
+     * （field_version IS NULL DESC：每表单至多一行草稿），其余按 field_version 降序
+     * （最新在前）、field_create_time DESC 兜底；走 idx_form_version_form 索引。
      *
      * @param formId 表单主档 ID（sys_form.field_id）
      * @return 版本行清单（含草稿行与全部历史发布行）
      */
     List<SysFormVersion> selectByFormId(@Param("formId") String formId);
+
+    /**
+     * 轻量取版本号（F15-BE-002）：按行主键点查 field_version，不取 field_schema_json
+     * 体积列——供管理列表行 fieldCurrentVersion（当前发布版本号）组装专用，一页行数次
+     * 主键查询量级可控（对齐 loadModel 轻量形态先例）。
+     *
+     * @param fieldId 版本行 ID（主档 field_current_version_id 指向对象）
+     * @return 整数版本号；版本行不存在时返回 null
+     */
+    Integer selectVersionNumberById(@Param("fieldId") String fieldId);
 
     /**
      * 现存最大版本号（F15-DB-001，分册 §5.2.6②）：发布/回滚按「最大 + 1」分配

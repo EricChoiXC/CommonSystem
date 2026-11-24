@@ -171,16 +171,28 @@
     </select>
 
     <!--
-        版本列表（分册 §5.2.6①）：按表单取全部版本行，field_version 降序（走
-        idx_form_version_form 索引）；草稿行 field_version 为 NULL，其排序位置随
-        F15-BE-002 定稿并回写 API 分册 §3.9（分册 §9.3 待确认事项条目 1）
+        版本列表（分册 §5.2.6①）：按表单取全部版本行；排序定稿（F15-BE-002，回写 API
+        分册 §3.9 / 数据库分册 §9.3 条目 1）——草稿行恒排最前（field_version IS NULL DESC，
+        每表单至多一行草稿），其余按 field_version 降序（最新在前）、field_create_time DESC
+        兜底；走 idx_form_version_form 索引
     -->
     <select id="selectByFormId" parameterType="string" resultMap="SysFormVersionResultMap">
         SELECT
         <include refid="BaseColumns"/>
         FROM sys_form_version
         WHERE field_form_id = #{formId}
-        ORDER BY field_version DESC
+        ORDER BY field_version IS NULL DESC, field_version DESC, field_create_time DESC
+    </select>
+
+    <!--
+        轻量取版本号（F15-BE-002）：按行主键点查 field_version（不取 field_schema_json 体积列），
+        供管理列表行 fieldCurrentVersion（当前发布版本号）组装专用——一页行数次主键查询量级可控
+        （对齐 loadModel 轻量形态先例）
+    -->
+    <select id="selectVersionNumberById" parameterType="string" resultType="java.lang.Integer">
+        SELECT field_version
+        FROM sys_form_version
+        WHERE field_id = #{fieldId}
     </select>
 
     <!--

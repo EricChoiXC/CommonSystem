@@ -28,8 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *              SysFormVersionMapper.xml 可被 MyBatis 正常解析（结构与 DTD 合法、
  *              resultMap/type 引用有效），基础语句（insert / update / deleteById /
  *              selectById / selectList / loadModel）与模块专属语句（selectCount /
- *              selectByFormId / selectMaxVersion / freezeDraft / deprecate /
- *              deleteByFormId）可按参数取到最终 SQL。不做数据库连接，只校验 SQL 文本
+ *              selectByFormId / selectVersionNumberById / selectMaxVersion /
+ *              freezeDraft / deprecate / deleteByFormId）可按参数取到最终 SQL。不做数据库连接，只校验 SQL 文本
  *              口径：基础 update 承载「草稿行内容重写」语义且 WHERE 守护
  *              field_status='DRAFT'，freezeDraft / deprecate 分别守护 DRAFT /
  *              PUBLISHED 起始态（不可变版本原则的 WHERE 守护，分册 §5.2.6⑤⑥⑦）；
@@ -111,11 +111,23 @@ class SysFormVersionMapperXmlTest {
     }
 
     @Test
-    void selectByFormIdOrdersVersionDesc() {
+    void selectByFormIdOrdersDraftFirstThenVersionDesc() {
+        // 排序定稿（F15-BE-002，回写 API 分册 §3.9 / 数据库分册 §9.3 条目 1）：
+        // 草稿行（field_version NULL）恒排最前，其余按 field_version 降序（最新在前）
         String sql = boundSql(SysFormVersionMapper.class.getName() + ".selectByFormId",
                 Map.of("formId", "0".repeat(32)));
         assertTrue(sql.contains("field_form_id ="), sql);
-        assertTrue(sql.contains("ORDER BY field_version DESC"), sql);
+        assertTrue(sql.contains("ORDER BY field_version IS NULL DESC, field_version DESC"), sql);
+    }
+
+    @Test
+    void selectVersionNumberByIdLoadsVersionOnly() {
+        // 轻量点查（F15-BE-002）：仅 field_version，不取 Schema 体积列
+        String sql = boundSql(SysFormVersionMapper.class.getName() + ".selectVersionNumberById",
+                Map.of("fieldId", "0".repeat(32)));
+        assertTrue(sql.contains("SELECT field_version"), sql);
+        assertTrue(sql.contains("field_id ="), sql);
+        assertFalse(sql.contains("field_schema_json"), "轻量点查不取 Schema 快照: " + sql);
     }
 
     @Test

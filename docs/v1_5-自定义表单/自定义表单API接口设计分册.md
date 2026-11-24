@@ -17,6 +17,7 @@
 | 版本 | 日期 | 变更说明 |
 | --- | --- | --- |
 | V1.0 | 2026-11-23 | 初版：定义面（9 接口）与数据面（6 接口）契约冻结；`ACTION_*` 全集（15 项）与 resolver 判定口径；错误码 `CS_FORM_*` 全集（16 项）与 `CS_FORMULA_*` 复用映射；功能设计 §11 留给本分册的两个开放点定稿（未知字段=拒绝、有数据禁删）；要点第 9 步 REST 风格到仓库矩阵的转化说明 |
+| V1.1 | 2026-11-24 | §3.9 版本列表排序与 `fieldVersion` 类型定稿回写（F15-BE-002 编码期完成数据库分册 §9.3 条目 1 预留的定稿动作，非契约变更）：草稿行恒排最前（每表单至多一行），其余按 `fieldVersion` 降序；`fieldVersion` 草稿行为 null（版本号仅发布动作分配） |
 
 ### 1.2 事实源优先级与冲突裁决
 
@@ -249,12 +250,12 @@
 
 **参数名定稿说明**：候选为 `?formId=` 或 `?fieldId=`，按仓库惯例定稿 **`?fieldId=`**——仓库矩阵「单 id 读取 GET + `?fieldId=`」先例（`/load?fieldId=`、`/delete?fieldId=`），`versions` 以同一参数名承接表单主档主键；Schema 协议头 `formId` 与主档 `field_id` 同值，仅在协议 JSON 内部使用。
 
-响应 `data = List<SysFormVersionVo>`（按 `fieldVersion` 降序，最新在前）：
+响应 `data = List<SysFormVersionVo>`（排序定稿：草稿行恒排最前（每表单至多一行），其余按 `fieldVersion` 降序、最新在前——F15-BE-002 定稿（2026-11-24），落点数据库分册 §9.3 条目 1）：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `fieldId` | string | 版本行 ID（数据行 `field_form_version_id` 指向对象） |
-| `fieldVersion` | int | 整数版本号（单调递增 1, 2, 3…） |
+| `fieldVersion` | int / null | 整数版本号（单调递增 1, 2, 3…）；草稿行为 null（版本号仅发布动作分配，本节定稿） |
 | `fieldStatus` | string | `DRAFT`（草稿，至多一行）/ `PUBLISHED`（当前发布）/ `DEPRECATED`（被新版本替代） |
 | `fieldPublishedAt` | datetime | 发布/回滚时刻；草稿行为 null |
 | `fieldCreatorId` / `fieldCreateTime` | — | 公共字段 |

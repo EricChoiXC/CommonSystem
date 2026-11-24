@@ -18,10 +18,11 @@ import java.util.List;
  *              （仅 SET field_schema_json + 审计两列，WHERE 守护 field_status='DRAFT'，
  *              分册 §5.2.6⑤），deleteById 供行级清理；selectList 条件见 Mapper
  *              （fieldFormId / fieldStatus 精确 + 分页），selectCount 供分页总数，
- *              selectByFormId 供版本列表，selectMaxVersion 供发布/回滚版本号分配，
- *              freezeDraft / deprecate 为发布与回滚事务内的状态机流转语句，
- *              deleteByFormId 供删除表单事务清空版本行——发布/回滚事务编排由
- *              SysFormService 承载（F15-BE-002）。
+ *              selectByFormId 供版本列表（草稿行恒排最前、其余 field_version 降序），
+ *              selectMaxVersion 供发布/回滚版本号分配，selectVersionNumberById 供管理
+ *              列表行 fieldCurrentVersion 轻量点查，freezeDraft / deprecate 为发布与
+ *              回滚事务内的状态机流转语句，deleteByFormId 供删除表单事务清空版本行
+ *              ——发布/回滚事务编排由 SysFormService 承载（F15-BE-002）。
  */
 @Repository
 public class SysFormVersionDao extends BaseDao<SysFormVersion, SysFormVersionMapper> {
@@ -42,14 +43,26 @@ public class SysFormVersionDao extends BaseDao<SysFormVersion, SysFormVersionMap
     }
 
     /**
-     * 版本列表（F15-DB-001，分册 §5.2.6①）：按表单取全部版本行（field_version 降序），
-     * 供 /define/versions 响应；草稿行排序位置随 F15-BE-002 定稿（分册 §9.3 条目 1）。
+     * 版本列表（F15-DB-001，分册 §5.2.6①）：按表单取全部版本行（草稿行恒排最前，其余
+     * field_version 降序——排序定稿见 {@link #selectByFormId}），供 /define/versions 响应；
+     * 含草稿行与全部历史发布行。
      *
      * @param formId 表单主档 ID
-     * @return 版本行清单（含草稿行与全部历史发布行）
+     * @return 版本行清单
      */
     public List<SysFormVersion> selectByFormId(String formId) {
         return getBaseMapper().selectByFormId(formId);
+    }
+
+    /**
+     * 轻量取版本号（F15-BE-002）：按行主键点查 field_version（不取 Schema 体积列），
+     * 供管理列表行 fieldCurrentVersion 组装；版本行不存在时返回 null。
+     *
+     * @param fieldId 版本行 ID
+     * @return 整数版本号；不存在时返回 null
+     */
+    public Integer selectVersionNumberById(String fieldId) {
+        return getBaseMapper().selectVersionNumberById(fieldId);
     }
 
     /**
