@@ -19,21 +19,32 @@ import java.util.Set;
 import static com.eric.base.sys.form.properties.SysFormConstants.CS_FORM_UNKNOWN_FIELD;
 
 /**
- * 表单数据基础校验器（F15-BE-003，功能设计 §6.1 保存校验链 S1/S2、API 分册 §4.3）
+ * 表单数据基础校验器（F15-BE-003 基础段 + F15-BE-004 动态段合并裁决，功能设计 §6.1
+ * 保存校验链 S1/S2/S4、API 分册 §4.3）
  *
  * @author Eric
  * @date 2026/11/24
- * @description 数据面保存校验链的基础段（落位 service/engine 次级包，先例
+ * @description 数据面保存校验链的字段级校验器（落位 service/engine 次级包，先例
  *              {@link FormSchemaValidator}），按版本 Schema 对提交载荷执行：
  *              <ul>
  *              <li><b>S1 字段白名单校验</b>（分册 §7.4 定稿①）：formData 键（任意层级，
  *                  含明细行内键）必须 ⊆ 版本 Schema 字段码白名单，未知字段<b>拒绝</b>抛
  *                  {@code CS_FORM_UNKNOWN_FIELD}（不做静默裁剪——服务端不信任前端，
- *                  裁剪会掩盖 Schema 与数据的漂移）；</li>
+ *                  裁剪会掩盖 Schema 与数据的漂移）；独立入口
+ *                  {@link #assertSchemaWhitelist(SysFormSchemaDo, Map)} 供保存校验链在
+ *                  规则复算前先行 fail-fast；</li>
  *              <li><b>S2 基础校验</b>（分册 §7.1 第 12 项）：必填 / 类型 / 长度 /
  *                  枚举选项值 / 明细行结构与行数上限（{@code MAX_DETAIL_ROWS}），逐条产出
- *                  {@link SysFormDataErrorDo} 字段级错误（ruleId 恒 null——动态校验错误由
- *                  F15-BE-004 FormValidationEngine 在同一入口并联回填）。</li>
+ *                  {@link SysFormDataErrorDo} 字段级错误（基础校验 ruleId 恒 null）；</li>
+ *              <li><b>S4 动态校验合并裁决</b>（F15-BE-004 并联）：三参入口
+ *                  {@link #validate(SysFormSchemaDo, Map, FormDynamicState)} 消费规则复算
+ *                  引擎产出的 {@link FormDynamicState}——必填以 setRequired 动态覆盖为
+ *                  终态（无覆盖回退静态 props.required 基线，§3.1「静态基础必填与规则
+ *                  setRequired 在服务端合并为最终校验口径」）、hidden 主表字段（显隐复算
+ *                  终态隐藏 ∪ permission=hidden）不参与必填校验（值将被提交裁剪，§3.6）、
+ *                  setValidate 条件范围（min/max）与条件正则（pattern）并入单字段校验序
+ *                  （仅覆盖所列项，错误项 ruleId 回填触发规则 ID，分册 §4.4 errors 结构）。
+ *                  二参入口等价于空覆盖状态（无规则 Schema 行为与 BE-003 完全一致）。</li>
  *              </ul>
  *              类型域（按组件 value 语义收口，与功能设计 §2.3 示例载荷对齐）：
  *              input/textarea/date → 文本；number → 数值；switch → 布尔；
@@ -42,14 +53,12 @@ import static com.eric.base.sys.form.properties.SysFormConstants.CS_FORM_UNKNOWN
  *              detailTable → 明细行对象数组（行内字段按行上下文独立校验）。
  *              formula 字段值不参与校验（提交载荷中公式字段值不参与校验，服务端重算值落库
  *              ADR-09——重算随 F15-BE-005 并联，本任务透传）。
- *              <p><b>扩展点</b>：本类与 F15-BE-004 动态校验 / 权限裁剪（S3/S4/S7）、
- *              F15-BE-005 公式重算与级联复核（S5/S6）在同一保存校验链入口并联——
- *              {@link #validate(SysFormSchemaDo, Map)} 的 errors 由 S2 与 S4 合并、
- *              {@link #normalize(SysFormSchemaDo, Map)} 产物为 S3/S5/S6/S7 的加工对象。</p>
- *              明细行数口径：props.rowMin 为行数下限（必填语义 = 至少一行按 rowMin，
- *              FormSchemaValidator 同口径）；props.rowMax 为上限、缺省取
+ *              <p><b>扩展点</b>：F15-BE-005 公式重算与级联复核（S5/S6）在同一保存校验链
+ *              入口并联——{@link #normalize(SysFormSchemaDo, Map)} 产物为 S5/S6 的加工
+ *              对象。明细行数口径：props.rowMin 为行数下限（必填语义 = 至少一行按
+ *              rowMin，FormSchemaValidator 同口径）；props.rowMax 为上限、缺省取
  *              {@link SysFormConstants#MAX_DETAIL_ROWS} 绝对上限（定义期结构校验已保证
- *              rowMax ≤ MAX_DETAIL_ROWS）。
+ *              rowMax ≤ MAX_DETAIL_ROWS）。</p>
  */
 @Component
 public class FormDataBasicValidator {
@@ -66,7 +75,8 @@ public class FormDataBasicValidator {
             "choice", "select", "cascade", "datasource", "addressbook");
 
     /**
-     * 对外入口一：基础校验（S1 白名单拒绝 + S2 字段级校验）。
+     * 对外入口一：基础校验（S1 白名单拒绝 + S2 字段级校验，无动态覆盖——等价于空
+     * {@link FormDynamicState} 的三参入口，无规则 Schema 行为不变）。
      *
      * @param schema   实例锁定版本 Schema 协议对象（null 按无字段 Schema 处理——任意
      *                 键均判未知字段，空白载荷 {@code {}} 通过）
@@ -75,15 +85,45 @@ public class FormDataBasicValidator {
      *         {@code CS_FORM_UNKNOWN_FIELD}（确定性拒绝，分册 §7.4①）
      */
     public List<SysFormDataErrorDo> validate(SysFormSchemaDo schema, Map<String, Object> formData) {
+        return validate(schema, formData, FormDynamicState.empty());
+    }
+
+    /**
+     * 对外入口二：S2 基础校验 + S4 动态校验合并裁决（F15-BE-004 并联入口）。在
+     * {@link FormValidationEngine} 规则复算产出的最终载荷上执行：必填以
+     * {@link FormDynamicState} 的 setRequired 覆盖为终态（无覆盖回退静态基线）、hidden
+     * 主表字段不参与必填、setValidate 条件范围 / 条件正则并入单字段校验序（错误项
+     * ruleId 回填触发规则 ID）。
+     *
+     * @param schema       实例锁定版本 Schema 协议对象
+     * @param formData     待校验载荷（规则复算 + 提交裁剪后的最终形态）
+     * @param dynamicState 规则复算产出的动态覆盖状态（null 按空状态处理）
+     * @return 合并后字段级错误列表（空列表 = 校验通过）；含未知字段时直接抛
+     *         {@code CS_FORM_UNKNOWN_FIELD}
+     */
+    public List<SysFormDataErrorDo> validate(SysFormSchemaDo schema, Map<String, Object> formData,
+                                             FormDynamicState dynamicState) {
+        FormDynamicState state = null == dynamicState ? FormDynamicState.empty() : dynamicState;
         DataScopes scopes = buildScopes(schema);
         assertWhitelist(scopes, formData);
         List<SysFormDataErrorDo> errors = new ArrayList<>();
-        validateMainScope(scopes, formData, errors);
+        validateMainScope(scopes, formData, state, errors);
         return errors;
     }
 
     /**
-     * 对外入口二：载荷归一（明细行数据结构归一 + Schema 字段序规范），产出落库形态：
+     * 对外入口三：S1 字段白名单独立校验（未知字段拒绝抛 {@code CS_FORM_UNKNOWN_FIELD}，
+     * 不做静默裁剪）——供保存校验链在规则复算前先行 fail-fast（分册 §4.3 S1 先于 S3/S4）。
+     *
+     * @param schema   实例锁定版本 Schema 协议对象（null 按无字段 Schema 处理——任意键均判未知字段）
+     * @param formData 提交载荷（null 按空载荷处理）
+     */
+    public void assertSchemaWhitelist(SysFormSchemaDo schema, Map<String, Object> formData) {
+        assertWhitelist(buildScopes(schema), formData);
+    }
+
+    /**
+     * 对外入口四：载荷归一（明细行数据结构归一 + Schema 字段序规范），产出落库形态：
      * 顶层键按 Schema 字段序重排（LinkedHashMap）、明细表行按行上下文行内字段序重排为
      * 扁平行对象数组——存储态 JSON 结构确定化（先例全量替换归一，分册 §2.4 载荷归一口径）。
      * 须在 {@link #validate(SysFormSchemaDo, Map)} 通过后调用（结构已保证合法，未保证的
@@ -263,7 +303,7 @@ public class FormDataBasicValidator {
 
     /** 主表层级逐字段校验（Schema 字段序，与归一化顺序一致） */
     private void validateMainScope(DataScopes scopes, Map<String, Object> formData,
-                                   List<SysFormDataErrorDo> errors) {
+                                   FormDynamicState state, List<SysFormDataErrorDo> errors) {
         for (Map.Entry<String, SysFormFieldDo> entry : scopes.mainScope.entrySet()) {
             String code = entry.getKey();
             SysFormFieldDo field = entry.getValue();
@@ -273,28 +313,44 @@ public class FormDataBasicValidator {
                 continue;
             }
             if (TYPE_DETAIL_TABLE.equals(field.getType())) {
-                validateDetailRows(field, code, scopes.rowScopes.get(code), value, errors);
+                validateDetailRows(field, code, scopes.rowScopes.get(code), value, state, errors);
             } else {
-                validateSingleValue(field, code, value, null, errors);
+                validateSingleValue(field, code, value, null, null, state, errors);
             }
         }
     }
 
     /**
-     * 单字段校验（必填 → 类型 → 长度 → 枚举选项值，逐条短路——单字段命中前一类错误后
-     * 不再叠加后续检查，避免同一字段错误雪崩）。
+     * 单字段校验（必填 → 类型 → 长度 → 枚举选项值 → 动态校验覆盖，逐条短路——单字段命中
+     * 前一类错误后不再叠加后续检查，避免同一字段错误雪崩）。
+     * 必填裁决（F15-BE-004 合并语义，§3.1）：setRequired 动态覆盖为终态（后写覆盖先写，
+     * ruleId 溯源触发规则），无覆盖回退静态 props.required 基线；hidden 主表字段（显隐
+     * 复算终态隐藏 ∪ permission=hidden）不参与必填校验——值将被提交裁剪，要求必填会阻断
+     * 合法提交（§3.6，仅主表层级；明细行内校验全量执行）。
      *
-     * @param rowIndex 明细行行号（0 起始）；主表字段为 null
+     * @param rowIndex  明细行行号（0 起始）；主表字段为 null
+     * @param detailCode 所属明细表字段码；主表字段为 null（行内字段码可与主表同码，覆盖
+     *                  状态与隐藏豁免按行上下文隔离查找）
      */
-    private void validateSingleValue(SysFormFieldDo field, String code, Object value,
-                                     Integer rowIndex, List<SysFormDataErrorDo> errors) {
+    private void validateSingleValue(SysFormFieldDo field, String code, Object value, Integer rowIndex,
+                                     String detailCode, FormDynamicState state, List<SysFormDataErrorDo> errors) {
         String where = valueWhere(field, code, rowIndex);
         Map<String, Object> props = field.getProps();
-        // 必填（静态基础必填；动态必填由规则 setRequired 运行时覆盖，随 F15-BE-004 并联合并）
+        // 必填（静态基础必填为基线；动态必填由规则 setRequired 终态覆盖，F15-BE-004 合并裁决）
         boolean required = null != props && Boolean.TRUE.equals(props.get("required"));
+        String requiredRuleId = null;
+        FormDynamicState.RequiredOverride dynamicRequired = null == rowIndex
+                ? state.mainRequired(code) : state.rowRequired(detailCode, rowIndex, code);
+        if (null != dynamicRequired) {
+            required = dynamicRequired.isRequired();
+            requiredRuleId = dynamicRequired.getRuleId();
+        }
+        if (null == rowIndex && state.isHiddenMain(code)) {
+            required = false;
+        }
         if (isEmptyValue(value)) {
             if (required) {
-                errors.add(new SysFormDataErrorDo(code, rowIndex, null, where + "为必填项"));
+                errors.add(new SysFormDataErrorDo(code, rowIndex, requiredRuleId, where + "为必填项"));
             }
             return;
         }
@@ -319,6 +375,45 @@ public class FormDataBasicValidator {
         if (MULTI_CAPABLE_TYPES.contains(field.getType())) {
             validateOptionValues(field, code, where, rowIndex, value, props, errors);
         }
+        // 动态校验覆盖（setValidate 条件范围 / 条件正则，仅覆盖所列项；错误项 ruleId 溯源触发规则）
+        validateDynamicOverride(detailCode, code, rowIndex, state, where, value, errors);
+    }
+
+    /**
+     * setValidate 动态校验覆盖检查（§3.3：条件范围 min/max 数值比较、条件正则 pattern，
+     * 仅覆盖所列项——其余保持字段静态校验器即上方 S2 各项；错误文案优先 validate.message，
+     * 缺省内置默认文案；ruleId 取被违反键的触发规则）。
+     */
+    private void validateDynamicOverride(String detailCode, String code, Integer rowIndex,
+                                         FormDynamicState state, String where, Object value,
+                                         List<SysFormDataErrorDo> errors) {
+        FormDynamicState.DynamicValidate override = null == rowIndex
+                ? state.mainValidate(code) : state.rowValidate(detailCode, rowIndex, code);
+        if (null == override) {
+            return;
+        }
+        if (null != override.getMin() && value instanceof Number number
+                && number.doubleValue() < override.getMin().doubleValue()) {
+            errors.add(new SysFormDataErrorDo(code, rowIndex, override.getMinRuleId(),
+                    where + messageOr(override, "不能小于 " + override.getMin())));
+            return;
+        }
+        if (null != override.getMax() && value instanceof Number number
+                && number.doubleValue() > override.getMax().doubleValue()) {
+            errors.add(new SysFormDataErrorDo(code, rowIndex, override.getMaxRuleId(),
+                    where + messageOr(override, "不能大于 " + override.getMax())));
+            return;
+        }
+        if (nonBlank(override.getPattern()) && value instanceof String text
+                && !text.matches(override.getPattern())) {
+            errors.add(new SysFormDataErrorDo(code, rowIndex, override.getPatternRuleId(),
+                    where + messageOr(override, "格式不正确")));
+        }
+    }
+
+    /** 动态校验失败文案：validate.message 优先，缺省内置默认文案 */
+    private static String messageOr(FormDynamicState.DynamicValidate override, String fallback) {
+        return nonBlank(override.getMessage()) ? override.getMessage() : fallback;
     }
 
     /** 枚举选项值校验：提交值（multi 时逐元素）∈ props.options[].value */
@@ -368,7 +463,7 @@ public class FormDataBasicValidator {
     /** 明细行结构与行数上限校验（行数组 → 行数下限/上限 → 逐行逐字段行上下文校验） */
     private void validateDetailRows(SysFormFieldDo field, String code,
                                     Map<String, SysFormFieldDo> rowScope, Object value,
-                                    List<SysFormDataErrorDo> errors) {
+                                    FormDynamicState state, List<SysFormDataErrorDo> errors) {
         String where = valueWhere(field, code, null);
         Map<String, Object> props = field.getProps();
         int rowMin = intOrZero(props, "rowMin");
@@ -396,7 +491,9 @@ public class FormDataBasicValidator {
                     where + "明细行数 " + rows.size() + " 超过上限 " + rowMax));
             return;
         }
-        // 逐行行上下文校验（行内字段码独立成层级，行内 required/type/length/options 同主表口径）
+        // 逐行行上下文校验（行内字段码独立成层级，行内 required/type/length/options 同主表口径；
+        // 行内动态必填 / 动态校验覆盖按（明细表字段码, 行号, 行内字段码）行上下文隔离查找，
+        // 行内规则只作用于本行，不影响其他行——F15-BE-004 / F15-FE-007 行内规则语义）
         for (int i = 0; i < rows.size(); i++) {
             Object row = rows.get(i);
             if (!(row instanceof Map<?, ?>)) {
@@ -407,7 +504,7 @@ public class FormDataBasicValidator {
             Map<?, ?> rowMap = (Map<?, ?>) row;
             for (Map.Entry<String, SysFormFieldDo> rowField : rowScope.entrySet()) {
                 Object rowValue = rowMap.get(rowField.getKey());
-                validateSingleValue(rowField.getValue(), rowField.getKey(), rowValue, i, errors);
+                validateSingleValue(rowField.getValue(), rowField.getKey(), rowValue, i, code, state, errors);
             }
         }
     }
@@ -508,7 +605,7 @@ public class FormDataBasicValidator {
     }
 
     /** 空白判断（null / 空白串视为无值） */
-    private boolean nonBlank(String value) {
+    private static boolean nonBlank(String value) {
         return null != value && !value.isBlank();
     }
 }

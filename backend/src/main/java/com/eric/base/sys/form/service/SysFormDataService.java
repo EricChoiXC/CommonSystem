@@ -24,6 +24,7 @@ import com.eric.base.sys.form.response.SysFormDataSavedVo;
 import com.eric.base.sys.form.response.SysFormDataValidateVo;
 import com.eric.base.sys.form.response.SysFormDataVo;
 import com.eric.base.sys.form.service.engine.FormDataBasicValidator;
+import com.eric.base.sys.form.service.engine.FormValidationEngine;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -59,25 +60,34 @@ import static com.eric.base.sys.form.properties.SysFormConstants.CS_FORM_NOT_FOU
  *              <li><b>保存校验链</b>（功能设计 §6.1 按序执行，全部服务端权威；分册 §4.3
  *                  S0~S7）：S0 资源前置（表单存在且启用、存在发布版本——按 formId 锁定
  *                  field_current_version_id 指向版本 Schema 求值，原则 3）→ S1 字段白名单
- *                  （未知字段拒绝 CS_FORM_UNKNOWN_FIELD，分册 §7.4 定稿①）→ S2 基础校验
- *                  （{@link FormDataBasicValidator}：必填 / 类型 / 长度 / 枚举选项值 /
- *                  明细行结构与行数上限，失败以 CS_FORM_DATA_INVALID message 前缀 + 首条
- *                  中文摘要抛出）→ S3 显隐复算与提交裁剪 / S4 动态校验（F15-BE-004 扩展点）
- *                  → S5 级联复核 / S6 公式重算（F15-BE-005 扩展点）→ S7 字段权限裁剪
- *                  （F15-BE-004 扩展点）。一期 save 仅承载新增（无实例更新接口，一期只增
- *                  不改——分册 §4.4）；field_creator_id 由服务端绑定会话用户（不信任请求体
- *                  用户标识），business_id 随请求绑定。</li>
+ *                  （未知字段拒绝 CS_FORM_UNKNOWN_FIELD，分册 §7.4 定稿①）→ S3 显隐复算
+ *                  与提交裁剪 / S4 动态校验求值（{@link FormValidationEngine} 规则 DSL
+ *                  服务端复算：显隐 + 联动 + 动态校验全量执行，确定性、不信任前端；hidden
+ *                  主表字段值裁剪不落库；循环防护双熔断 CS_FORM_RULE_CYCLE_EXCEEDED）→
+ *                  S2 基础校验与 S4 动态校验合并裁决（{@link FormDataBasicValidator} 三参
+ *                  入口在复算裁剪后最终载荷上单次判定：setRequired 动态覆盖静态必填、
+ *                  hidden 字段不参与必填、setValidate 条件范围/正则并入，失败以
+ *                  CS_FORM_DATA_INVALID message 前缀 + 首条中文摘要抛出）→ 载荷归一落库
+ *                  → S5 级联复核 / S6 公式重算（F15-BE-005 扩展点）。S7 字段权限裁剪：
+ *                  permission=hidden 已随 S3 裁剪；readonly 一期 save 新增落库、提交值
+ *                  照常落库（值变更拒绝语义挂二期实例更新接口，分册 §4.3 S7——引擎预留
+ *                  assertReadonlyBaseline 基线比对通道）。一期 save 仅承载新增（无实例
+ *                  更新接口，一期只增不改——分册 §4.4）；field_creator_id 由服务端绑定
+ *                  会话用户（不信任请求体用户标识），business_id 随请求绑定。</li>
  *              <li><b>独立校验</b>（分册 §4.4）：与 save 完全共用同一校验引擎与校验链
- *                  （S0~S2 同序同语义）、不落库；字段级结果以 data.errors 结构化承载
- *                  （HTTP 200、code 为成功，对齐公式 validate / simulate 先例），S0/S1
- *                  资源与确定性拒绝仍以 CS_FORM_* 异常返回。动态校验（S4）随 F15-BE-004
- *                  并联后 errors 由基础段与动态段合并产出。</li>
+ *                  （S0~S4 同序同语义）、不落库；字段级结果以 data.errors 结构化承载
+ *                  （HTTP 200、code 为成功，对齐公式 validate / simulate 先例，errors 由
+ *                  基础段与动态段合并产出、动态段 ruleId 溯源触发规则），S0/S1 资源与
+ *                  确定性拒绝（含规则复算熔断 CS_FORM_RULE_CYCLE_EXCEEDED）仍以
+ *                  CS_FORM_* 异常返回。</li>
  *              <li><b>回显</b>（分册 §4.5）：数据行不存在 → CS_FORM_DATA_NOT_FOUND；归属
  *                  判定（R06 定稿，功能设计 §12.2）：本人数据按 field_creator_id 判定、
  *                  SYS_FORM_ADMIN / SYS_ADMIN 放行全部，非本人且非管理员 →
  *                  CS_FORM_DATA_FORBIDDEN（code = FORBIDDEN + message 前缀，先例日程归属
  *                  判定）；响应含数据本体 + 实例锁定版本 Schema（原则 2「在途实例用原版本」，
- *                  协议头以主档元数据归一）。</li>
+ *                  协议头以主档元数据归一）；formData 读取层裁剪——显隐复算终态隐藏字段与
+ *                  permission=hidden 字段不下发（{@link FormValidationEngine#clipForRead}，
+ *                  ADR-08 读取层③，存量数据复算为防御性兜底不改写存储态）。</li>
  *              <li><b>查询</b>（分册 §4.6）：单一表单维度（fieldFormId 必填，不存在抛
  *                  CS_FORM_NOT_FOUND）；Service 层强制注入归属过滤——非管理员覆盖
  *                  fieldCreatorId 为会话用户（不信任请求体传入的用户标识，先例流程
@@ -114,24 +124,43 @@ public class SysFormDataService {
 
     private final FormDataBasicValidator basicValidator;
 
+    private final FormValidationEngine validationEngine;
+
     public SysFormDataService(SysFormDataDao dataDao, SysFormDao formDao,
-                              SysFormVersionDao versionDao, FormDataBasicValidator basicValidator) {
+                              SysFormVersionDao versionDao, FormDataBasicValidator basicValidator,
+                              FormValidationEngine validationEngine) {
         this.dataDao = dataDao;
         this.formDao = formDao;
         this.versionDao = versionDao;
         this.basicValidator = basicValidator;
+        this.validationEngine = validationEngine;
     }
 
     /* ==================== 保存（一期仅新增，分册 §4.3） ==================== */
 
     /**
      * 保存表单数据（分册 §4.3，事务内）。校验链按序执行：S0 资源前置 → S1 字段白名单
-     * （未知字段拒绝）→ S2 基础校验 → 载荷归一（Schema 字段序 + 明细行结构归一）落库。
-     * S3 显隐复算裁剪 / S4 动态校验 / S5 级联复核 / S6 公式重算 / S7 权限裁剪为
-     * F15-BE-004 / F15-BE-005 的并联扩展点（见保存校验链注记），并联后落库形态 =
-     * 裁剪与重算后的最终 JSON。fieldId 沿用前端 getInitID 预生成值；field_creator_id
+     * （未知字段拒绝）→ S3 显隐复算与提交裁剪 / S4 动态校验（{@link FormValidationEngine}
+     * 规则复算，联动 setValue/clearValue 一并执行 + 循环防护熔断）→ S2 基础校验与 S4 动态
+     * 校验合并裁决（复算裁剪后的最终载荷上单次判定，见下「合并裁决序」）→ 载荷归一落库。
+     * S5 级联复核 / S6 公式重算为 F15-BE-005 的并联扩展点（见保存校验链注记），并联后落库
+     * 形态 = 裁剪与重算后的最终 JSON。fieldId 沿用前端 getInitID 预生成值；field_creator_id
      * 绑定会话用户（R06：数据归属 = 创建人，提交时由服务端绑定）；field_process_instance_id
      * 一期不写入（v1.8 BPM 预留列）。
+     *
+     * <p><b>合并裁决序</b>（分册 §4.3 S2~S4 与功能设计 §6.1 ③④⑤的落地形态）：S1 白名单
+     * 先行 fail-fast（提交载荷原样）→ {@link FormValidationEngine#replay} 按版本 Schema
+     * 复算规则（显隐终态 + 联动复算 + 动态覆盖收集，确定性、不信任前端）并完成 S3 提交
+     * 裁剪（hidden 字段值不落库）→ 在最终载荷上单次合并裁决 S2 基础校验 + S4 动态校验
+     * （setRequired 动态覆盖静态必填基线、hidden 主表字段不参与必填——值被裁剪后要求必填
+     * 会阻断合法提交；setValidate 条件范围/条件正则并入）。合并裁决必须在裁剪后载荷上
+     * 执行：联动复算可能改写值（如规则补齐必填字段）、裁剪移除隐藏字段，二者的最终形态
+     * 才是落库口径；各步骤校验语义与 §6.1 ③④⑤ 一致，仅执行序按数据依赖编排。</p>
+     *
+     * <p>S7 字段权限裁剪：permission=hidden 已随 S3 裁剪（无论渲染态一律裁剪）；permission
+     * = readonly 一期 save 为新增落库、无库内基线可比对，提交值照常落库（分册 §4.3 S7
+     * 定稿——值变更拒绝语义挂二期实例更新接口，引擎预留
+     * {@link FormValidationEngine#assertReadonlyBaseline(Map, Map)} 基线比对通道）。</p>
      *
      * @param request 保存体（fieldId / formId / formData 必填，businessId 可选）
      * @return 保存响应 { fieldId, formData }（formData 为服务端最终落库形态）
@@ -149,17 +178,23 @@ public class SysFormDataService {
         // S0 资源前置：表单存在且启用、存在发布版本（锁定 field_current_version_id 版本行）
         SysFormVersion versionRow = requirePublishedVersion(formId);
         SysFormSchemaDo schema = parseSchema(versionRow.getFieldSchemaJson());
-        // S1 字段白名单（未知字段拒绝）+ S2 基础校验（必填/类型/长度/枚举选项值/明细行结构与行数上限）
-        List<SysFormDataErrorDo> errors = basicValidator.validate(schema, formData);
-        requireBasicValid(errors);
-        // 载荷归一（Schema 字段序 + 明细行结构归一，明细行数据结构归一落库形态）
-        Map<String, Object> payload = basicValidator.normalize(schema, formData);
-        // S3 显隐复算与提交裁剪 / S4 动态校验（F15-BE-004 扩展点：FormRuleEngine 同一条件
-        //   求值器复算显隐、隐藏字段值裁剪不落库，规则 setRequired/setValidate 与静态校验合并裁决）；
+        // S1 字段白名单（未知字段拒绝，分册 §7.4①——提交载荷原样先行 fail-fast）
+        basicValidator.assertSchemaWhitelist(schema, formData);
+        // S3 显隐复算与提交裁剪 / S4 动态校验求值（F15-BE-004）：规则 DSL 服务端复算
+        //   （显隐 show/hide + 联动 setValue/clearValue + 动态 setRequired/setValidate，
+        //   onChange/onSubmit/onValidate 事件域；幂等短路 + 双熔断 CS_FORM_RULE_CYCLE_EXCEEDED），
+        //   hidden 字段（显隐复算终态 ∪ permission=hidden）值裁剪不落库（正常业务行为不报错）
+        FormValidationEngine.RuleReplay replay = validationEngine.replay(schema, formData);
+        // S2 基础校验 + S4 动态校验合并裁决（复算裁剪后最终载荷单次判定；ruleId 溯源动态段）
+        List<SysFormDataErrorDo> errors = basicValidator.validate(schema, replay.getPayload(),
+                replay.getDynamicState());
+        requireDataValid(errors);
         // S5 级联选项复核 / S6 公式重算（F15-BE-005 扩展点：提交值 ∈ 父项当前条件允许选项集，
         //   type=formula 字段经 FormulaEngine 服务内重算以服务端结果为准回填 payload）；
-        // S7 字段权限裁剪（F15-BE-004 扩展点：permission=hidden 无论渲染态一律裁剪）。
-        // 并联后以裁剪与重算后的最终 payload 序列化落库（ADR-08 持久层 / ADR-09）。
+        // S7 字段权限裁剪（F15-BE-004）：permission=hidden 已随 S3 裁剪；readonly 一期新增
+        //   照常落库（值变更拒绝挂二期实例更新接口，分册 §4.3 S7）。
+        // 载荷归一（Schema 字段序 + 明细行结构归一）后序列化落库（ADR-08 持久层 / ADR-09）。
+        Map<String, Object> payload = basicValidator.normalize(schema, replay.getPayload());
 
         Date now = new Date();
         SysFormData model = new SysFormData();
@@ -184,10 +219,13 @@ public class SysFormDataService {
     /* ==================== 独立校验（与 save 共用引擎，不落库，分册 §4.4） ==================== */
 
     /**
-     * 独立校验表单数据（分册 §4.4）：与 save 完全共用同一校验引擎与校验链（S0~S2 本任务
-     * 承载段，S4 动态校验随 F15-BE-004 并联）、不落库。字段级结果以 data.errors 结构化
-     * 承载（正常业务结果，HTTP 200、code 为成功）；S0/S1 资源与确定性拒绝仍以 CS_FORM_*
-     * 异常返回（与 save 同语义）。pass = true 时回带服务端最终数据预览（同 save 落库形态）。
+     * 独立校验表单数据（分册 §4.4）：与 save 完全共用同一校验引擎与校验链（S0~S4 同序
+     * 同语义，S3/S4 由 {@link FormValidationEngine} 规则复算与裁剪承载）、不落库。字段级
+     * 结果以 data.errors 结构化承载（正常业务结果，HTTP 200、code 为成功，对齐公式
+     * validate / simulate 先例），errors 由基础段与动态段合并产出（动态段错误 ruleId 回填
+     * 触发规则 ID）；S0/S1 资源与确定性拒绝（含规则复算熔断
+     * {@code CS_FORM_RULE_CYCLE_EXCEEDED}）仍以 CS_FORM_* 异常返回。pass = true 时回带
+     * 服务端最终数据预览（同 save 落库形态——规则复算裁剪后载荷归一）。
      *
      * @param request 校验体（formId / formData 必填，无 fieldId——不落库）
      * @return { pass, errors, formData }
@@ -202,16 +240,20 @@ public class SysFormDataService {
         // S0 资源前置（与 save 同语义，资源类拒绝以 CS_FORM_* 异常返回）
         SysFormVersion versionRow = requirePublishedVersion(formId);
         SysFormSchemaDo schema = parseSchema(versionRow.getFieldSchemaJson());
-        // S1 字段白名单（未知字段拒绝，与 save 同语义）+ S2 基础校验
-        List<SysFormDataErrorDo> errors = basicValidator.validate(schema, formData);
-        // S4 动态校验（F15-BE-004 扩展点：规则 setRequired/setValidate 与静态校验合并裁决，
-        //   动态段错误并入 errors——ruleId 由动态段回填）；S3/S5/S6 同 save 扩展点注记。
+        // S1 字段白名单（未知字段拒绝，与 save 同语义）
+        basicValidator.assertSchemaWhitelist(schema, formData);
+        // S3 显隐复算与提交裁剪 / S4 动态校验求值（与 save 完全共用同一引擎与事件域语义）
+        FormValidationEngine.RuleReplay replay = validationEngine.replay(schema, formData);
+        // S2 基础校验 + S4 动态校验合并裁决（与 save 同一口径；errors 结构化承载不抛）
+        List<SysFormDataErrorDo> errors = basicValidator.validate(schema, replay.getPayload(),
+                replay.getDynamicState());
+        // S5/S6 同 save 扩展点注记（F15-BE-005）。
 
         SysFormDataValidateVo vo = new SysFormDataValidateVo();
         vo.setPass(errors.isEmpty());
         vo.setErrors(errors);
         if (errors.isEmpty()) {
-            vo.setFormData(basicValidator.normalize(schema, formData));
+            vo.setFormData(basicValidator.normalize(schema, replay.getPayload()));
         } else {
             vo.setFormData(null);
         }
@@ -226,11 +268,13 @@ public class SysFormDataService {
      * CS_FORM_DATA_NOT_FOUND；归属判定（R06 定稿）：本人数据（field_creator_id = 会话用户）
      * 或 SYS_FORM_ADMIN / SYS_ADMIN 放行，非本人且非管理员 → CS_FORM_DATA_FORBIDDEN
      * （code = FORBIDDEN + message 前缀）。schema 协议头以主档权威元数据归一（先例
-     * SysFormService#normalizeHeader）；formData 读取层裁剪（permission=hidden 字段不下发，
-     * ADR-08 读取层）随 F15-BE-004 并联，本任务透传落库形态。
+     * SysFormService#normalizeHeader）；formData 读取层裁剪（§3.6 ADR-08 读取层③ /
+     * 分册 §4.5）：按存量数据复算同一显隐口径——显隐复算终态隐藏字段与 permission=hidden
+     * 字段不下发（{@link FormValidationEngine#clipForRead}，要点红线「前端隐藏字段不等于
+     * 后端禁止访问」；存量数据即提交时刻终态，复算为防御性兜底 + 权限通道，不改写存储态）。
      *
      * @param fieldId 数据行 ID
-     * @return 详情（formData 解析后的字段值对象 + 实例锁定版本 Schema）
+     * @return 详情（formData 读取裁剪后的字段值对象 + 实例锁定版本 Schema）
      */
     public SysFormDataDetailVo load(String fieldId) {
         String id = StringUtil.requireText(fieldId, "fieldId");
@@ -255,7 +299,9 @@ public class SysFormDataService {
         vo.setFieldBusinessId(row.getFieldBusinessId());
         vo.setFieldCreatorId(row.getFieldCreatorId());
         vo.setFieldCreateTime(row.getFieldCreateTime());
-        vo.setFormData(parseFormData(row.getFieldFormData()));
+        // 读取层裁剪（F15-BE-004）：显隐复算终态隐藏 ∪ permission=hidden 字段不下发；
+        // schema 为 null（版本行缺失防御性兜底）时 formData 原样下发
+        vo.setFormData(validationEngine.clipForRead(schema, parseFormData(row.getFieldFormData())));
         vo.setSchema(schema);
         return vo;
     }
@@ -462,11 +508,12 @@ public class SysFormDataService {
     }
 
     /**
-     * S2 基础校验结果裁决（分册 §4.3）：errors 非空即拒绝——抛
+     * S2 基础校验 + S4 动态校验合并裁决结果裁决（分册 §4.3）：errors 非空即拒绝——抛
      * {@code CS_FORM_DATA_INVALID}（message 前缀 + 首条错误中文摘要，BaseResponse.code =
-     * BAD_REQUEST；字段级明细经 /data/validate 的 data.errors 结构化获取）
+     * BAD_REQUEST；动态段错误 ruleId 已溯源触发规则，字段级明细经 /data/validate 的
+     * data.errors 结构化获取）
      */
-    private static void requireBasicValid(List<SysFormDataErrorDo> errors) {
+    private static void requireDataValid(List<SysFormDataErrorDo> errors) {
         if (null == errors || errors.isEmpty()) {
             return;
         }

@@ -11,6 +11,9 @@ import com.eric.base.sys.form.model.SysFormData;
 import com.eric.base.sys.form.model.SysFormDataErrorDo;
 import com.eric.base.sys.form.model.SysFormFieldDo;
 import com.eric.base.sys.form.model.SysForm;
+import com.eric.base.sys.form.model.SysFormRuleActionDo;
+import com.eric.base.sys.form.model.SysFormRuleConditionDo;
+import com.eric.base.sys.form.model.SysFormRuleDo;
 import com.eric.base.sys.form.model.SysFormSchemaDo;
 import com.eric.base.sys.form.model.SysFormVersion;
 import com.eric.base.sys.form.properties.SysFormConstants;
@@ -22,6 +25,7 @@ import com.eric.base.sys.form.response.SysFormDataSavedVo;
 import com.eric.base.sys.form.response.SysFormDataValidateVo;
 import com.eric.base.sys.form.response.SysFormDataVo;
 import com.eric.base.sys.form.service.engine.FormDataBasicValidator;
+import com.eric.base.sys.form.service.engine.FormValidationEngine;
 import com.eric.base.sys.org.model.SysOrgRole;
 import com.eric.base.sys.org.model.SysOrgUser;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -96,7 +100,8 @@ class SysFormDataServiceTest {
         dataDao = mock(SysFormDataDao.class);
         formDao = mock(SysFormDao.class);
         versionDao = mock(SysFormVersionDao.class);
-        service = new SysFormDataService(dataDao, formDao, versionDao, new FormDataBasicValidator());
+        service = new SysFormDataService(dataDao, formDao, versionDao,
+                new FormDataBasicValidator(), new FormValidationEngine());
         userUtilMock = Mockito.mockStatic(UserUtil.class);
         userUtilMock.when(UserUtil::getCurrentUserId).thenReturn(USER_ID);
         userUtilMock.when(UserUtil::getCurrentUser).thenReturn(sessionUser(null));
@@ -315,6 +320,109 @@ class SysFormDataServiceTest {
         assertFormError(() -> service.validate(request), CS_FORM_DISABLED);
     }
 
+    // ---------------------------------------------------------------- 动态校验与权限裁剪（F15-BE-004 并联）
+
+    @Test
+    void saveTrimsRuleHiddenFieldFromPersistedPayload() {
+        mockPublishedVersionWithSchema(ruleSchemaJson());
+
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("applicant", "张三");
+        formData.put("payType", "cash");
+        formData.put("bankAccount", "6222020200112233445");
+
+        SysFormDataSavedVo vo = service.save(saveRequest(formData));
+
+        assertFalse(vo.getFormData().containsKey("bankAccount"),
+                "显隐复算判定隐藏的字段值裁剪不落库（§3.6 持久层，响应同落库形态）");
+        ArgumentCaptor<SysFormData> captor = ArgumentCaptor.forClass(SysFormData.class);
+        verify(dataDao).insert(captor.capture());
+        assertFalse(String.valueOf(captor.getValue().getFieldFormData()).contains("bankAccount"),
+                "落库 JSON 不含 hidden 字段值: " + captor.getValue().getFieldFormData());
+    }
+
+    @Test
+    void saveKeepsVisibleDynamicFieldWithTransfer() {
+        mockPublishedVersionWithSchema(ruleSchemaJson());
+
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("applicant", "张三");
+        formData.put("payType", "transfer");
+        formData.put("bankAccount", "6222020200112233445");
+
+        SysFormDataSavedVo vo = service.save(saveRequest(formData));
+
+        assertEquals("6222020200112233445", vo.getFormData().get("bankAccount"),
+                "付款方式=转账时规则 show 生效，银行账号照常落库");
+    }
+
+    @Test
+    void saveRejectsDynamicRequiredViolation() {
+        mockPublishedVersionWithSchema(ruleSchemaJson());
+
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("applicant", "张三");
+        formData.put("payType", "transfer");
+
+        String message = assertFormError(() -> service.save(saveRequest(formData)), CS_FORM_DATA_INVALID);
+        assertTrue(message.contains("银行账号"),
+                "条件必填（付款方式=转账时银行账号必填）服务端权威裁决: " + message);
+        verify(dataDao, never()).insert(any(SysFormData.class));
+    }
+
+    @Test
+    void validateCarriesRuleIdOnDynamicError() {
+        mockPublishedVersionWithSchema(ruleSchemaJson());
+
+        SysFormDataValidateRequest request = new SysFormDataValidateRequest();
+        request.setFormId(FORM_ID);
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("applicant", "张三");
+        formData.put("payType", "transfer");
+        request.setFormData(formData);
+
+        SysFormDataValidateVo vo = service.validate(request);
+
+        assertFalse(vo.isPass(), "动态必填未满足 pass=false");
+        assertEquals(1, vo.getErrors().size(), "动态段一条错误: " + vo.getErrors());
+        assertEquals("bankAccount", vo.getErrors().get(0).getFieldCode());
+        assertEquals("rule_001", vo.getErrors().get(0).getRuleId(),
+                "动态校验错误 ruleId 溯源触发规则（分册 §4.4 errors 结构）");
+    }
+
+    @Test
+    void validatePassesWhenDynamicRequiredRelaxedByRule() {
+        // 条件必填反例：payType=cash 时 rule_002 setRequired(false) 覆盖 + hide，bankAccount 缺省通过
+        mockPublishedVersionWithSchema(ruleSchemaJson());
+
+        SysFormDataValidateRequest request = new SysFormDataValidateRequest();
+        request.setFormId(FORM_ID);
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("applicant", "张三");
+        formData.put("payType", "cash");
+        request.setFormData(formData);
+
+        SysFormDataValidateVo vo = service.validate(request);
+
+        assertTrue(vo.isPass(), "setRequired(false) 动态覆盖静态基线，hidden 字段不参与必填: " + vo.getErrors());
+        assertNotNull(vo.getFormData());
+        assertFalse(vo.getFormData().containsKey("bankAccount"), "预览同 save 落库形态（hidden 裁剪）");
+    }
+
+    @Test
+    void loadClipsPermissionHiddenFieldFromStoredData() {
+        when(dataDao.selectById(DATA_ID)).thenReturn(dataRowWithJson(
+                "{\"applicant\":\"张三\",\"secretField\":\"机密值\"}"));
+        when(formDao.selectById(FORM_ID)).thenReturn(formRow(Boolean.TRUE));
+        when(versionDao.selectById(VERSION_ID)).thenReturn(versionRowWithSchema(permissionHiddenSchemaJson()));
+
+        SysFormDataDetailVo vo = service.load(DATA_ID);
+
+        assertFalse(vo.getFormData().containsKey("secretField"),
+                "permission=hidden 字段读取不下发（要点第 7 步红线：前端隐藏 ≠ 后端禁止访问）");
+        assertEquals("张三", vo.getFormData().get("applicant"), "可见字段照常下发");
+    }
+
     // ---------------------------------------------------------------- load：回显与归属判定
 
     @Test
@@ -526,6 +634,99 @@ class SysFormDataServiceTest {
     private void mockPublishedForm() {
         when(formDao.selectById(FORM_ID)).thenReturn(formRow(Boolean.TRUE));
         when(versionDao.selectById(VERSION_ID)).thenReturn(versionRow());
+    }
+
+    /** 指定 Schema 原文的发布版本行（F15-BE-004 规则 / 权限用例） */
+    private void mockPublishedVersionWithSchema(String schemaJson) {
+        when(formDao.selectById(FORM_ID)).thenReturn(formRow(Boolean.TRUE));
+        when(versionDao.selectById(VERSION_ID)).thenReturn(versionRowWithSchema(schemaJson));
+    }
+
+    /** 指定 Schema 原文的版本行（读取层裁剪用例） */
+    private static SysFormVersion versionRowWithSchema(String schemaJson) {
+        SysFormVersion row = versionRow();
+        row.setFieldSchemaJson(schemaJson);
+        return row;
+    }
+
+    /**
+     * 规则 Schema 存储态原文（功能设计 §2.3 示例 rule_001/002 同构：付款方式=转账时银行
+     * 账号必填并显示，否则豁免必填并隐藏——条件必填正反例 + 条件显隐 + hidden 静态初始态）
+     */
+    private static String ruleSchemaJson() {
+        SysFormFieldDo applicant = field("applicant", "input", "申请人");
+        applicant.setProps(Map.of("required", true));
+        SysFormFieldDo payType = field("payType", "select", "付款方式");
+        payType.setProps(Map.of("multi", false,
+                "options", List.of(option("cash", "现金"), option("transfer", "转账"))));
+        payType.setRules(List.of(
+                rule("rule_001", "payType", condition("equal", "transfer"),
+                        action("setRequired", "bankAccount", Boolean.TRUE),
+                        action("show", "bankAccount", null)),
+                rule("rule_002", "payType", condition("notEqual", "transfer"),
+                        action("setRequired", "bankAccount", Boolean.FALSE),
+                        action("hide", "bankAccount", null))));
+        SysFormFieldDo bankAccount = field("bankAccount", "input", "银行账号");
+        bankAccount.setProps(new LinkedHashMap<>(Map.of("maxlength", 32)));
+        bankAccount.getProps().put("hidden", true);
+        return schemaJsonOf(applicant, payType, bankAccount);
+    }
+
+    /** permission=hidden 字段 Schema 存储态原文（权限裁剪读取层用例） */
+    private static String permissionHiddenSchemaJson() {
+        SysFormFieldDo applicant = field("applicant", "input", "申请人");
+        SysFormFieldDo secret = field("secretField", "input", "内部备注");
+        secret.setProps(Map.of("permission", "hidden"));
+        return schemaJsonOf(applicant, secret);
+    }
+
+    /** Schema POJO → 存储态原文（Jackson 序列化，杜绝手写 JSON 配平错误） */
+    private static String schemaJsonOf(SysFormFieldDo... fields) {
+        SysFormSchemaDo schema = new SysFormSchemaDo();
+        schema.setFormId(FORM_ID);
+        schema.setFormCode("purchase_apply");
+        schema.setFormName("采购申请表");
+        schema.setVersion(1);
+        schema.setFields(List.of(fields));
+        try {
+            return JSON.writeValueAsString(schema);
+        } catch (Exception e) {
+            throw new IllegalStateException("测试 Schema 序列化失败", e);
+        }
+    }
+
+    /** 规则 DSL 构造（event 恒 onChange——服务端复算消费的主力事件） */
+    private static SysFormRuleDo rule(String ruleId, String triggerField,
+                                      SysFormRuleConditionDo condition, SysFormRuleActionDo... actions) {
+        SysFormRuleDo rule = new SysFormRuleDo();
+        rule.setRuleId(ruleId);
+        rule.setEvent("onChange");
+        rule.setTriggerField(triggerField);
+        rule.setCondition(condition);
+        rule.setActions(List.of(actions));
+        return rule;
+    }
+
+    private static SysFormRuleConditionDo condition(String operator, Object value) {
+        SysFormRuleConditionDo condition = new SysFormRuleConditionDo();
+        condition.setOperator(operator);
+        condition.setValue(value);
+        return condition;
+    }
+
+    private static SysFormRuleActionDo action(String type, String target, Object value) {
+        SysFormRuleActionDo action = new SysFormRuleActionDo();
+        action.setType(type);
+        action.setTarget(target);
+        action.setValue(value);
+        return action;
+    }
+
+    /** 指定 formData 原文的数据行（读取层裁剪用例） */
+    private static SysFormData dataRowWithJson(String formDataJson) {
+        SysFormData row = dataRow(USER_ID);
+        row.setFieldFormData(formDataJson);
+        return row;
     }
 
     /**
