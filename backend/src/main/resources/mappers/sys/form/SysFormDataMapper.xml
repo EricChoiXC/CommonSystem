@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eric.base.sys.form.mapper.SysFormDataMapper">
+
+<!--
+    表单数据表(sys_form_data)映射（F15-DB-002）
+    依据 docs/v1_5-自定义表单/自定义表单数据库设计分册.md「§5.3.6 下游 Dao / Mapper /
+    XML 规划要点」，列清单与 SysFormData 实体注解声明一致（经注解表结构同步引擎建表，
+    无迁移脚本）；idx_form_data_form（数据列表主路径 + 禁删存在性探测）+
+    idx_form_data_business（外部业务对象反查）。
+    field_form_data 为 JSON 列双形态承载（先例 sys_number_rule.field_rule）：存储态为
+    原文 JSON 字符串（列表响应不解析、不返回该列内容），load 由 Service 解析为字段值
+    对象（读取层裁剪后形态）返回；落库前由 Service 经 Jackson 序列化（禁止手工拼串），
+    此处按字符串写入 JSON 列。
+    一期只增不改（分册 §4.4 / §5.3.6 禁止 UPDATE 语义）：insert 承载保存落库，基础
+    update 为恒不生效的防御性占位（仅满足 IBaseMapper 接口契约保留；如二期进入实例
+    更新范围须先补 PATCH 接口契约——API 分册 §10 条目 5——并回写分册评估基类归属）；
+    deleteById 为物理删除（创建人或管理员，归属校验由 Service 层承担）。
+    field_process_instance_id 为 v1.8 BPM 预留列：一期不写入（恒 NULL），不建索引
+    （分册 §5.3.4），仅保留查询条件位；创建时间区间筛选需 Query 请求对象承载，随
+    F15-BE-003 落地，本任务不进 QueryConditions（与 F15-DB-001 同口径）。
+-->
+
+    <resultMap id="SysFormDataResultMap" type="com.eric.base.sys.form.model.SysFormData">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_form_id" property="fieldFormId"/>
+        <result column="field_form_version_id" property="fieldFormVersionId"/>
+        <result column="field_business_id" property="fieldBusinessId"/>
+        <result column="field_process_instance_id" property="fieldProcessInstanceId"/>
+        <result column="field_form_data" property="fieldFormData"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+    </resultMap>
+
+    <!--
+        轻量列集（分册 §5.3.6④「列表行不返回 field_form_data 内容」）：供 selectList /
+        loadModel 等轻量场景；selectById（详情回显）用 DetailColumns 取全列
+    -->
+    <sql id="BaseColumns">
+        field_id, field_form_id, field_form_version_id, field_business_id, field_process_instance_id,
+        field_creator_id, field_create_time
+    </sql>
+
+    <!-- 详情列集：轻量列集 + field_form_data（仅 selectById 详情回显使用） -->
+    <sql id="DetailColumns">
+        field_id, field_form_id, field_form_version_id, field_business_id, field_process_instance_id,
+        field_form_data, field_creator_id, field_create_time
+    </sql>
+
+    <!--
+        数据列表查询条件：fieldFormId / fieldBusinessId / fieldProcessInstanceId /
+        fieldCreatorId 精确；selectList 与 selectCount 共用本片段保证条件一致（供
+        metadata.total）。fieldCreatorId 归属过滤条件由 Service 层强制注入（会话用户
+        绑定，不信任请求体传入的用户标识——API 分册 §4.8，Mapper 不读会话）；非管理
+        员查询恒有归属值，管理员可空（不拼条件，查全部）。创建时间区间筛选需 Query
+        请求对象承载，随 F15-BE-003 落地（与 F15-DB-001 同口径）。
+    -->
+    <sql id="QueryConditions">
+        <where>
+            <if test="model.fieldFormId != null and model.fieldFormId != ''">AND field_form_id = #{model.fieldFormId}</if>
+            <if test="model.fieldBusinessId != null and model.fieldBusinessId != ''">AND field_business_id = #{model.fieldBusinessId}</if>
+            <if test="model.fieldProcessInstanceId != null and model.fieldProcessInstanceId != ''">AND field_process_instance_id = #{model.fieldProcessInstanceId}</if>
+            <if test="model.fieldCreatorId != null and model.fieldCreatorId != ''">AND field_creator_id = #{model.fieldCreatorId}</if>
+        </where>
+    </sql>
+
+    <!--
+        全列插入（分册 §5.3.6①）：保存落库走本语句——field_form_data 落库前由 Service
+        经 Jackson 序列化为最终 JSON 字符串（提交校验链产出：未知字段拒绝、隐藏字段
+        裁剪、公式以服务端重算值落库），此处按字符串写入；field_creator_id 由 Service
+        绑定会话用户；field_create_time 写 #{model.fieldCreateTime}（列上已有 DEFAULT
+        CURRENT_TIMESTAMP 兜底，参照 SysProcessExampleMapper.insert 处理方式）
+    -->
+    <insert id="insert" parameterType="com.eric.base.sys.form.model.SysFormData">
+        INSERT INTO sys_form_data (
+        field_id, field_form_id, field_form_version_id, field_business_id, field_process_instance_id,
+        field_form_data, field_creator_id, field_create_time
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldFormId}, #{model.fieldFormVersionId}, #{model.fieldBusinessId}, #{model.fieldProcessInstanceId},
+        #{model.fieldFormData}, #{model.fieldCreatorId}, #{model.fieldCreateTime}
+        )
+    </insert>
+
+    <!--
+        一期只增不改（分册 §5.3.6 明令「禁止 UPDATE 语句」）：无实例更新接口，本语句
+        仅为满足 IBaseMapper 接口契约保留的恒不生效防御性占位——SET 自身恒等无实际
+        赋值 + AND 1 = 0 使任何调用影响行数恒为 0（不触碰任何列）。如二期进入实例
+        更新范围，须先补 PATCH 接口契约（API 分册 §10 条目 5）并回写分册评估基类归属
+        （流水 BaseModel → 是否转 MainModel）
+    -->
+    <update id="update" parameterType="com.eric.base.sys.form.model.SysFormData">
+        UPDATE sys_form_data
+        SET field_id = field_id
+        WHERE field_id = #{model.fieldId}
+          AND 1 = 0
+    </update>
+
+    <!--
+        物理删除（分册 §4.4 删除语义定稿）：/data/delete 按数据行 ID 删除（创建人或
+        管理员），无软删语义；归属（创建人）校验由 Service 层叠加承担
+    -->
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_form_data
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <!--
+        按行主键精确查（分册 §5.3.6②）：load 详情回显主路径——用 DetailColumns 取
+        全列（含 field_form_data），归属判定（本人数据 or 管理员）由 Service 层叠加后
+        回显
+    -->
+    <select id="selectById" parameterType="string" resultMap="SysFormDataResultMap">
+        SELECT
+        <include refid="DetailColumns"/>
+        FROM sys_form_data
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!--
+        数据列表（分册 §5.3.6④）：fieldFormId（必填，走 idx_form_data_form 索引）+
+        fieldBusinessId / fieldProcessInstanceId / fieldCreatorId 精确；排序固定创建
+        时间降序；列表行用 BaseColumns——不返回 field_form_data 内容；needPage=false
+        返回全部匹配结果
+    -->
+    <select id="selectList" resultMap="SysFormDataResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_form_data
+        <include refid="QueryConditions"/>
+        ORDER BY field_create_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 数据列表总数：条件与 selectList 完全一致，供响应 metadata.total -->
+    <select id="selectCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_form_data
+        <include refid="QueryConditions"/>
+    </select>
+
+    <!--
+        表单实例数据存在性探测（分册 §5.3.6⑤）：/define/delete 前置校验——该表单存在
+        任意实例数据时禁删（CS_FORM_HAS_DATA，API 分册 §3.7），走 idx_form_data_form
+        索引；EXISTS 命中即短路，不做全量计数
+    -->
+    <select id="existsByFormId" resultType="boolean">
+        SELECT EXISTS(
+        SELECT 1
+        FROM sys_form_data
+        WHERE field_form_id = #{formId}
+        )
+    </select>
+
+    <!--
+        轻量加载：仅返回 field_id 与轻量列（本表无名称列——field_form_id 为归属外键，
+        先例 SysAttOperationMapper.loadModel 以业务标识列 field_att_id 等价承载；
+        数据行的轻量展示语义由表单维度承载，此处返回 field_form_id 供关联对象赋值
+        使用）
+    -->
+    <resultMap id="SysFormDataLoadResultMap" type="com.eric.base.sys.form.model.SysFormData">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_form_id" property="fieldFormId"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysFormDataLoadResultMap">
+        SELECT field_id, field_form_id
+        FROM sys_form_data
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>
