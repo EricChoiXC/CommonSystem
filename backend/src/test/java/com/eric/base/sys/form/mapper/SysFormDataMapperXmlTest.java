@@ -2,6 +2,7 @@ package com.eric.base.sys.form.mapper;
 
 import com.eric.base.common.base.model.Pages;
 import com.eric.base.sys.form.model.SysFormData;
+import com.eric.base.sys.form.request.SysFormDataQuery;
 import org.apache.ibatis.builder.xml.XMLMapperBuilder;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.session.Configuration;
@@ -11,6 +12,7 @@ import org.springframework.core.io.ClassPathResource;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -144,6 +146,62 @@ class SysFormDataMapperXmlTest {
                 Map.of("formId", "0".repeat(32)));
         assertTrue(sql.contains("EXISTS("), sql);
         assertTrue(sql.contains("field_form_id ="), sql);
+    }
+
+    @Test
+    void selectListByQueryBindsFiltersTimeRangeAndPaging() {
+        // Query 请求对象通道（F15-BE-003，API 分册 §4.6）：条件同 selectList 并扩展创建时间区间
+        SysFormDataQuery query = new SysFormDataQuery();
+        query.setFieldFormId("0".repeat(32));
+        query.setFieldBusinessId("1".repeat(32));
+        query.setFieldProcessInstanceId("2".repeat(32));
+        query.setFieldCreatorId("U");
+        query.setFieldCreateTimeBegin(new Date(0));
+        query.setFieldCreateTimeEnd(new Date());
+        Pages pages = new Pages();
+        pages.setPageNo(2);
+        pages.setPageSize(10);
+        pages.setNeedPage(true);
+        Map<String, Object> params = new HashMap<>();
+        params.put("query", query);
+        params.put("pages", pages);
+
+        String sql = boundSql(SysFormDataMapper.class.getName() + ".selectListByQuery", params);
+        assertTrue(sql.contains("field_form_id ="), sql);
+        assertTrue(sql.contains("field_business_id ="), sql);
+        assertTrue(sql.contains("field_process_instance_id ="), sql);
+        assertTrue(sql.contains("field_creator_id ="), sql);
+        assertTrue(sql.contains("field_create_time >="), "创建时间起（含）: " + sql);
+        assertTrue(sql.contains("field_create_time <="), "创建时间止（含）: " + sql);
+        assertTrue(sql.contains("ORDER BY field_create_time DESC"), sql);
+        assertTrue(sql.contains("LIMIT"), sql);
+        // 列表行不返回 field_form_data 内容（分册 §5.3.6④，走 BaseColumns）
+        assertFalse(sql.contains("field_form_data"), "列表行不得返回 field_form_data: " + sql);
+
+        // 无条件 + 不分页：裸列表
+        String plainSql = boundSql(SysFormDataMapper.class.getName() + ".selectListByQuery",
+                Map.of("query", new SysFormDataQuery(), "pages", new Pages()));
+        assertFalse(plainSql.contains("WHERE"), plainSql);
+        assertFalse(plainSql.contains("LIMIT"), plainSql);
+    }
+
+    @Test
+    void selectCountByQuerySharesQueryRequestConditions() {
+        // count（Query 通道）与 selectListByQuery 共用 QueryRequestConditions 片段，条件一致（供 metadata.total）
+        SysFormDataQuery query = new SysFormDataQuery();
+        query.setFieldFormId("0".repeat(32));
+        query.setFieldCreatorId("U");
+        query.setFieldCreateTimeEnd(new Date());
+        String sql = boundSql(SysFormDataMapper.class.getName() + ".selectCountByQuery", Map.of("query", query));
+        assertTrue(sql.contains("COUNT(*)"), sql);
+        assertTrue(sql.contains("field_form_id ="), sql);
+        assertTrue(sql.contains("field_creator_id ="), sql);
+        assertTrue(sql.contains("field_create_time <="), sql);
+
+        // 无条件：全表计数
+        String plainSql = boundSql(SysFormDataMapper.class.getName() + ".selectCountByQuery",
+                Map.of("query", new SysFormDataQuery()));
+        assertFalse(plainSql.contains("WHERE"), plainSql);
     }
 
     @Test

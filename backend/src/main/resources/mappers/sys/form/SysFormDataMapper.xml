@@ -19,8 +19,8 @@
     更新范围须先补 PATCH 接口契约——API 分册 §10 条目 5——并回写分册评估基类归属）；
     deleteById 为物理删除（创建人或管理员，归属校验由 Service 层承担）。
     field_process_instance_id 为 v1.8 BPM 预留列：一期不写入（恒 NULL），不建索引
-    （分册 §5.3.4），仅保留查询条件位；创建时间区间筛选需 Query 请求对象承载，随
-    F15-BE-003 落地，本任务不进 QueryConditions（与 F15-DB-001 同口径）。
+    （分册 §5.3.4），仅保留查询条件位；创建时间区间筛选由 Query 请求对象承载
+    （SysFormDataQuery，随 F15-BE-003 以 selectListByQuery / selectCountByQuery 落地）。
 -->
 
     <resultMap id="SysFormDataResultMap" type="com.eric.base.sys.form.model.SysFormData">
@@ -63,6 +63,26 @@
             <if test="model.fieldBusinessId != null and model.fieldBusinessId != ''">AND field_business_id = #{model.fieldBusinessId}</if>
             <if test="model.fieldProcessInstanceId != null and model.fieldProcessInstanceId != ''">AND field_process_instance_id = #{model.fieldProcessInstanceId}</if>
             <if test="model.fieldCreatorId != null and model.fieldCreatorId != ''">AND field_creator_id = #{model.fieldCreatorId}</if>
+        </where>
+    </sql>
+
+    <!--
+        数据列表查询条件（Query 请求对象通道，F15-BE-003）：条件同 QueryConditions 并扩展
+        创建时间区间（fieldCreateTimeBegin 含 / fieldCreateTimeEnd 含，先例
+        SysProcessExampleMapper）；fieldFormId / fieldBusinessId / fieldProcessInstanceId /
+        fieldCreatorId 精确；selectListByQuery 与 selectCountByQuery 共用本片段保证条件一致
+        （供 metadata.total）。fieldCreatorId 归属过滤条件由 Service 层强制注入（会话用户
+        绑定，不信任请求体传入的用户标识——API 分册 §4.8，Mapper 不读会话）；非管理员查询
+        恒有归属值，管理员可空（不拼条件，查全部）。
+    -->
+    <sql id="QueryRequestConditions">
+        <where>
+            <if test="query.fieldFormId != null and query.fieldFormId != ''">AND field_form_id = #{query.fieldFormId}</if>
+            <if test="query.fieldBusinessId != null and query.fieldBusinessId != ''">AND field_business_id = #{query.fieldBusinessId}</if>
+            <if test="query.fieldProcessInstanceId != null and query.fieldProcessInstanceId != ''">AND field_process_instance_id = #{query.fieldProcessInstanceId}</if>
+            <if test="query.fieldCreatorId != null and query.fieldCreatorId != ''">AND field_creator_id = #{query.fieldCreatorId}</if>
+            <if test="query.fieldCreateTimeBegin != null">AND field_create_time &gt;= #{query.fieldCreateTimeBegin}</if>
+            <if test="query.fieldCreateTimeEnd != null">AND field_create_time &lt;= #{query.fieldCreateTimeEnd}</if>
         </where>
     </sql>
 
@@ -141,6 +161,31 @@
         SELECT COUNT(*)
         FROM sys_form_data
         <include refid="QueryConditions"/>
+    </select>
+
+    <!--
+        数据列表（Query 请求对象通道，F15-BE-003）：fieldFormId（必填，走 idx_form_data_form
+        索引）+ fieldBusinessId / fieldProcessInstanceId / fieldCreatorId 精确 + 创建时间区间；
+        排序固定创建时间降序；列表行用 BaseColumns——不返回 field_form_data 内容；
+        needPage=false 返回全部匹配结果
+    -->
+    <select id="selectListByQuery" resultMap="SysFormDataResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_form_data
+        <include refid="QueryRequestConditions"/>
+        ORDER BY field_create_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 数据列表总数（Query 请求对象通道）：条件与 selectListByQuery 完全一致，供响应 metadata.total -->
+    <select id="selectCountByQuery" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_form_data
+        <include refid="QueryRequestConditions"/>
     </select>
 
     <!--

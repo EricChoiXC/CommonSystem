@@ -1,9 +1,13 @@
 package com.eric.base.sys.form.mapper;
 
 import com.eric.base.common.base.dao.IBaseMapper;
+import com.eric.base.common.base.model.Pages;
 import com.eric.base.sys.form.model.SysFormData;
+import com.eric.base.sys.form.request.SysFormDataQuery;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
 
 /**
  * 表单数据数据访问映射
@@ -32,6 +36,29 @@ public interface SysFormDataMapper extends IBaseMapper<SysFormData> {
      * @return 匹配总数
      */
     long selectCount(@Param("model") SysFormData model);
+
+    /**
+     * 数据列表（Query 请求对象通道，F15-BE-003）：条件同 {@link #selectList} 并扩展创建
+     * 时间区间（fieldCreateTimeBegin/End）——区间筛选由 Query 请求对象承载（本 Mapper XML
+     * 注释登记「随 F15-BE-003 落地」，先例 SysProcessExampleQuery），fieldCreatorId 归属
+     * 过滤值仍由 Service 层强制注入（Mapper 不读会话，API 分册 §4.8）。供 /data/list
+     * 使用（{@link #selectListByQuery} / {@link #selectCountByQuery} 条件一致供
+     * metadata.total）。
+     *
+     * @param query 查询条件（可空字段忽略；fieldFormId 必填由 Service 先行校验）
+     * @param pages 分页参数（null 或 needPage=false 返回全部）
+     * @return 列表行（BaseColumns 轻量列集，不返回 field_form_data 内容）
+     */
+    List<SysFormData> selectListByQuery(@Param("query") SysFormDataQuery query, @Param("pages") Pages pages);
+
+    /**
+     * 数据列表总数（Query 请求对象通道，F15-BE-003）：条件与 {@link #selectListByQuery}
+     * 完全一致（共用 QueryRequestConditions 片段），供响应 metadata.total 使用。
+     *
+     * @param query 查询条件（可空字段忽略）
+     * @return 匹配总数
+     */
+    long selectCountByQuery(@Param("query") SysFormDataQuery query);
 
     /**
      * 表单实例数据存在性探测（F15-DB-002，分册 §5.3.6⑤）：按表单主档 ID 计数
