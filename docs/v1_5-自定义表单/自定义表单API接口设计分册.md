@@ -19,6 +19,7 @@
 | V1.0 | 2026-11-23 | 初版：定义面（9 接口）与数据面（6 接口）契约冻结；`ACTION_*` 全集（15 项）与 resolver 判定口径；错误码 `CS_FORM_*` 全集（16 项）与 `CS_FORMULA_*` 复用映射；功能设计 §11 留给本分册的两个开放点定稿（未知字段=拒绝、有数据禁删）；要点第 9 步 REST 风格到仓库矩阵的转化说明 |
 | V1.1 | 2026-11-24 | §3.9 版本列表排序与 `fieldVersion` 类型定稿回写（F15-BE-002 编码期完成数据库分册 §9.3 条目 1 预留的定稿动作，非契约变更）：草稿行恒排最前（每表单至多一行），其余按 `fieldVersion` 降序；`fieldVersion` 草稿行为 null（版本号仅发布动作分配） |
 | V1.2 | 2026-11-24 | F15-BE-006 编码期同批回写（非契约变更）：§3.3 / §3.5 请求体包装形态明确为 `{ body: SysFormSaveRequest }` / `{ body: SysFormUpdateRequest }`——body 承载保存体，仓库 save 通道统一包装先例（`SysFormulaSaveRequest` / `SysCalendarSaveRequest` / `SysDatasourceSaveRequest`），前端 `api/form.js` saveForm / updateForm 同口径（F15-FE-001）；§3.2 登记 body 筛选条件 `fieldCreateTimeBegin` / `fieldCreateTimeEnd` 一期未实现（`SysFormMapper` QueryConditions 未承载时间区间，请求传入忽略不报错，随管理页筛选区落地扩展） |
+| V1.3 | 2026-11-24 | F15-INT-001 运行期实测回写（非契约变更）：§3.2 / §4.6 登记 `define/list` 与 `data/list` 排序实现口径为**固定创建时间降序**（Mapper 固定序，请求 `sortField` / `sortOrder` 受理不参与动态排序，与 §2.2 单条件排序通用口径的差异在此两接口收敛为实现细化）；集成验证全量结论见[自定义表单后端集成验证记录.md](自定义表单后端集成验证记录.md)（错误码 15/16 运行期实测 + `CS_FORM_RULE_CYCLE_EXCEEDED` 单测覆盖） |
 
 ### 1.2 事实源优先级与冲突裁决
 
@@ -140,6 +141,8 @@
 | `fieldCreatorId` / `fieldCreateTime` / `fieldUpdaterId` / `fieldUpdateTime` | — | 公共字段 |
 
 列表行不携带 Schema 内容（体积大）；Schema 内容经 `/load` 获取。
+
+> **排序口径（F15-INT-001 运行期实测回写，2026-11-24）**：本接口排序为**固定创建时间降序**（Mapper 固定序）；请求体 `sortField` / `sortOrder` 受理但不参与动态排序（与 §2.2 单条件排序通用口径的差异为本接口实现细化，随管理页排序区诉求落地再评估扩展）。
 
 ### 3.3 `POST /save` 新建表单
 
@@ -432,6 +435,8 @@
 | `fieldCreateTimeBegin` / `fieldCreateTimeEnd` | date | 否 | 创建时间区间 |
 
 响应 `data = List<SysFormDataVo>`（`metadata.total` 为总数）：`fieldId` / `fieldFormId` / `fieldFormVersionId` / `fieldBusinessId` / `fieldCreatorId` / `fieldCreateTime` 等行字段；**列表行不携带 `formData` 字段值内容**（JSON 体积不可控，详情经 `/load`）。
+
+> **排序口径（F15-INT-001 运行期实测回写，2026-11-24）**：本接口排序为**固定创建时间降序**（Mapper 固定序，与 §3.2 同口径）；请求体 `sortField` / `sortOrder` 受理但不参与动态排序。
 
 ### 4.7 `DELETE /delete?fieldId=` 删除数据
 
