@@ -1,13 +1,16 @@
 /**
- * 自定义表单数据类物料（category=DATA，12 个，F15-FE-002；F15-FE-003 接入基础七件运行时）
+ * 自定义表单数据类物料（category=DATA，12 个，F15-FE-002；F15-FE-003 接入基础七件运行时、
+ * F15-FE-004 接入业务数据四件运行时）
  *
  * 口径依据：功能详细设计 §1.3 数据类清单（R03）+ UI 设计分册 §4.5.2 数据类扩展属性项
  * 登记表（三方一致口径：组件文档表格 / UI 分册 / 功能设计 §1.3）。
  * - 固定属性项（名称/ID/是否必填/说明文本/默认值）由 dataFixedPropSchema 按类别裁剪生成；
  * - component：基础七件已由 F15-FE-003 接入（input/textarea/number/choice/select/
  *   date/switch → widgets/ 下同名 *Widget.vue，统一 props/v-model/事件分发契约见
- *   各 widget 头注与功能设计 §4.3）；formula/datasource/addressbook/attachment 待
- *   F15-FE-004、cascade 待 F15-FE-010 分批注册，渲染器对 null 按未知 type 兜底占位；
+ *   各 widget 头注与功能设计 §4.3）；业务数据四件已由 F15-FE-004 接入（formula/
+ *   datasource/addressbook/attachment → widgets/ 下同名 *Widget.vue，复用契约与值
+ *   形态见各 widget 头注与功能设计 §6.3/§6.5）；cascade 待 F15-FE-010 注册，渲染器
+ *   对 null 按未知 type 兜底占位；
  * - dataType：单列取值为字符串；choice/select/cascade/datasource 随 props.multi 多态、
  *   formula 随 props.expectedReturnType 多态（以 (props)=>dataType 函数承载）；
  * - validator 返回中文错误消息数组（约定见 common.js 头注）。
@@ -20,6 +23,10 @@ import ChoiceWidget from '../widgets/ChoiceWidget.vue'
 import SelectWidget from '../widgets/SelectWidget.vue'
 import DateWidget from '../widgets/DateWidget.vue'
 import SwitchWidget from '../widgets/SwitchWidget.vue'
+import FormulaWidget from '../widgets/FormulaWidget.vue'
+import DatasourceWidget from '../widgets/DatasourceWidget.vue'
+import AddressbookWidget from '../widgets/AddressbookWidget.vue'
+import AttachmentWidget from '../widgets/AttachmentWidget.vue'
 import {
   MAX_TEXT_LENGTH,
   ADDRESSBOOK_ORG_TYPES,
@@ -322,7 +329,7 @@ const formulaMaterial = {
       ],
     },
   ],
-  component: null, // 待 F15-FE-004 注册（配置态内嵌 FormulaDesigner 编辑公式、编辑态只读展示计算结果）
+  component: FormulaWidget, // 运行时组件（F15-FE-004 接入：配置态内嵌 FormulaDesigner 编辑公式、编辑/详情态只读展示计算结果，ADR-09 前端不本地计算）
   defaultValueGenerator: () => null, // 值以服务端重算为准（ADR-09），前端不生成
   dataType: (props) => (props && props.expectedReturnType ? props.expectedReturnType : 'NUMBER'),
   // 公式字段不做前端值校验（ADR-09：前端值仅预览性质、以服务端重算结果为权威落库，差额不报错）
@@ -350,7 +357,7 @@ const datasourceMaterial = {
     },
     { key: 'multi', label: '单多选', editor: 'switch', tip: '开启后值为数组' },
   ],
-  component: null, // 待 F15-FE-004 注册（经 api/datasource.js options/query 取数的选择器）
+  component: DatasourceWidget, // 运行时组件（F15-FE-004 接入：经 api/datasource.js queryDatasource 运行时取数的选择器，存编码不存快照）
   defaultValueGenerator: (props) => (props && props.multi ? [] : null),
   dataType: (props) => (props && props.multi ? 'ARRAY' : 'STRING'),
   // 选项运行时经数据源取数、无静态 options，枚举校验不适用（取数合法性由组件取数行为与服务端把关）
@@ -374,7 +381,7 @@ const addressbookMaterial = {
     { key: 'orgType', label: '可选类型', editor: 'select', options: ADDRESSBOOK_ORG_TYPES },
     { key: 'showRole', label: '是否显示角色页签', editor: 'switch' },
   ],
-  component: null, // 待 F15-FE-004 注册（复用 components/AddressBook.vue，不改既有契约）
+  component: AddressbookWidget, // 运行时组件（F15-FE-004 接入：复用 components/AddressBook.vue 双绑定契约，组件值空间 { fieldId, fieldName }，载荷转换在渲染器层经 serializer）
   // 组件双绑定空态（fieldId/fieldName 空串）；载荷空值由 serializer 归一
   defaultValueGenerator: () => ({ fieldId: '', fieldName: '' }),
   dataType: 'OBJECT', // 载荷形态 { ids: [], names: [] }
@@ -401,7 +408,7 @@ const attachmentMaterial = {
     { key: 'maxCount', label: '数量上限', editor: 'number', min: 1 },
     { key: 'fileType', label: '允许上传文件格式', editor: 'input', tip: '逗号分隔后缀，空 = 不限制（Attachment 契约 fileType）' },
   ],
-  component: null, // 待 F15-FE-004 注册（复用 components/Attachment.vue；附件实体落 sys/att，表单数据存引用）
+  component: AttachmentWidget, // 运行时组件（F15-FE-004 接入：复用 components/Attachment.vue，附件实体落 sys/att、表单数据存引用 [{ attId, fileName }]）
   defaultValueGenerator: () => [],
   dataType: 'ARRAY', // [{ attId, fileName }]
   validator(value, props, context) {

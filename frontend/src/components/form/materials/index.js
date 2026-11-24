@@ -9,9 +9,10 @@
  * registerAllMaterials 幂等（已注册的 type 跳过），防 HMR / 多入口重复执行触发
  * registerComponent 的重复 type fail-fast。
  *
- * 运行时组件（material.component）本任务一律为 null，按 F15-FE-003 / F15-FE-004 /
- * F15-FE-007 / F15-FE-010 分批注册；渲染器对 component 为 null 的 type 按未知 type
- * 兜底占位（ADR-10，不阻断整表渲染）。
+ * 运行时组件（material.component）按 F15-FE-003（基础数据七件）/ F15-FE-004（业务数据
+ * 四件）/ F15-FE-007（内容与明细）/ F15-FE-010（级联）分批注册，cascade 等未接入 type
+ * 的 component 仍为 null；渲染器对 component 为 null 的 type 按未知 type 兜底占位
+ * （ADR-10，不阻断整表渲染）。
  */
 
 import { componentRegistry, registerComponent } from '../registry.js'
