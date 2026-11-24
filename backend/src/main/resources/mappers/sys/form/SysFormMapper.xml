@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eric.base.sys.form.mapper.SysFormMapper">
+
+<!--
+    表单主档表(sys_form)映射（F15-DB-001）
+    依据 docs/v1_5-自定义表单/自定义表单数据库设计分册.md「§5.1.6 下游 Dao / Mapper /
+    XML 规划要点」，列清单与 SysForm 实体注解声明一致（经注解表结构同步引擎建表，
+    无迁移脚本）；uk_form_code 唯一键（编码全局唯一，Service 层查重的库级兜底）。
+    列清单与 resultMap 不含 field_code / field_name：MainModel 继承的 fieldCode /
+    fieldName 未重声明、不入列清单（分册 §5.1.2，对齐 SysAttMain 继承兼容字段口径）。
+    基础 update 仅承载元数据更新（field_form_name + 审计列）：编码禁改（保存后稳定
+    标识，API 分册 §3.5）、状态不随元数据保存变更（由发布/回滚事务经
+    updateCurrentVersionId 成对切换）、启停用走 updateEnable 专用通道。
+-->
+
+    <resultMap id="SysFormResultMap" type="com.eric.base.sys.form.model.SysForm">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_form_code" property="fieldFormCode"/>
+        <result column="field_form_name" property="fieldFormName"/>
+        <result column="field_current_version_id" property="fieldCurrentVersionId"/>
+        <result column="field_status" property="fieldStatus"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_enable" property="fieldEnable"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_form_code, field_form_name, field_current_version_id, field_status,
+        field_creator_id, field_create_time, field_updater_id, field_update_time, field_enable
+    </sql>
+
+    <!--
+        管理列表查询条件：fieldFormCode / fieldFormName 模糊，fieldStatus / fieldEnable 精确；
+        selectList 与 selectCount 共用本片段保证条件一致（供 metadata.total）
+    -->
+    <sql id="QueryConditions">
+        <where>
+            <if test="model.fieldFormCode != null and model.fieldFormCode != ''">AND field_form_code LIKE CONCAT('%', #{model.fieldFormCode}, '%')</if>
+            <if test="model.fieldFormName != null and model.fieldFormName != ''">AND field_form_name LIKE CONCAT('%', #{model.fieldFormName}, '%')</if>
+            <if test="model.fieldStatus != null and model.fieldStatus != ''">AND field_status = #{model.fieldStatus}</if>
+            <if test="model.fieldEnable != null">AND field_enable = #{model.fieldEnable}</if>
+        </where>
+    </sql>
+
+    <!--
+        新建主档（save）：field_status 无值时落 DRAFT 默认由 Service 负责，
+        XML 直接 #{model.fieldStatus}；新建主档 field_current_version_id 为 NULL
+        （从未发布，分册 §5.1.6④）
+    -->
+    <insert id="insert" parameterType="com.eric.base.sys.form.model.SysForm">
+        INSERT INTO sys_form (
+        field_id, field_form_code, field_form_name, field_current_version_id, field_status,
+        field_creator_id, field_create_time, field_updater_id, field_update_time, field_enable
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldFormCode}, #{model.fieldFormName}, #{model.fieldCurrentVersionId}, #{model.fieldStatus},
+        #{model.fieldCreatorId}, #{model.fieldCreateTime}, #{model.fieldUpdaterId}, #{model.fieldUpdateTime}, #{model.fieldEnable}
+        )
+    </insert>
+
+    <!--
+        元数据更新：仅 field_form_name + 审计列——field_form_code 编码禁改（保存后
+        稳定标识，uk_form_code 兜底）、field_status 由发布/回滚事务经
+        updateCurrentVersionId 切换、field_enable 走 updateEnable 专用通道
+    -->
+    <update id="update" parameterType="com.eric.base.sys.form.model.SysForm">
+        UPDATE sys_form
+        <set>
+            <if test="model.fieldFormName != null">field_form_name = #{model.fieldFormName},</if>
+            <if test="model.fieldCreatorId != null">field_creator_id = #{model.fieldCreatorId},</if>
+            <if test="model.fieldCreateTime != null">field_create_time = #{model.fieldCreateTime},</if>
+            <if test="model.fieldUpdaterId != null">field_updater_id = #{model.fieldUpdaterId},</if>
+            <if test="model.fieldUpdateTime != null">field_update_time = #{model.fieldUpdateTime},</if>
+        </set>
+        WHERE field_id = #{model.fieldId}
+    </update>
+
+    <!-- /define/enable 通道更新：仅更新 field_enable 与修改人/修改时间（只更新自身一行，不级联） -->
+    <update id="updateEnable">
+        UPDATE sys_form
+        <set>
+            field_enable = #{fieldEnable},
+            field_updater_id = #{updaterId},
+            field_update_time = #{updateTime},
+        </set>
+        WHERE field_id = #{fieldId}
+    </update>
+
+    <!--
+        发布/回滚事务内切换当前发布版本指针并同步主档状态（分册 §5.1.6⑦）：指针与
+        状态成对更新，与版本行冻结（freezeDraft）、原当前发布版本退役（deprecate）
+        同事务执行，保证动作原子性——首次发布 DRAFT→PUBLISHED，回滚后状态保持
+        PUBLISHED 且指针指向回滚产生的新版本行
+    -->
+    <update id="updateCurrentVersionId">
+        UPDATE sys_form
+        SET field_current_version_id = #{fieldCurrentVersionId},
+            field_status = #{fieldStatus},
+            field_updater_id = #{updaterId},
+            field_update_time = #{updateTime}
+        WHERE field_id = #{fieldId}
+    </update>
+
+    <!--
+        删除主档行（分册 §5.1.6⑧）：删除表单事务内先删该表单全部版本行
+        （SysFormVersionDao.deleteByFormId）再删主档行，前置实例数据存在性校验
+        （CS_FORM_HAS_DATA）由 Service 层承担
+    -->
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_form
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <select id="selectById" parameterType="string" resultMap="SysFormResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_form
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!--
+        管理列表（分册 §5.1.6①）：fieldFormCode / fieldFormName 模糊，fieldStatus /
+        fieldEnable 精确；排序固定创建时间降序；needPage=false 返回全部匹配结果
+    -->
+    <select id="selectList" resultMap="SysFormResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_form
+        <include refid="QueryConditions"/>
+        ORDER BY field_create_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 管理列表总数：条件与 selectList 完全一致，供响应 metadata.total -->
+    <select id="selectCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_form
+        <include refid="QueryConditions"/>
+    </select>
+
+    <!--
+        编码查重 / 精确定位（分册 §5.1.6②）：按编码取表单（uk_form_code 全局唯一），
+        供 Service 保存期全局查重（save 时同编码抛 CS_FORM_CODE_DUPLICATED）
+        与跨模块按 field_form_code 精确定位
+    -->
+    <select id="selectByCode" parameterType="string" resultMap="SysFormResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_form
+        WHERE field_form_code = #{fieldCode}
+        LIMIT 1
+    </select>
+
+    <!--
+        轻量加载：仅返回 field_id 与名称（本表名称列为 field_form_name，别名对齐
+        loadModel 契约的 field_name，供关联对象赋值使用）
+    -->
+    <resultMap id="SysFormLoadResultMap" type="com.eric.base.sys.form.model.SysForm">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysFormLoadResultMap">
+        SELECT field_id, field_form_name AS field_name
+        FROM sys_form
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>

@@ -11,6 +11,8 @@ import com.eric.base.sys.att.mapper.SysAttFileMapper;
 import com.eric.base.sys.att.mapper.SysAttMainMapper;
 import com.eric.base.sys.att.mapper.SysAttOperationMapper;
 import com.eric.base.sys.datasource.mapper.SysDatasourceMapper;
+import com.eric.base.sys.form.mapper.SysFormMapper;
+import com.eric.base.sys.form.mapper.SysFormVersionMapper;
 import com.eric.base.sys.formula.mapper.SysFormulaMapper;
 import com.eric.base.sys.dict.mapper.SysDictItemMapper;
 import com.eric.base.sys.dict.mapper.SysDictTypeMapper;
@@ -371,6 +373,18 @@ class CommonSystemApplicationTests {
 		@Bean
 		SysFormulaMapper sysFormulaMapper() {
 			return Mockito.mock(SysFormulaMapper.class);
+		}
+
+		/* ==================== 自定义表单模块 Mapper（form，2 个） ==================== */
+
+		@Bean
+		SysFormMapper sysFormMapper() {
+			return Mockito.mock(SysFormMapper.class);
+		}
+
+		@Bean
+		SysFormVersionMapper sysFormVersionMapper() {
+			return Mockito.mock(SysFormVersionMapper.class);
 		}
 
 		/* ==================== 编号机制模块 Mapper（number，3 个） ==================== */

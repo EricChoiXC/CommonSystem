@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.eric.base.sys.form.mapper.SysFormVersionMapper">
+
+<!--
+    表单版本表(sys_form_version)映射（F15-DB-001）
+    依据 docs/v1_5-自定义表单/自定义表单数据库设计分册.md「§5.2.6 下游 Dao / Mapper /
+    XML 规划要点」，列清单与 SysFormVersion 实体注解声明一致（经注解表结构同步引擎
+    建表，无迁移脚本）；idx_form_version_form（按表单取版本行 / 最大版本号 / 删除）
+    + uk_form_version_form_version（(field_form_id, field_version) 唯一，并发发布
+    防护；草稿行 field_version 为 NULL，MySQL 唯一索引 NULL≠NULL 不参与唯一判定，
+    分册 §5.2.4）。
+    field_schema_json 为 JSON 列双形态承载（先例 sys_number_rule.field_rule）：存储态
+    原文字符串（列表响应不解析），load 解析为 SysFormSchemaDo 协议对象由 Service
+    完成（F15-BE-001/002）；落库前由 Service 经 Jackson 序列化（禁止手工拼串），
+    此处按字符串写入 JSON 列。
+    不可变版本原则：PUBLISHED / DEPRECATED 终态行的内容永不更新——内容更新入口仅
+    基础 update（承载「草稿行内容重写」语义，分册 §5.2.6⑤，仅 SET field_schema_json
+    + 审计两列且 WHERE 守护 field_status='DRAFT'）、行级状态流转仅 freezeDraft /
+    deprecate（WHERE 守护起始态 DRAFT / PUBLISHED，分册 §5.2.6⑥⑦）；WHERE 守护与
+    应用层状态机拒绝（终态行内容更新确定性拒绝）构成双保险。
+-->
+
+    <resultMap id="SysFormVersionResultMap" type="com.eric.base.sys.form.model.SysFormVersion">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_form_id" property="fieldFormId"/>
+        <result column="field_version" property="fieldVersion"/>
+        <result column="field_schema_json" property="fieldSchemaJson"/>
+        <result column="field_status" property="fieldStatus"/>
+        <result column="field_published_at" property="fieldPublishedAt"/>
+        <result column="field_creator_id" property="fieldCreatorId"/>
+        <result column="field_create_time" property="fieldCreateTime"/>
+        <result column="field_updater_id" property="fieldUpdaterId"/>
+        <result column="field_update_time" property="fieldUpdateTime"/>
+        <result column="field_enable" property="fieldEnable"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        field_id, field_form_id, field_version, field_schema_json, field_status, field_published_at,
+        field_creator_id, field_create_time, field_updater_id, field_update_time, field_enable
+    </sql>
+
+    <!--
+        条件查询：fieldFormId / fieldStatus 精确；selectList 与 selectCount 共用本片段
+        保证条件一致（供 metadata.total）
+    -->
+    <sql id="QueryConditions">
+        <where>
+            <if test="model.fieldFormId != null and model.fieldFormId != ''">AND field_form_id = #{model.fieldFormId}</if>
+            <if test="model.fieldStatus != null and model.fieldStatus != ''">AND field_status = #{model.fieldStatus}</if>
+        </where>
+    </sql>
+
+    <!--
+        全列插入（分册 §5.2.6④）：save 初始草稿行（field_version NULL、field_status
+        'DRAFT'）、/define/update 自动创建草稿行、回滚复制副本行均走本语句；
+        field_schema_json 落库前由 Service 经 Jackson 序列化为字符串，此处按字符串写入
+    -->
+    <insert id="insert" parameterType="com.eric.base.sys.form.model.SysFormVersion">
+        INSERT INTO sys_form_version (
+        field_id, field_form_id, field_version, field_schema_json, field_status, field_published_at,
+        field_creator_id, field_create_time, field_updater_id, field_update_time, field_enable
+        ) VALUES (
+        #{model.fieldId}, #{model.fieldFormId}, #{model.fieldVersion}, #{model.fieldSchemaJson}, #{model.fieldStatus}, #{model.fieldPublishedAt},
+        #{model.fieldCreatorId}, #{model.fieldCreateTime}, #{model.fieldUpdaterId}, #{model.fieldUpdateTime}, #{model.fieldEnable}
+        )
+    </insert>
+
+    <!--
+        基础 update = 草稿行内容重写（updateDraft 语义，分册 §5.2.6⑤）：/define/update
+        对草稿行全量重写 field_schema_json 并刷新修改审计；SET 不含 field_form_id
+        （归属保存后不变）、field_version / field_status / field_published_at（仅发布
+        冻结经 freezeDraft 回填）；WHERE 守护 field_status='DRAFT' 防御 PUBLISHED /
+        DEPRECATED 终态行被写——实现层兜底契约层「只写 DRAFT 行」约束（双保险），
+        影响行数 0 时由 Service 抛状态冲突（API 分册 §3.11 CS_FORM_VERSION_STATE_INVALID）
+    -->
+    <update id="update" parameterType="com.eric.base.sys.form.model.SysFormVersion">
+        UPDATE sys_form_version
+        SET field_schema_json = #{model.fieldSchemaJson},
+            field_updater_id = #{model.fieldUpdaterId},
+            field_update_time = #{model.fieldUpdateTime}
+        WHERE field_id = #{model.fieldId}
+          AND field_status = 'DRAFT'
+    </update>
+
+    <!--
+        草稿冻结（发布动作，分册 §5.2.6⑥）：草稿行原地冻结回填——field_version 回填
+        分配号（「现存最大 + 1」）、field_status DRAFT→'PUBLISHED'、field_published_at
+        回填发布时刻并刷新修改审计；WHERE 守护 field_status='DRAFT'，终态行不可能被
+        重复冻结；与主档指针切换（SysFormMapper.updateCurrentVersionId）、原当前发布
+        版本退役（deprecate）同事务
+    -->
+    <update id="freezeDraft">
+        UPDATE sys_form_version
+        SET field_version = #{fieldVersion},
+            field_status = 'PUBLISHED',
+            field_published_at = #{publishedAt},
+            field_updater_id = #{updaterId},
+            field_update_time = #{updateTime}
+        WHERE field_id = #{fieldId}
+          AND field_status = 'DRAFT'
+    </update>
+
+    <!--
+        旧版本退役（分册 §5.2.6⑦）：原当前发布版本 PUBLISHED→'DEPRECATED'（被新版本
+        替代）并刷新修改审计；WHERE 守护 field_status='PUBLISHED'，草稿行与已退役行
+        均不可经此语句流转
+    -->
+    <update id="deprecate">
+        UPDATE sys_form_version
+        SET field_status = 'DEPRECATED',
+            field_updater_id = #{updaterId},
+            field_update_time = #{updateTime}
+        WHERE field_id = #{fieldId}
+          AND field_status = 'PUBLISHED'
+    </update>
+
+    <!--
+        行级删除仅为满足基础接口契约保留（正常删除路径为 deleteByFormId 事务清空，
+        分册 §5.2.6⑧）
+    -->
+    <delete id="deleteById" parameterType="string">
+        DELETE FROM sys_form_version
+        WHERE field_id = #{fieldId}
+    </delete>
+
+    <!--
+        删除表单全部版本行（分册 §5.2.6⑧）：删除表单事务内先删该表单全部版本行
+        （走 idx_form_version_form 索引）再删主档行；前置实例数据存在性校验
+        （CS_FORM_HAS_DATA）由 Service 层承担
+    -->
+    <delete id="deleteByFormId" parameterType="string">
+        DELETE FROM sys_form_version
+        WHERE field_form_id = #{formId}
+    </delete>
+
+    <!--
+        按行主键精确查（分册 §5.2.6③）：回滚目标存在性校验与数据面回查版本 Schema
+        （sys_form_data.field_form_version_id 指向对象）主路径
+    -->
+    <select id="selectById" parameterType="string" resultMap="SysFormVersionResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_form_version
+        WHERE field_id = #{fieldId}
+    </select>
+
+    <!--
+        条件查询：fieldFormId / fieldStatus 精确（如 hasDraft 预判、按状态统计）；
+        排序固定创建时间降序；needPage=false 返回全部匹配结果
+    -->
+    <select id="selectList" resultMap="SysFormVersionResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_form_version
+        <include refid="QueryConditions"/>
+        ORDER BY field_create_time DESC
+        <if test="pages != null and pages.needPage">
+            <bind name="offset" value="(pages.pageNo - 1) * pages.pageSize"/>
+            LIMIT #{pages.pageSize} OFFSET #{offset}
+        </if>
+    </select>
+
+    <!-- 条件查询总数：条件与 selectList 完全一致，供响应 metadata.total -->
+    <select id="selectCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_form_version
+        <include refid="QueryConditions"/>
+    </select>
+
+    <!--
+        版本列表（分册 §5.2.6①）：按表单取全部版本行，field_version 降序（走
+        idx_form_version_form 索引）；草稿行 field_version 为 NULL，其排序位置随
+        F15-BE-002 定稿并回写 API 分册 §3.9（分册 §9.3 待确认事项条目 1）
+    -->
+    <select id="selectByFormId" parameterType="string" resultMap="SysFormVersionResultMap">
+        SELECT
+        <include refid="BaseColumns"/>
+        FROM sys_form_version
+        WHERE field_form_id = #{formId}
+        ORDER BY field_version DESC
+    </select>
+
+    <!--
+        现存最大版本号（分册 §5.2.6②）：发布/回滚按「最大 + 1」分配整数版本号
+        （单调整数序号 1,2,3…）；无发布版本时返回 null，Service 以 0 兜底后 +1；
+        并发发布竞争由 uk_form_version_form_version 唯一索引兜底
+    -->
+    <select id="selectMaxVersion" resultType="java.lang.Integer">
+        SELECT MAX(field_version)
+        FROM sys_form_version
+        WHERE field_form_id = #{formId}
+    </select>
+
+    <!--
+        轻量加载：仅返回 field_id 与名称（loadModel 契约的 field_name 来源由实际表
+        处理）——版本行无名称列，以整数版本号作为轻量展示名（先例
+        SysProcessTemplateLineMapper 以业务标识列别名 field_name；草稿行 field_version
+        为 NULL——版本号仅发布动作分配，草稿行名称为 null）
+    -->
+    <resultMap id="SysFormVersionLoadResultMap" type="com.eric.base.sys.form.model.SysFormVersion">
+        <id column="field_id" property="fieldId"/>
+        <result column="field_name" property="fieldName"/>
+    </resultMap>
+
+    <select id="loadModel" parameterType="string" resultMap="SysFormVersionLoadResultMap">
+        SELECT field_id, field_version AS field_name
+        FROM sys_form_version
+        WHERE field_id = #{fieldId}
+    </select>
+
+</mapper>
