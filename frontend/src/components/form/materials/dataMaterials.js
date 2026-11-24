@@ -1,17 +1,25 @@
 /**
- * 自定义表单数据类物料（category=DATA，12 个，F15-FE-002）
+ * 自定义表单数据类物料（category=DATA，12 个，F15-FE-002；F15-FE-003 接入基础七件运行时）
  *
  * 口径依据：功能详细设计 §1.3 数据类清单（R03）+ UI 设计分册 §4.5.2 数据类扩展属性项
  * 登记表（三方一致口径：组件文档表格 / UI 分册 / 功能设计 §1.3）。
  * - 固定属性项（名称/ID/是否必填/说明文本/默认值）由 dataFixedPropSchema 按类别裁剪生成；
- * - component 一律 null：运行时组件按 F15-FE-003（input/textarea/number/choice/select/
- *   date/switch 基础七件）、F15-FE-004（formula/datasource/addressbook/attachment 业务
- *   四件）、F15-FE-010（cascade 级联）分批注册，渲染器对 null 按未知 type 兜底占位；
+ * - component：基础七件已由 F15-FE-003 接入（input/textarea/number/choice/select/
+ *   date/switch → widgets/ 下同名 *Widget.vue，统一 props/v-model/事件分发契约见
+ *   各 widget 头注与功能设计 §4.3）；formula/datasource/addressbook/attachment 待
+ *   F15-FE-004、cascade 待 F15-FE-010 分批注册，渲染器对 null 按未知 type 兜底占位；
  * - dataType：单列取值为字符串；choice/select/cascade/datasource 随 props.multi 多态、
  *   formula 随 props.expectedReturnType 多态（以 (props)=>dataType 函数承载）；
  * - validator 返回中文错误消息数组（约定见 common.js 头注）。
  */
 
+import InputWidget from '../widgets/InputWidget.vue'
+import TextareaWidget from '../widgets/TextareaWidget.vue'
+import NumberWidget from '../widgets/NumberWidget.vue'
+import ChoiceWidget from '../widgets/ChoiceWidget.vue'
+import SelectWidget from '../widgets/SelectWidget.vue'
+import DateWidget from '../widgets/DateWidget.vue'
+import SwitchWidget from '../widgets/SwitchWidget.vue'
 import {
   MAX_TEXT_LENGTH,
   ADDRESSBOOK_ORG_TYPES,
@@ -53,7 +61,7 @@ const inputMaterial = {
     { key: 'maxlength', label: '最大长度', editor: 'number', min: 1, max: MAX_TEXT_LENGTH, tip: `应用层上限 ${MAX_TEXT_LENGTH}（MAX_TEXT_LENGTH）` },
     { key: 'password', label: '是否密码', editor: 'switch', tip: '掩码输入（R03：密码并入单行文本属性）' },
   ],
-  component: null, // 运行时组件待 F15-FE-003 注册；渲染器对 null 按未知 type 兜底占位
+  component: InputWidget, // 运行时组件（F15-FE-003 接入，契约见 widgets/InputWidget.vue 头注）
   defaultValueGenerator: () => null,
   dataType: 'STRING',
   validator(value, props, context) {
@@ -74,7 +82,7 @@ const textareaMaterial = {
     ...dataFixedPropSchema('input'),
     { key: 'maxlength', label: '最大长度', editor: 'number', min: 1, max: MAX_TEXT_LENGTH, tip: `应用层上限 ${MAX_TEXT_LENGTH}（MAX_TEXT_LENGTH）` },
   ],
-  component: null, // 待 F15-FE-003 注册
+  component: TextareaWidget, // 运行时组件（F15-FE-003 接入，契约见 widgets/TextareaWidget.vue 头注）
   defaultValueGenerator: () => null,
   dataType: 'STRING',
   validator(value, props, context) {
@@ -120,7 +128,7 @@ const numberMaterial = {
       ],
     },
   ],
-  component: null, // 待 F15-FE-003 注册
+  component: NumberWidget, // 运行时组件（F15-FE-003 接入，格式化/解析/钳制收口 widgets/numberFormat.js）
   defaultValueGenerator: () => null,
   dataType: 'NUMBER',
   validator(value, props, context) {
@@ -151,7 +159,7 @@ const choiceMaterial = {
     },
     { key: 'options', label: '选择项', editor: 'table', columns: OPTION_COLUMNS, tip: '显示值/实际值；一期静态配置（optionsSource=dict 协议位二期开放）' },
   ],
-  component: null, // 待 F15-FE-003 注册
+  component: ChoiceWidget, // 运行时组件（F15-FE-003 接入，契约见 widgets/ChoiceWidget.vue 头注）
   defaultValueGenerator: (props) => (props && props.multi ? [] : null),
   dataType: (props) => (props && props.multi ? 'ARRAY' : 'STRING'),
   validator(value, props, context) {
@@ -173,7 +181,7 @@ const selectMaterial = {
     { key: 'multi', label: '单多选', editor: 'switch', tip: '开启后值为数组' },
     { key: 'options', label: '选择项', editor: 'table', columns: OPTION_COLUMNS, tip: '显示值/实际值；一期静态配置（optionsSource=dict 协议位二期开放）' },
   ],
-  component: null, // 待 F15-FE-003 注册
+  component: SelectWidget, // 运行时组件（F15-FE-003 接入，契约见 widgets/SelectWidget.vue 头注）
   defaultValueGenerator: (props) => (props && props.multi ? [] : null),
   dataType: (props) => (props && props.multi ? 'ARRAY' : 'STRING'),
   validator(value, props, context) {
@@ -214,7 +222,7 @@ const dateMaterial = {
       tip: 'dayjs token，按类型 dateType 联动可选集（对齐公共日期选择器口径）；值以格式化字符串落库，避免时区歧义',
     },
   ],
-  component: null, // 待 F15-FE-003 注册
+  component: DateWidget, // 运行时组件（F15-FE-003 接入，契约见 widgets/DateWidget.vue 头注）
   defaultValueGenerator: () => null,
   dataType: 'STRING',
   // 一期不做格式正则校验：合法格式由 dateType/format 约束的控件产出（对齐后端 BE-003「date 文本」类型口径）
@@ -237,7 +245,7 @@ const switchMaterial = {
     { key: 'onText', label: '【开】显示文本', editor: 'input' },
     { key: 'offText', label: '【关】显示文本', editor: 'input' },
   ],
-  component: null, // 待 F15-FE-003 注册
+  component: SwitchWidget, // 运行时组件（F15-FE-003 接入，契约见 widgets/SwitchWidget.vue 头注）
   defaultValueGenerator: () => false, // 开关默认关（false 为有义值，后端 BE-003 同口径）
   dataType: 'BOOLEAN',
   validator(value, props, context) {
