@@ -78,9 +78,11 @@ export function createRendererEventBus() {
 /**
  * 将 Schema 字段树扁平化为渲染/校验共用的节点清单（先序遍历，保持 Schema 声明序）。
  *
- * - 节点：{ field, type, label, props, parentField, depth, container, children }；
+ * - 节点：{ field, type, label, props, rules, parentField, depth, container, children }；
  *   parentField = 宿主容器字段码（顶层 null，明细行内字段为其明细表字段码）；
  *   depth 顶层 = 1；container = null | 'group' | 'grid' | 'detailTable'；
+ *   rules = 字段对象规则数组（F15-FE-006 规则引擎平铺收集消费；§2.1 规则随触发字段
+ *   存放于字段对象 rules[]）；
  * - grid 的 children 为列对象数组 { span, fields[] }（§2.1），列本身不是字段节点，
  *   仅递归其 fields；
  * - 递归深度由后端 Schema 校验器（MAX_NEST_DEPTH）前置保证，此处不重复设限（§4.3）；
@@ -102,6 +104,7 @@ export function flattenFields(fields, parentField = null, depth = 1, container =
       type: raw.type,
       label: raw.label,
       props: raw.props && typeof raw.props === 'object' ? raw.props : {},
+      rules: Array.isArray(raw.rules) ? raw.rules : [],
       parentField,
       depth,
       container,

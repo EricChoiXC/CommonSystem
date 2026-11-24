@@ -3,31 +3,46 @@
     动态表单渲染器（F15-FE-005，功能详细设计 §4 渲染器契约；UI 分册 §5 三形态消费方式）。
     三形态复用同一渲染器：design（设计器画布内部复用）/ edit（填写）/ detail（只读回显）；
     渲染器只解释 Schema、不感知表单元数据接口、不发任何请求（§4.2）。
+    F15-FE-006 集成：规则引擎经 rules/eventBus.js 绑定既有内置事件总线（不另起第二套
+    总线）；动态状态桥——显隐终态/动态必填覆盖回写渲染决策（FormFieldNode）；熔断
+    状态位（§3.5：规则风暴触发上限时顶部轻量提示，下次风暴复位，不阻断表单）。
   -->
-  <el-form
-    v-if="hasFields"
-    class="form-renderer"
-    :class="`form-renderer--${rendererMode}`"
-    label-position="right"
-    label-width="140px"
-    @submit.prevent
-  >
-    <FormFieldNode
-      v-for="node in rootFields"
-      :key="node.field"
-      :node="node"
-      :mode="rendererMode"
-      :data="innerData"
-      :field-permissions="fieldPermissions"
-      :data-id="dataId"
-      :available-vars="availableVars"
-      @field-input="handleFieldInput"
-      @field-commit="handleFieldCommit"
-      @field-focus="handleFieldFocus"
-      @field-blur="handleFieldBlur"
-      @field-expression="handleFieldExpression"
+  <div class="form-renderer-root">
+    <el-alert
+      v-if="ruleAlertVisible"
+      class="form-renderer-rule-alert"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="规则触发次数超限，部分联动已暂停"
     />
-  </el-form>
+    <el-form
+      v-if="hasFields"
+      class="form-renderer"
+      :class="`form-renderer--${rendererMode}`"
+      label-position="right"
+      label-width="140px"
+      @submit.prevent
+    >
+      <FormFieldNode
+        v-for="node in rootFields"
+        :key="node.field"
+        :node="node"
+        :mode="rendererMode"
+        :data="innerData"
+        :field-permissions="fieldPermissions"
+        :data-id="dataId"
+        :available-vars="availableVars"
+        :rule-visibility-map="engineVisibilityMap"
+        :rule-required-map="engineRequiredMap"
+        @field-input="handleFieldInput"
+        @field-commit="handleFieldCommit"
+        @field-focus="handleFieldFocus"
+        @field-blur="handleFieldBlur"
+        @field-expression="handleFieldExpression"
+      />
+    </el-form>
+  </div>
 </template>
 
 <script setup>
@@ -42,8 +57,14 @@ import {
   createRendererEventBus,
   cropPayloadData,
   deriveAvailableVars,
+  resolveDataType,
   validateFormData,
 } from './rendererSupport.js'
+// 规则引擎（F15-FE-006）：条件求值/动作执行在 rules/evaluators.js，register/execute/
+// validate 统一接口在 rules/ruleEngine.js，总线绑定入口在 rules/eventBus.js——
+// 渲染器零业务规则（显隐/联动/校验逻辑全部来自 Schema rules[]，架构原则 2）
+import { buildRequiredBaselineFields, createRuleEngine } from './rules/ruleEngine.js'
+import { bindRuleEngine } from './rules/eventBus.js'
 
 /**
  * 自定义表单动态渲染器（功能详细设计 §4.2 props / v-model / 事件契约）：
@@ -61,7 +82,10 @@ import {
  * emits：
  * - update:modelValue：全量数据对象（permission=hidden 字段已剔除——值不进入
  *   提交载荷，§4.3 第 4 条；props.hidden=true 的静态隐藏字段值保留，§3.6 ①）；
- * - change：单字段明细 { field, value, oldValue }（value/oldValue 均为载荷形态）。
+ * - change：单字段明细 { field, value, oldValue }（value/oldValue 均为载荷形态；
+ *   规则引擎联动写值（F15-FE-006 setValue/clearValue）同样经此通道外发并附带
+ *   source='rule' 来源标记——宿主可区分规则联动与用户交互，明细行内联动附
+ *   detailCode/rowIndex 行定位）。
  *
  * expose：validate() / reset() / getData()（§4.2 表，见 defineExpose 注释）。
  */
@@ -123,6 +147,110 @@ const pendingOldValues = new Map()
  * 派发、onSubmit 待宿主提交编排派发——语义占位，渲染器不自行触发。
  */
 const events = createRendererEventBus()
+
+/* ==================== 规则引擎集成（F15-FE-006，§3 规则协议 / §4.3 第 5 条） ==================== */
+
+/** 动态状态版本号：引擎动态状态为普通 JS 载体（零 Vue 依赖），风暴结束后自增驱动渲染决策 computed 重算 */
+const ruleStateVersion = ref(0)
+
+/**
+ * 引擎值写入桥（setValue/clearValue 经渲染器既有数据通道回写）：
+ * 写内部数据 → update:modelValue 全量外发（lastEmitted 同引用拦截 v-model 回环）→
+ * change 明细外发（source='rule' 引擎来源标记，宿主可区分规则联动与用户交互）。
+ * 引擎写值不回派总线 onChange——级联由引擎内部深度 +1 驱动（§3.5②），lastEmitted
+ * 同引用拦截 + 来源标记共同构成防重入风暴兜底。
+ */
+function engineWriteField(code, value) {
+  const oldValue = innerData.value[code]
+  innerData.value[code] = value
+  emitData()
+  emit('change', { field: code, value, oldValue, source: 'rule' })
+}
+
+/** 引擎行内值写入桥（明细行内联动，行上下文隔离；载荷通道同上，change 附行定位） */
+function engineWriteRowField(detailCode, rowIndex, code, value) {
+  const rows = innerData.value[detailCode]
+  const row = Array.isArray(rows) ? rows[rowIndex] : null
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return
+  const oldValue = row[code]
+  row[code] = value
+  emitData()
+  emit('change', { field: code, value, oldValue, detailCode, rowIndex, source: 'rule' })
+}
+
+/**
+ * 规则引擎实例（rules/ruleEngine.js）：数据读写经注入访问器对接渲染器内部数据对象
+ * （innerData 载荷值空间），物料知识经 isDataField 访问器注入（引擎不感知 registry）。
+ */
+const ruleEngine = createRuleEngine({
+  readField: (code) => innerData.value[code],
+  writeField: engineWriteField,
+  readRowField: (detailCode, rowIndex, code) => {
+    const rows = innerData.value[detailCode]
+    const row = Array.isArray(rows) ? rows[rowIndex] : null
+    return row && typeof row === 'object' && !Array.isArray(row) ? row[code] : undefined
+  },
+  writeRowField: engineWriteRowField,
+  forEachRow: (detailCode, callback) => {
+    const rows = innerData.value[detailCode]
+    if (!Array.isArray(rows)) return
+    rows.forEach((row, index) => {
+      if (row && typeof row === 'object' && !Array.isArray(row)) callback(row, index)
+    })
+  },
+  isDataField: (type, fieldProps) => {
+    const material = getComponentMaterial(type)
+    return !!material && resolveDataType(material, fieldProps) !== null
+  },
+})
+
+/**
+ * 总线绑定（rules/eventBus.js，复用 FE-005 总线不另起第二套）：onLoad/onChange/onSubmit/
+ * onValidate/onAdd/onDelete 进引擎，onFocus/onBlur 忽略（§3.4 一期不开放焦点类配置）。
+ * onAfterExecute：有动作执行或熔断时自增动态状态版本号（显隐/必填/熔断提示重算）。
+ */
+bindRuleEngine(events, ruleEngine, {
+  onAfterExecute: () => {
+    ruleStateVersion.value++
+  },
+})
+
+/** 引擎显隐终态快照（Map<字段码, true|false>；FormFieldNode 可见性裁决消费——引擎覆盖优先于静态初值） */
+const engineVisibilityMap = computed(() => {
+  ruleStateVersion.value
+  return ruleEngine.snapshotVisibility()
+})
+
+/** 引擎动态必填覆盖快照（Map<字段码, {value, ruleId}>；必填星号与 validate 基线折算消费） */
+const engineRequiredMap = computed(() => {
+  ruleStateVersion.value
+  return ruleEngine.snapshotRequired()
+})
+
+/** 引擎规则隐藏字段码快照（Set；validate 基线折算隐藏豁免消费） */
+const engineHiddenSet = computed(() => {
+  ruleStateVersion.value
+  return ruleEngine.snapshotHiddenCodes()
+})
+
+/** 熔断状态位提示（§3.5：熔断仅告警不阻断表单；下次风暴开始即复位） */
+const ruleAlertVisible = computed(() => {
+  ruleStateVersion.value
+  return rendererMode.value !== 'design' && ruleEngine.isBroken()
+})
+
+/**
+ * 规则引擎挂载：Schema 就绪/替换（与形态切换）后重建规则索引。design 形态引擎不挂载
+ * （画布数据绑定旁路，§4.1）——清空索引即等效旁路；初始化联动由既有 onLoad 总线派发点
+ * 经 eventBus 订阅入口进引擎（onLoad 规则单轮 + 值驱动全量重放重建显隐/覆盖终态）。
+ */
+function setupRuleEngine() {
+  if (rendererMode.value === 'design') {
+    ruleEngine.register(null)
+    return
+  }
+  ruleEngine.register(props.schema)
+}
 
 /* ==================== 数据初始化 / 外发 / 裁剪（§4.3 第 3/4 条） ==================== */
 
@@ -213,20 +341,28 @@ function handleFieldExpression() {
 /* ==================== 初始化与回显（§4.3 第 3 条） ==================== */
 
 onMounted(() => {
+  // 引擎挂载先于数据初始化（onLoad 派发时规则索引已就绪，F15-FE-006）
+  setupRuleEngine()
   syncData()
   // onLoad：表单初始化完成后派发（§3.4，规则引擎初始化联动挂载点）
   events.dispatch('onLoad', { data: currentPayload(), mode: rendererMode.value })
 })
 
-// Schema 替换（含版本切换 / 画布编辑）：重建数据并重新派发 onLoad
+// Schema 替换（含版本切换 / 画布编辑）：重建引擎索引与数据并重新派发 onLoad
 watch(
   () => props.schema,
   () => {
     pendingOldValues.clear()
+    setupRuleEngine()
     syncData()
     events.dispatch('onLoad', { data: currentPayload(), mode: rendererMode.value })
   },
 )
+
+// 渲染形态切换：重建引擎挂载状态（design 卸载索引 / 其余形态重建——挂载后动态切换形态的兜底）
+watch(rendererMode, () => {
+  setupRuleEngine()
+})
 
 // 宿主数据回显（v-model 外部换新对象，如 loadFormData 响应回填）：补默认值后回传一次
 // （lastEmitted 同引用拦截自身回传，防 v-model 回环）
@@ -253,29 +389,60 @@ watch(
 /* ==================== 对外契约（§4.2 expose） ==================== */
 
 /**
- * 全量校验（§4.2 expose.validate）：基础校验 + 物料校验器聚合（rendererSupport.
- * validateFormData），返回 { pass, errors: [{ field, ruleId, message }] }——一期
- * ruleId 恒 null，规则动态校验由 F15-FE-006 并入后合并；errors.message 全中文。
+ * 全量校验（§4.2 expose.validate）：静态基线（基础校验 + 物料校验器聚合，rendererSupport.
+ * validateFormData）+ 规则引擎动态校验增量（F15-FE-006）合并去重，返回
+ * { pass, errors: [{ field, ruleId, message }] }——动态错误 ruleId 溯源触发规则。
  * design 形态数据绑定旁路，直接通过（画布无真实数据）。
+ *
+ * 流程（§3.1 动态校验语义 / §3.4 提交段事件段位）：
+ * ① 静态基线折算——被规则隐藏（终态 hidden ∪ 静态 hidden）与 setRequired 覆盖字段的
+ *    required 置 false（隐藏字段值将被提交裁剪不参与必填校验，§3.6；动态必填错误由
+ *    引擎增量承载并带 ruleId，避免静态通道重复报错）；
+ * ② onValidate 派发——onValidate/onSubmit 类规则（setRequired/setValidate/show/hide）
+ *    在此更新动态状态，效果并入本次动态校验增量；setValue/clearValue 禁配由引擎跳过
+ *    并告警（§3.4）；派发载荷为静态基线错误（动态增量随后合并返回）；
+ * ③ 引擎动态增量——动态必填 + setValidate 条件范围/条件正则（ruleId 溯源）；detail
+ *    形态动态校验不执行（§4.1 detail 语义：显隐规则照常求值、动态校验不执行）。
  */
 function validate() {
   if (rendererMode.value === 'design') {
     return { pass: true, errors: [] }
   }
-  const errors = validateFormData(schemaFields.value, innerData.value, props.fieldPermissions, getComponentMaterial)
-  // onValidate：校验阶段派发（§3.4 语义占位，规则引擎/宿主校验链消费）
-  events.dispatch('onValidate', { errors: errors.map((error) => ({ ...error })) })
+  const effectiveFields = buildRequiredBaselineFields(schemaFields.value, engineRequiredMap.value, engineHiddenSet.value)
+  const staticErrors = validateFormData(effectiveFields, innerData.value, props.fieldPermissions, getComponentMaterial)
+  events.dispatch('onValidate', { errors: staticErrors.map((error) => ({ ...error })) })
+  const dynamicErrors = rendererMode.value === 'detail' ? [] : ruleEngine.validate(innerData.value)
+  const errors = mergeValidationErrors(staticErrors, dynamicErrors)
   return { pass: errors.length === 0, errors }
+}
+
+/**
+ * 校验错误合并去重：静态基线（ruleId=null）在前 + 引擎动态增量（ruleId 溯源）在后，
+ * 按 field/ruleId/message 三元组去重（必填双报已由基线折算避免，此处为合并兜底）。
+ */
+function mergeValidationErrors(staticErrors, dynamicErrors) {
+  const merged = []
+  const seen = new Set()
+  for (const error of [...staticErrors, ...dynamicErrors]) {
+    const key = `${error.field}\u0000${error.ruleId || ''}\u0000${error.message}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(error)
+  }
+  return merged
 }
 
 /**
  * 重置（§4.2 expose.reset）：清空后按物料 defaultValueGenerator 重新生成默认值
  * （props.defaultValue 配置优先）——而非回快照；重置结果经 update:modelValue 回传。
+ * 重置后按初始化口径派发 onLoad（F15-FE-006：引擎全量重放按默认值重建显隐/必填/
+ * 校验覆盖终态，避免残留上次交互的规则状态）。
  */
 function reset() {
   pendingOldValues.clear()
   innerData.value = buildInitialData(schemaFields.value, {}, getComponentMaterial)
   emitData()
+  events.dispatch('onLoad', { data: currentPayload(), mode: rendererMode.value })
 }
 
 /** 取当前数据对象（§4.2 expose.getData）：permission=hidden 字段已剔除的载荷副本 */
@@ -287,6 +454,15 @@ defineExpose({ validate, reset, getData })
 </script>
 
 <style scoped>
+.form-renderer-root {
+  width: 100%;
+}
+
+/* 熔断状态位提示（§3.5：规则风暴触发上限轻量提示，不阻断已渲染表单） */
+.form-renderer-rule-alert {
+  margin-bottom: 12px;
+}
+
 .form-renderer {
   width: 100%;
 }

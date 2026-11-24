@@ -4,10 +4,12 @@
     单文件模板递归必须由独立组件单元承载，渲染器把本组件作为唯一递归出口消费。
 
     渲染分支（功能详细设计 §4.3）：
-    - permission=hidden 或 props.hidden=true → 不渲染（不占布局位，UI 分册 §5.3）。
-      两类隐藏的【值语义】差异由渲染器数据层承载：permission=hidden 值经
+    - permission=hidden、规则显隐终态=false 或 props.hidden=true → 不渲染（不占布局位，
+      UI 分册 §5.3）。三类隐藏的【值语义】差异由渲染器数据层承载：permission=hidden 值经
       cropPayloadData 从 validate()/getData() 输出剔除（§4.3 第 4 条，ADR-08 ②③）；
-      props.hidden=true 仅渲染层隐藏、值保留（§3.6 ①隐藏不删值，由服务端复算裁决）；
+      规则 hide 与 props.hidden=true 仅渲染层隐藏、值保留（§3.6 ①隐藏不删值，由服务端
+      复算裁决）——规则显隐终态（F15-FE-006 引擎 show/hide）在 props.hidden 静态态之上
+      切换且覆盖优先（§3.3，show 可恢复静态初始隐藏字段）；
     - group（区块标题 = label）/ grid（children 为列对象 {span, fields[]}，24 栅格
       el-row/el-col）→ 渲染器自身渲染容器外壳并递归 children（§4.3 第 2 条；
       二物料 component=null 属预期，不走未知 type 占位）；
@@ -31,6 +33,8 @@
       :field-permissions="fieldPermissions"
       :data-id="dataId"
       :available-vars="availableVars"
+      :rule-visibility-map="ruleVisibilityMap"
+      :rule-required-map="ruleRequiredMap"
       @field-input="forwardInput"
       @field-commit="forwardCommit"
       @field-focus="forwardFocus"
@@ -50,6 +54,8 @@
           :field-permissions="fieldPermissions"
           :data-id="dataId"
           :available-vars="availableVars"
+          :rule-visibility-map="ruleVisibilityMap"
+          :rule-required-map="ruleRequiredMap"
           @field-input="forwardInput"
           @field-commit="forwardCommit"
           @field-focus="forwardFocus"
@@ -112,7 +118,10 @@ import { pickWidgetProps, resolveFieldPermission } from './rendererSupport.js'
  * - data：渲染器内部数据对象（载荷值空间），容器递归共享同一份数据；
  * - fieldPermissions：字段级权限外部覆盖映射（§4.2，透传）；
  * - dataId：数据行 ID（注入 AttachmentWidget 的 modelId，§4.2）；
- * - availableVars：FormulaWidget 变量声明（渲染器从 Schema 派生，§4.3 第 8 条）。
+ * - availableVars：FormulaWidget 变量声明（渲染器从 Schema 派生，§4.3 第 8 条）；
+ * - ruleVisibilityMap / ruleRequiredMap：规则引擎动态状态桥（F15-FE-006）——显隐终态
+ *   覆盖 Map<字段码, true|false> 与动态必填覆盖 Map<字段码, {value, ruleId}>，
+ *   容器递归透传同一份快照。
  */
 const props = defineProps({
   /** Schema 字段对象（§2.1） */
@@ -127,6 +136,10 @@ const props = defineProps({
   dataId: { type: String, default: '' },
   /** FormulaWidget 变量声明 [{ code, type, label }] */
   availableVars: { type: Array, default: () => [] },
+  /** 规则引擎显隐终态覆盖 Map<字段码, true|false>（F15-FE-006 show/hide，引擎覆盖优先于静态初值） */
+  ruleVisibilityMap: { type: Map, default: null },
+  /** 规则引擎动态必填覆盖 Map<字段码, { value, ruleId }>（F15-FE-006 setRequired 终态覆盖静态基线） */
+  ruleRequiredMap: { type: Map, default: null },
 })
 
 /**
@@ -178,14 +191,30 @@ const fieldProps = computed(() => (props.node.props && typeof props.node.props =
 const effectivePermission = computed(() => resolveFieldPermission(fieldProps.value, props.node.field, props.fieldPermissions))
 
 /**
- * 是否不渲染：
- * - permission=hidden → 不渲染且值不进提交载荷（渲染器数据层经 cropPayloadData 裁剪，
+ * 规则引擎显隐终态覆盖（F15-FE-006）：true=规则显示（show 命中，可恢复 props.hidden
+ * 静态初值隐藏的字段，§3.3「在 props.hidden 静态态之上切换」）；false=规则隐藏
+ * （hide 命中，隐藏不删值 §3.6 ①）；undefined=无规则覆盖（回落静态态）。
+ */
+const ruleVisibility = computed(() =>
+  props.ruleVisibilityMap && typeof props.ruleVisibilityMap.get === 'function'
+    ? props.ruleVisibilityMap.get(props.node.field)
+    : undefined,
+)
+
+/**
+ * 是否不渲染（动态状态桥，F15-FE-006）：
+ * - permission=hidden → 恒隐且值不进提交载荷（渲染器数据层经 cropPayloadData 裁剪，
  *   §4.3 第 4 条 / §3.6 ②③层）；
- * - props.hidden=true → 静态初始隐藏不渲染但值保留（隐藏不删值，§3.6 ①；规则引擎
- *   show/hide 在其上切换，一期无规则引擎时即恒隐藏）。
+ * - 规则显隐终态覆盖优先：false=规则隐藏（§3.6 ①渲染层隐藏不删值）、true=规则显示；
+ * - 无覆盖时回落 props.hidden=true 静态初始隐藏（值保留，§3.6 ①）。
  * 容器（group/grid）生效隐藏时整块不渲染（子树随之不可见）。
  */
-const hidden = computed(() => effectivePermission.value === 'hidden' || fieldProps.value.hidden === true)
+const hidden = computed(() => {
+  if (effectivePermission.value === 'hidden') return true
+  if (ruleVisibility.value === false) return true
+  if (ruleVisibility.value === true) return false
+  return fieldProps.value.hidden === true
+})
 
 /* ==================== 控件绑定（§4.3 第 1 条） ==================== */
 
@@ -219,8 +248,21 @@ const controlDisabled = computed(() => props.mode === 'design')
 /** 只读位：detail 形态全部只读回显；permission=readonly 组件置灰只读（值照常回显） */
 const controlReadonly = computed(() => props.mode === 'detail' || effectivePermission.value === 'readonly')
 
-/** required 星号：静态必填展示（detail 形态只读回显不展示）；动态必填由规则引擎 setRequired（FE-006） */
-const showRequired = computed(() => fieldProps.value.required === true && props.mode !== 'detail')
+/** 规则引擎动态必填覆盖（F15-FE-006 setRequired：undefined=无覆盖，回落静态基线） */
+const requiredOverride = computed(() =>
+  props.ruleRequiredMap && typeof props.ruleRequiredMap.get === 'function'
+    ? props.ruleRequiredMap.get(props.node.field)
+    : undefined,
+)
+
+/**
+ * required 星号：动态必填覆盖终态优先于静态 props.required（§3.1 动态校验语义——
+ * setRequired 覆盖静态基线）；detail 形态只读回显不展示。
+ */
+const showRequired = computed(() => {
+  const base = requiredOverride.value ? requiredOverride.value.value === true : fieldProps.value.required === true
+  return base && props.mode !== 'detail'
+})
 
 /** 说明文本（el-form-item label 问号提示） */
 const tooltipText = computed(() => {
