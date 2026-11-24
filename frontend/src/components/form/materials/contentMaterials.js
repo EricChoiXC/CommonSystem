@@ -1,5 +1,5 @@
 /**
- * 自定义表单内容类物料（category=CONTENT，4 个，F15-FE-002）
+ * 自定义表单内容类物料（category=CONTENT，4 个，F15-FE-002；F15-FE-007 接入内容与明细表运行时）
  *
  * 口径依据：功能详细设计 §1.3 内容类清单 + §2.1 明细表行结构（R04 一层）+ UI 设计分册
  * §4.5.2 内容类扩展属性项登记表。
@@ -7,10 +7,16 @@
  *   （语义=至少一行按 rowMin）、无 defaultValue；行内字段 children[] 由画布嵌套放置直接
  *   编辑（UI 分册 §4.5.2），不经属性面板配置，propSchema 不登记 children；
  * - table/text/image 不承载数据（dataType=null，值不进数据载荷），固定项仅名称/说明文本；
- * - component 一律 null：运行时组件待 F15-FE-007（内容与明细表）注册，渲染器对 null 按
- *   未知 type 兜底占位。
+ * - component 已由 F15-FE-007 全量接入（detailTable/table/text/image → widgets/ 下
+ *   同名 *Widget.vue）：明细表单元格经 registry 解析行内物料组件渲染（与渲染器同口径
+ *   的 deserializer/serializer 值空间转换，不 import 其他 widget 文件），行事件经
+ *   field-row-* 冒泡通道接入渲染器总线（契约见 widgets/DetailTableWidget.vue 头注）。
  */
 
+import DetailTableWidget from '../widgets/DetailTableWidget.vue'
+import TableWidget from '../widgets/TableWidget.vue'
+import TextWidget from '../widgets/TextWidget.vue'
+import ImageWidget from '../widgets/ImageWidget.vue'
 import {
   MAX_DETAIL_ROWS,
   detailTableFixedPropSchema,
@@ -54,8 +60,8 @@ const detailTableMaterial = {
     },
     // children[]（行内字段）不由属性面板配置——行内字段经画布嵌套放置直接编辑（UI 分册 §4.5.2）
   ],
-  component: null, // 待 F15-FE-007 注册（增删行/行内规则/自动计算/合计）
-  defaultValueGenerator: () => [], // 空行数组；补足 rowMin 起始行由渲染器职责（F15-FE-007）
+  component: DetailTableWidget, // 运行时组件（F15-FE-007 接入：增删行/行内规则/行内公式预演/统计行，单元格经 registry 复用行内物料，契约见 widgets/DetailTableWidget.vue 头注）
+  defaultValueGenerator: () => [], // 空行数组；rowMin 起始补行由 DetailTableWidget 初始化/回显时补足（F15-FE-007，对齐服务端 S2 行数下限校验语义）
   dataType: 'ARRAY',
   /**
    * 明细表宿本校验器只管行数组类型与行数语义：required 的语义 = 至少一行（按 rowMin，
@@ -104,7 +110,7 @@ const tableMaterial = {
     },
     { key: 'rows', label: '静态数据', editor: 'json', tip: 'JSON 文本域（前端做 JSON 合法性预检）；内容型只读表格，不进数据载荷' },
   ],
-  component: null, // 待 F15-FE-007 注册
+  component: TableWidget, // 运行时组件（F15-FE-007 接入：内容型只读表格，契约见 widgets/TableWidget.vue 头注）
   defaultValueGenerator: () => null,
   dataType: null, // 不承载数据，不进数据载荷
   validator() {
@@ -122,7 +128,7 @@ const textMaterial = {
   icon: 'Tickets',
   defaultProps: plainDefaultProps({ content: '' }),
   propSchema: [...contentFixedPropSchema(), { key: 'content', label: '文本内容', editor: 'textarea', tip: '静态说明文字' }],
-  component: null, // 待 F15-FE-007 注册
+  component: TextWidget, // 运行时组件（F15-FE-007 接入：静态说明文字，契约见 widgets/TextWidget.vue 头注）
   defaultValueGenerator: () => null,
   dataType: null,
   validator() {
@@ -144,7 +150,7 @@ const imageMaterial = {
     { key: 'src', label: '图片地址', editor: 'input' },
     { key: 'width', label: '展示宽度', editor: 'number', min: 0, tip: '像素（px），留空自适应' },
   ],
-  component: null, // 待 F15-FE-007 注册
+  component: ImageWidget, // 运行时组件（F15-FE-007 接入：静态图片展示，契约见 widgets/ImageWidget.vue 头注）
   defaultValueGenerator: () => null,
   dataType: null,
   validator() {

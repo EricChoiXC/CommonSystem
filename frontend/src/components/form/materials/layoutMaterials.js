@@ -9,8 +9,9 @@
  *   各列 span（24 栅格制），落在 children 列对象上（target='children'）；
  * - 嵌套深度受 §2.2 MAX_NEST_DEPTH=3 与 R04「明细表内禁容器」约束——由后端结构校验器
  *   固化拒绝（保存期权威），设计器画布嵌套校验随 F15-FE-008；
- * - dataType=null（容器不承载数据，值不进数据载荷）；component 一律 null：运行时组件
- *   待 F15-FE-007 注册，渲染器对 null 按未知 type 兜底占位。
+ * - dataType=null（容器不承载数据，值不进数据载荷）；component 恒为 null：容器外壳由
+ *   渲染器自身渲染（FormFieldNode group/grid 容器分支消费，component=null 属预期、
+ *   不走未知 type 占位），无需运行时组件。
  */
 
 import {
@@ -31,7 +32,7 @@ const groupMaterial = {
     ...layoutFixedPropSchema(),
     // children[] 由画布嵌套承载，不经属性面板配置（UI 分册 §4.5.2：分组无扩展属性项）
   ],
-  component: null, // 待 F15-FE-007 注册
+  component: null, // 容器外壳由渲染器自身渲染（FormFieldNode 容器分支），无需运行时组件
   defaultValueGenerator: () => null,
   dataType: null,
   validator() {
@@ -59,7 +60,7 @@ const gridMaterial = {
       tip: '24 栅格制，各列 span 合计超出 24 时提示；列内字段经画布嵌套放置承载',
     },
   ],
-  component: null, // 待 F15-FE-007 注册
+  component: null, // 容器外壳由渲染器自身渲染（FormFieldNode 容器分支），无需运行时组件
   defaultValueGenerator: () => null,
   dataType: null,
   validator() {

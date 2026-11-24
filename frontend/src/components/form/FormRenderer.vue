@@ -6,6 +6,10 @@
     F15-FE-006 集成：规则引擎经 rules/eventBus.js 绑定既有内置事件总线（不另起第二套
     总线）；动态状态桥——显隐终态/动态必填覆盖回写渲染决策（FormFieldNode）；熔断
     状态位（§3.5：规则风暴触发上限时顶部轻量提示，下次风暴复位，不阻断表单）。
+    F15-FE-007 集成：明细表行事件经 FormFieldNode field-row-* 冒泡通道进入本组件，
+    统一向既有总线派发 onAdd/onDelete/onChange 行上下文载荷（不另起总线）；引擎行内
+    覆盖与主表字段值经 provide（FORM_RENDERER_CONTEXT_KEY）注入 DetailTableWidget，
+    行内显隐/必填覆盖回写行内单元格渲染（§3.1/§3.6 一期边界/§6.3）。
   -->
   <div class="form-renderer-root">
     <el-alert
@@ -40,18 +44,22 @@
         @field-focus="handleFieldFocus"
         @field-blur="handleFieldBlur"
         @field-expression="handleFieldExpression"
+        @field-row-add="handleRowAdd"
+        @field-row-delete="handleRowDelete"
+        @field-row-change="handleRowChange"
       />
     </el-form>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, provide, ref, watch } from 'vue'
 import FormFieldNode from './FormFieldNode.vue'
 // 物料注册入口（materials/index.js 模块加载即幂等注册全部物料，渲染器入口处 import 一次）
 import './materials/index.js'
 import { getComponentMaterial } from './registry.js'
 import {
+  FORM_RENDERER_CONTEXT_KEY,
   RENDERER_MODES,
   buildInitialData,
   createRendererEventBus,
@@ -140,11 +148,13 @@ const pendingOldValues = new Map()
 
 /**
  * 渲染器内置事件总线（§4.3 第 5 条轻量内部事件派发点）。
- * F15-FE-006 规则引擎挂载预留点：引擎经 events.on(event, handler) 订阅同一事件流。
+ * F15-FE-006 规则引擎挂载点：引擎经 events.on(event, handler) 订阅同一事件流。
  * 当前派发点——onLoad：挂载完成 / Schema 替换 / 外部数据回显完成后；
- * onChange：字段提交值变更（handleFieldCommit）；onFocus/onBlur：widget 焦点透传；
- * onValidate：validate() 执行时。onAdd/onDelete 待明细表 widget（FE-007）经总线
- * 派发、onSubmit 待宿主提交编排派发——语义占位，渲染器不自行触发。
+ * onChange：字段提交值变更（handleFieldCommit）+ 明细行内值变更（handleRowChange，
+ * 行上下文载荷）；onFocus/onBlur：widget 焦点透传；onValidate：validate() 执行时；
+ * onAdd/onDelete：明细表行生命周期（F15-FE-007 DetailTableWidget 经 field-row-add/
+ * field-row-delete 冒泡通道 → handleRowAdd/handleRowDelete 派发）；onSubmit 待宿主
+ * 提交编排派发——语义占位，渲染器不自行触发。
  */
 const events = createRendererEventBus()
 
@@ -213,6 +223,25 @@ bindRuleEngine(events, ruleEngine, {
   onAfterExecute: () => {
     ruleStateVersion.value++
   },
+})
+
+/**
+ * 明细表行上下文注入（F15-FE-007，provide/inject，FORM_RENDERER_CONTEXT_KEY）。
+ * DetailTableWidget 据此消费：
+ * - stateVersion：规则风暴版本号（ref）——bindRuleEngine.onAfterExecute 在风暴有动作
+ *   执行/熔断时统一自增，行内单元格 computed 消费该版本号驱动重算（行内覆盖渲染
+ *   刷新由既有机制承载，行事件处理器无需重复递增）；
+ * - getRowVisibilityOverride / getRowRequiredOverride：引擎行内覆盖查询（行内显隐
+ *   一期为渲染层语义，§3.6 一期边界；行内规则只作用当前行，§3.1）；
+ * - getMainValue：主表字段值读取（行内公式本地预演上下文——行内同码优先、主表回落，
+ *   §6.3 ADR-09；FE-008 设计器接入位：主表变量注入随设计器装配同通道）。
+ * 行事件派发不经此注入——走既有 @field-* 冒泡通道（field-row-add/delete/change）。
+ */
+provide(FORM_RENDERER_CONTEXT_KEY, {
+  stateVersion: ruleStateVersion,
+  getRowVisibilityOverride: (detailCode, rowIndex, code) => ruleEngine.getRowVisibilityOverride(detailCode, rowIndex, code),
+  getRowRequiredOverride: (detailCode, rowIndex, code) => ruleEngine.getRowRequiredOverride(detailCode, rowIndex, code),
+  getMainValue: (code) => innerData.value[code],
 })
 
 /** 引擎显隐终态快照（Map<字段码, true|false>；FormFieldNode 可见性裁决消费——引擎覆盖优先于静态初值） */
@@ -327,6 +356,36 @@ function handleFieldFocus({ field, event }) {
 /** widget 失焦透传：派发总线 onBlur（同上） */
 function handleFieldBlur({ field, event }) {
   events.dispatch('onBlur', { field, event })
+}
+
+/* ==================== 明细表行事件总线派发（F15-FE-007，§3.1/§3.4 行上下文） ==================== */
+
+/**
+ * 行事件载荷契约（与 rules/ruleEngine.execute 行上下文口径一致）：
+ * { field: 行内字段码, value, oldValue, detailCode: 明细表字段码, rowIndex, row: 当前行对象 }。
+ * onAdd/onDelete 载荷 { field: 明细表字段码, detailCode, rowIndex, row }（行生命周期
+ * 事件无单值新旧语义，field 记宿主明细表字段码，§3.4）。
+ */
+
+/** 明细行新增（DetailTableWidget.row-add）：派发总线 onAdd——行初始化动作，行上下文注入，行内规则只作用当前行 */
+function handleRowAdd({ detailCode, rowIndex, row }) {
+  events.dispatch('onAdd', { field: detailCode, detailCode, rowIndex, row })
+}
+
+/** 明细行删除（DetailTableWidget.row-delete）：派发总线 onDelete——行后处理；统计行即时刷新由 widget 内置，无需规则 */
+function handleRowDelete({ detailCode, rowIndex, row }) {
+  events.dispatch('onDelete', { field: detailCode, detailCode, rowIndex, row })
+}
+
+/**
+ * 行内值变更（DetailTableWidget.row-change）：派发总线 onChange（行上下文载荷，
+ * triggerField=行内字段码的行内规则匹配并只作用当前行，§3.1）；行值变更（含公式
+ * 预演回写、引擎联动写值）经 update:modelValue 数据通道外发，触发字段规则的
+ * triggerIndex 索引重放由引擎固定点迭代消费。行事件处理器不重复自增 stateVersion——
+ * 风暴结束由 bindRuleEngine.onAfterExecute 统一驱动行内覆盖渲染重算。
+ */
+function handleRowChange({ detailCode, field, value, oldValue, rowIndex, row }) {
+  events.dispatch('onChange', { field, value, oldValue, detailCode, rowIndex, row })
 }
 
 /**

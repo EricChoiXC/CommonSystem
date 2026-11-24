@@ -15,7 +15,8 @@
       二物料 component=null 属预期，不走未知 type 占位）；
     - 已注册且 component 存在 → el-form-item 包裹 + <component :is> 加载控件
       （§4.3 第 1 条：label/tooltip 问号提示/required 星号由渲染器统一渲染，
-      widget 只渲染控件本体）；
+      widget 只渲染控件本体；明细表 F15-FE-007 经 FormFieldNode 注入 mode 三态 /
+      detailCode 字段码 / children 行内字段定义——Schema children 不走字段 props）；
     - 其余（registry 未注册或 material.component=null，ADR-10）→「组件未注册」
       占位块（type 文案 + 告警样式），不抛异常、不阻断整表渲染。
   -->
@@ -40,6 +41,9 @@
       @field-focus="forwardFocus"
       @field-blur="forwardBlur"
       @field-expression="forwardExpression"
+      @field-row-add="forwardRowAdd"
+      @field-row-delete="forwardRowDelete"
+      @field-row-change="forwardRowChange"
     />
   </section>
   <div v-else-if="isGrid" class="renderer-grid renderer-field-item" :data-field="node.field">
@@ -61,6 +65,9 @@
           @field-focus="forwardFocus"
           @field-blur="forwardBlur"
           @field-expression="forwardExpression"
+          @field-row-add="forwardRowAdd"
+          @field-row-delete="forwardRowDelete"
+          @field-row-change="forwardRowChange"
         />
       </el-col>
     </el-row>
@@ -97,6 +104,9 @@
       @focus="onWidgetFocus"
       @blur="onWidgetBlur"
       @update:expression="onWidgetExpression"
+      @row-add="onWidgetRowAdd"
+      @row-delete="onWidgetRowDelete"
+      @row-change="onWidgetRowChange"
     />
   </el-form-item>
   <div v-else class="renderer-unregistered renderer-field-item" :data-field="node.field">
@@ -149,9 +159,21 @@ const props = defineProps({
  *   明细与总线 onChange（§4.3 第 5 条）；
  * - field-focus / field-blur：焦点事件透传（渲染器派发总线 onFocus/onBlur）；
  * - field-expression：FormulaWidget design 态 update:expression（画布数据绑定
- *   旁路，渲染器不回写，Wave 4 设计器决定是否回写 field.props.expression）。
+ *   旁路，渲染器不回写，Wave 4 设计器决定是否回写 field.props.expression）；
+ * - field-row-add / field-row-delete / field-row-change：明细表行事件派发桥
+ *   （F15-FE-007，§3.1/§3.4 行上下文）——渲染器据以向既有总线派发 onAdd/onDelete/
+ *   onChange 行上下文载荷（不另起总线）。
  */
-const emit = defineEmits(['field-input', 'field-commit', 'field-focus', 'field-blur', 'field-expression'])
+const emit = defineEmits([
+  'field-input',
+  'field-commit',
+  'field-focus',
+  'field-blur',
+  'field-expression',
+  'field-row-add',
+  'field-row-delete',
+  'field-row-change',
+])
 
 /* ==================== 容器与物料判定 ==================== */
 
@@ -229,7 +251,10 @@ const componentValue = computed(() => {
  * 控件扩展属性（不走字段 props）：
  * - formula：三态 mode + 可用变量声明（§4.3 第 5/7/8 条）；
  * - attachment：modelId=数据行 ID（填写页经 getInitID 预生成后方可上传）、
- *   fieldKey=字段码（§4.2 dataId 注入口径；modelName 走 widget 缺省 'SYS-FORM'）。
+ *   fieldKey=字段码（§4.2 dataId 注入口径；modelName 走 widget 缺省 'SYS-FORM'）；
+ * - detailTable（F15-FE-007）：mode 三态（edit/detail/design，§4.1）+ detailCode=
+ *   明细表字段码（行事件派发与行内规则覆盖查询的行上下文键）+ children=行内字段
+ *   定义（Schema 字段对象 children，§2.1——不走字段 props）。
  */
 const widgetProps = computed(() => ({
   ...pickWidgetProps(fieldProps.value),
@@ -240,6 +265,13 @@ const widgetProps = computed(() => ({
       }
     : {}),
   ...(props.node.type === 'attachment' ? { modelId: props.dataId, fieldKey: props.node.field } : {}),
+  ...(props.node.type === 'detailTable'
+    ? {
+        mode: props.mode === 'design' ? 'design' : props.mode === 'detail' ? 'detail' : 'edit',
+        detailCode: props.node.field,
+        children: Array.isArray(props.node.children) ? props.node.children : [],
+      }
+    : {}),
 }))
 
 /** 禁用位：design 形态按 disabled 占位渲染（数据绑定旁路；formula design 态配置入口不受其影响） */
@@ -298,6 +330,23 @@ function onWidgetExpression(expression) {
   emit('field-expression', { field: props.node.field, expression })
 }
 
+/**
+ * 明细表行事件派发桥（F15-FE-007，§3.1/§3.4 行上下文）：附明细表字段码（detailCode）
+ * 后逐层上抛至渲染器，渲染器据以向既有总线派发 onAdd/onDelete/onChange 行上下文
+ * 载荷（行内规则只作用当前行）。
+ */
+function onWidgetRowAdd(payload) {
+  emit('field-row-add', { detailCode: props.node.field, ...(payload || {}) })
+}
+
+function onWidgetRowDelete(payload) {
+  emit('field-row-delete', { detailCode: props.node.field, ...(payload || {}) })
+}
+
+function onWidgetRowChange(payload) {
+  emit('field-row-change', { detailCode: props.node.field, ...(payload || {}) })
+}
+
 /* 递归层事件转发（子节点 → 逐层上抛，载荷原样透传） */
 function forwardInput(payload) {
   emit('field-input', payload)
@@ -317,6 +366,18 @@ function forwardBlur(payload) {
 
 function forwardExpression(payload) {
   emit('field-expression', payload)
+}
+
+function forwardRowAdd(payload) {
+  emit('field-row-add', payload)
+}
+
+function forwardRowDelete(payload) {
+  emit('field-row-delete', payload)
+}
+
+function forwardRowChange(payload) {
+  emit('field-row-change', payload)
 }
 </script>
 

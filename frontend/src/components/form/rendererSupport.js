@@ -31,6 +31,20 @@ export const RENDERER_MODES = ['design', 'edit', 'detail']
 export const RENDERER_EVENTS = ['onLoad', 'onChange', 'onFocus', 'onBlur', 'onAdd', 'onDelete', 'onSubmit', 'onValidate']
 
 /**
+ * 明细表行上下文注入键（F15-FE-007）。FormRenderer provide、DetailTableWidget inject：
+ * - stateVersion：规则风暴版本号（Ref<number>）——引擎动态状态为普通 JS 载体，风暴后
+ *   自增驱动行内单元格显隐/必填重算（F15-FE-006 状态桥同源）；
+ * - getRowVisibilityOverride(detailCode, rowIndex, code)：引擎行内显隐终态覆盖
+ *   （true/false/undefined，行内显隐一期为渲染层语义 §3.6 一期边界）；
+ * - getRowRequiredOverride(detailCode, rowIndex, code)：引擎行动态必填覆盖；
+ * - getMainValue(code)：主表字段值读取（行内公式本地预演上下文——行内同码优先、
+ *   主表回落，§6.3 ADR-09；FE-008 设计器接入位：主表变量注入随设计器装配同通道）。
+ * 行事件派发（onAdd/onDelete/onChange）不经此注入——走既有 @field-* 冒泡事件通道
+ * （field-row-add / field-row-delete / field-row-change），不另起总线。
+ */
+export const FORM_RENDERER_CONTEXT_KEY = '__form_renderer_context__'
+
+/**
  * 创建渲染器内置轻量事件总线（§4.3 第 5 条「轻量内部事件派发点」）。
  * 为 F15-FE-006 规则引擎预留同接口挂载点：引擎持 on(event, handler) 订阅，
  * 渲染器在行为节点 dispatch；订阅方异常只告警不中断渲染器（不阻断整表渲染，
