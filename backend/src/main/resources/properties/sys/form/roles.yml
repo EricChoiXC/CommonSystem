@@ -1,0 +1,8 @@
+# 自定义表单模块权限码（功能详细设计 §12.1 定稿，F15-OPS-001）：
+# 条目与 SysFormConstants.ROLE_SYS_FORM_ADMIN 逐字一致（一期仅此 1 个，不增设 SYS_FORM_DATA_ADMIN）；
+# 启动期经 SysOrgAuthService 增量同步进 sys_org_auth，增量导入不覆盖人工变更（AGENTS §5）。
+ROLE_LIST: ["SYS_FORM_ADMIN"]
+ROLE_MAP:
+  SYS_FORM_ADMIN:
+    NAME: "自定义表单管理员"
+    DESC: "拥有自定义表单定义与版本管理（列表/详情/新建/编辑/启停用/删除/发布/版本列表/回滚）及全部表单数据查询与删除管理的权限"

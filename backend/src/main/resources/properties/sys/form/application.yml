@@ -1,0 +1,7 @@
+# 自定义表单模块配置（v1.5，F15-OPS-001）：模块归属 sys/form，权限码分组标题等经
+# SysOrgAuthService 消费 MODEL_NAME / MODEL_KEY（field_model 取同目录 MODEL_KEY），
+# SETTING 段经 CommonSettingService 扫描 classpath*:properties/**/application.yml 增量同步；
+# 本模块无 common_setting 配置项，不设 SETTING 段（功能详细设计 §12.5 定稿）。
+MODEL_KEY: "SYS-FORM"
+MODEL_NAME: "自定义表单"
+version: "1.0.0"

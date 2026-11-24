@@ -29,6 +29,7 @@ import static org.mockito.Mockito.mock;
  *              （third-party 仅设计占位，不建 yml，决策 D5），v1.8 起新增 datasource
  *              （F18-OPS-001，与 SysDatasourceController#@ModuleGroup 的 moduleGroupKey 逐字一致），
  *              v1.4 起新增 formula（F14-OPS-001，10 接口纳入开关管理），
+ *              v1.5 起新增 form（F15-OPS-001，15 接口纳入开关管理），
  *              key / name / remark 与 @ModuleGroup 注解值逐字一致（MOD3-BE-002 验收标准）。
  */
 class ModuleGroupYmlParseTest {
@@ -42,7 +43,7 @@ class ModuleGroupYmlParseTest {
                 mock(LogService.class));
 
         Resource[] resources = YmlResourceUtil.getResources("classpath*:properties/**/moduleGroup.yml");
-        assertTrue(resources.length >= 4, "expected at least calendar, org, datasource and formula moduleGroup.yml on classpath");
+        assertTrue(resources.length >= 5, "expected at least calendar, org, datasource, formula and form moduleGroup.yml on classpath");
 
         List<CommonModule> modules = new ArrayList<>();
         for (Resource resource : resources) {
@@ -59,7 +60,7 @@ class ModuleGroupYmlParseTest {
         for (CommonModule module : modules) {
             byKey.put(module.getFieldKey(), module);
         }
-        assertEquals(Set.of("calendar", "org-group", "datasource", "formula"), byKey.keySet(), () -> "parsed keys: " + byKey.keySet());
+        assertEquals(Set.of("calendar", "org-group", "datasource", "formula", "form"), byKey.keySet(), () -> "parsed keys: " + byKey.keySet());
         assertEquals("日程", byKey.get("calendar").getFieldName());
         assertEquals("日程模块", byKey.get("calendar").getFieldRemark());
         assertEquals("组织架构-群组", byKey.get("org-group").getFieldName());
@@ -68,5 +69,7 @@ class ModuleGroupYmlParseTest {
         assertEquals("数据源模块（9 接口统一开关）", byKey.get("datasource").getFieldRemark());
         assertEquals("公式定义器", byKey.get("formula").getFieldName());
         assertEquals("公式定义器模块（10 接口统一开关）", byKey.get("formula").getFieldRemark());
+        assertEquals("自定义表单", byKey.get("form").getFieldName());
+        assertEquals("自定义表单模块（15 接口统一开关）", byKey.get("form").getFieldRemark());
     }
 }
