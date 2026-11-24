@@ -60,7 +60,13 @@ class ApiDocsTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("/backend/sys/org/element/list")))
                 .andExpect(content().string(containsString("组织架构元素列表")))
-                .andExpect(content().string(containsString("/backend/sys/notify/sse/subscribe")));
+                .andExpect(content().string(containsString("/backend/sys/notify/sse/subscribe")))
+                // 自定义表单（F15-BE-006）：定义面与数据面接口分组与中文摘要在场
+                .andExpect(content().string(containsString("/backend/sys/form/define/list")))
+                .andExpect(content().string(containsString("表单定义列表")))
+                .andExpect(content().string(containsString("/backend/sys/form/define/publish")))
+                .andExpect(content().string(containsString("/backend/sys/form/data/schema")))
+                .andExpect(content().string(containsString("获取填写用 Schema")));
     }
 
     /**

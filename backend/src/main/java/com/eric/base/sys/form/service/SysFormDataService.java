@@ -52,12 +52,17 @@ import static com.eric.base.sys.form.properties.SysFormConstants.CS_FORM_NOT_FOU
  *
  * @author Eric
  * @date 2026/11/24
- * @description 承载数据面保存 / 回显 / 删除 / 查询与独立校验（F15-BE-003，API 分册 §4；
+ * @description 承载数据面填写 Schema 获取 / 保存 / 回显 / 删除 / 查询与独立校验（F15-BE-003，
+ *              API 分册 §4；
  *              功能设计 §6 数据引擎与集成口径）：JSON 存储、数据与定义分离存储（ADR-07，
  *              数据引擎不承载任何具体业务逻辑——架构原则 3）。Controller / Resolver 随
  *              F15-BE-006 落地，本服务只承载业务（AGENTS §3：Service 承载业务、不得直连
  *              Mapper）。
  *              <ul>
+ *              <li><b>填写用 Schema 获取</b>（分册 §4.2，F15-BE-006 补公开入口）：返回
+ *                  field_current_version_id 指向版本行的完整 Schema（协议头以主档元数据归一、
+ *                  version 回填发布版本号），前置拒绝与 S0 资源前置同源（不存在 / 停用 /
+ *                  无已发布版本），填写页渲染新实例必需；</li>
  *              <li><b>保存校验链</b>（功能设计 §6.1 按序执行，全部服务端权威；分册 §4.3
  *                  S0~S7）：S0 资源前置（表单存在且启用、存在发布版本——按 formId 锁定
  *                  field_current_version_id 指向版本 Schema 求值，原则 3）→ S1 字段白名单
@@ -146,6 +151,33 @@ public class SysFormDataService {
         this.basicValidator = basicValidator;
         this.validationEngine = validationEngine;
         this.formulaEvaluator = formulaEvaluator;
+    }
+
+    /* ==================== 填写用 Schema 获取（分册 §4.2，F15-BE-006 补公开入口） ==================== */
+
+    /**
+     * 获取填写用 Schema（分册 §4.2）：返回 field_current_version_id 指向版本行的完整
+     * Schema（协议头 version 回填发布版本号，协议头 formId / formCode / formName 以主档
+     * 权威元数据归一），填写页渲染新实例必需——定义面 /define/load 仅 SYS_FORM_ADMIN 可用，
+     * 填写人（登录即可）不可经其取 Schema。前置拒绝与 save / validate 的 S0 资源前置同源
+     * （{@link #requirePublishedVersion}）：表单不存在 → CS_FORM_NOT_FOUND、表单停用
+     * （填写入口关闭）→ CS_FORM_DISABLED、无已发布版本 → CS_FORM_NO_PUBLISHED_VERSION。
+     * 数据详情页不经本入口取 Schema（经 {@link #load} 取实例锁定版本 Schema，原则 2）。
+     *
+     * @param formId 表单主档 ID
+     * @return 当前发布版本 Schema
+     */
+    public SysFormSchemaDo schema(String formId) {
+        String id = StringUtil.requireText(formId, "formId");
+        SysFormVersion versionRow = requirePublishedVersion(id);
+        SysFormSchemaDo schema = parseSchema(versionRow.getFieldSchemaJson());
+        // 协议头归一（分册 §2.4）：formId / formCode / formName 以主档权威元数据为准，
+        // version 回填发布版本号（与 load 回显同口径，先例 SysFormService#normalizeHeader）
+        normalizeHeader(schema, formDao.selectById(id));
+        if (null != schema) {
+            schema.setVersion(versionRow.getFieldVersion());
+        }
+        return schema;
     }
 
     /* ==================== 保存（一期仅新增，分册 §4.3） ==================== */

@@ -18,6 +18,7 @@
 | --- | --- | --- |
 | V1.0 | 2026-11-23 | 初版：定义面（9 接口）与数据面（6 接口）契约冻结；`ACTION_*` 全集（15 项）与 resolver 判定口径；错误码 `CS_FORM_*` 全集（16 项）与 `CS_FORMULA_*` 复用映射；功能设计 §11 留给本分册的两个开放点定稿（未知字段=拒绝、有数据禁删）；要点第 9 步 REST 风格到仓库矩阵的转化说明 |
 | V1.1 | 2026-11-24 | §3.9 版本列表排序与 `fieldVersion` 类型定稿回写（F15-BE-002 编码期完成数据库分册 §9.3 条目 1 预留的定稿动作，非契约变更）：草稿行恒排最前（每表单至多一行），其余按 `fieldVersion` 降序；`fieldVersion` 草稿行为 null（版本号仅发布动作分配） |
+| V1.2 | 2026-11-24 | F15-BE-006 编码期同批回写（非契约变更）：§3.3 / §3.5 请求体包装形态明确为 `{ body: SysFormSaveRequest }` / `{ body: SysFormUpdateRequest }`——body 承载保存体，仓库 save 通道统一包装先例（`SysFormulaSaveRequest` / `SysCalendarSaveRequest` / `SysDatasourceSaveRequest`），前端 `api/form.js` saveForm / updateForm 同口径（F15-FE-001）；§3.2 登记 body 筛选条件 `fieldCreateTimeBegin` / `fieldCreateTimeEnd` 一期未实现（`SysFormMapper` QueryConditions 未承载时间区间，请求传入忽略不报错，随管理页筛选区落地扩展） |
 
 ### 1.2 事实源优先级与冲突裁决
 
@@ -123,6 +124,8 @@
 | `fieldEnable` | boolean | 否 | 启用状态 |
 | `fieldCreateTimeBegin` / `fieldCreateTimeEnd` | date | 否 | 创建时间区间 |
 
+> **编码期登记（F15-BE-006，2026-11-24）**：`fieldCreateTimeBegin` / `fieldCreateTimeEnd` 两条件**一期未实现**——`SysFormMapper` QueryConditions 仅承载 fieldFormCode / fieldFormName 模糊与 fieldStatus / fieldEnable 精确（请求传入区间字段受理忽略、不报错），随管理页筛选区落地按需扩展 Mapper 条件；数据面 `/data/list` 的时间区间通道已实现（F15-BE-003，先例 `SysFormDataMapper.selectListByQuery`）。
+
 响应 `data = List<SysFormVo>`（行字段，`metadata.total` 为总数）：
 
 | 字段 | 类型 | 说明 |
@@ -143,7 +146,7 @@
 | 项 | 契约 |
 | --- | --- |
 | 鉴权动作 | `sys.form.define.save`（仅 `SYS_FORM_ADMIN`），无 `documentId` |
-| 请求体 | `SysFormSaveRequest` |
+| 请求体 | `{ body: SysFormSaveRequest }`（body 承载保存体，包装先例 formula / calendar / datasource，V1.2 明确；字段见下表） |
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
@@ -177,7 +180,7 @@
 | 项 | 契约 |
 | --- | --- |
 | 鉴权动作 | `sys.form.define.update`（仅 `SYS_FORM_ADMIN`），`documentId = fieldId` |
-| 请求体 | `SysFormUpdateRequest` |
+| 请求体 | `{ body: SysFormUpdateRequest }`（body 承载更新体，包装口径同 §3.3，V1.2 明确；字段见下表） |
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
