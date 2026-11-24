@@ -18,7 +18,21 @@ import com.eric.base.sys.form.request.SysFormUpdateRequest;
 import com.eric.base.sys.form.response.SysFormVersionCreatedVo;
 import com.eric.base.sys.form.response.SysFormVersionVo;
 import com.eric.base.sys.form.response.SysFormVo;
+import com.eric.base.sys.form.service.engine.FormFormulaEvaluator;
 import com.eric.base.sys.form.service.engine.FormSchemaValidator;
+import com.eric.base.sys.datasource.service.SysDatasourceService;
+import com.eric.base.sys.formula.service.engine.FormulaEngine;
+import com.eric.base.sys.formula.service.engine.FormulaFunctionRegistry;
+import com.eric.base.sys.formula.service.engine.functions.collection.CollectionFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.compare.CompareFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.convert.ConvertFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.data.DataFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.date.DateFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.logic.LogicFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.math.MathFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.string.StringFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.system.SystemFunctionProvider;
+import com.eric.base.sys.formula.spi.FormulaFunctionProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,7 +81,11 @@ import static org.mockito.Mockito.when;
  *              原当前版本退役 + 主档指针切换与状态同步）、已发布版本禁改（更新只写 DRAFT 行 +
  *              冻结行防御性拒绝 CS_FORM_VERSION_STATE_INVALID）、回滚产生新版本（复制副本、
  *              不回拨指针、草稿目标与跨表单目标拒绝）、删除前置实例数据校验（CS_FORM_HAS_DATA）、
- *              启停用只更新自身、版本列表（草稿行 fieldVersion null 透出）。
+ *              启停用只更新自身、版本列表（草稿行 fieldVersion null 透出）；F15-BE-005 并联
+ *              P4 公式静态校验（assertPublishable 落发布校验链）：未知引用
+ *              CS_FORMULA_VARIABLE_INVALID、依赖图环 CS_FORMULA_EXECUTE_FAILED 均阻断发布、
+ *              合法公式 Schema（行内公式 + SUM 投影 + 系统变量豁免）照常发布（真实
+ *              FormulaEngine 校验通道，非 mock）。
  */
 class SysFormServiceTest {
 
@@ -101,9 +119,31 @@ class SysFormServiceTest {
         formDao = mock(SysFormDao.class);
         versionDao = mock(SysFormVersionDao.class);
         dataDao = mock(SysFormDataDao.class);
-        service = new SysFormService(formDao, versionDao, dataDao, new FormSchemaValidator());
+        service = new SysFormService(formDao, versionDao, dataDao, new FormSchemaValidator(),
+                new FormFormulaEvaluator(newFormulaEngine()));
         userUtilMock = Mockito.mockStatic(UserUtil.class);
         userUtilMock.when(UserUtil::getCurrentUserId).thenReturn(USER_ID);
+    }
+
+    /**
+     * 真实 FormulaEngine（九类内置函数注册中心装配，DS_QUERY 挂 mock 数据源服务；
+     * F15-BE-005 P4 公式静态校验用例经真实引擎校验通道，非 mock）
+     */
+    private static FormulaEngine newFormulaEngine() {
+        SysDatasourceService datasourceService = mock(SysDatasourceService.class);
+        when(datasourceService.execute(any(), any(), any(), any(), any()))
+                .thenReturn(new SysDatasourceService.SysDatasourceExecution(List.of(), 0, List.of()));
+        List<FormulaFunctionProvider> providers = List.of(
+                new MathFunctionProvider(),
+                new LogicFunctionProvider(),
+                new CompareFunctionProvider(),
+                new StringFunctionProvider(),
+                new DateFunctionProvider(),
+                new CollectionFunctionProvider(),
+                new ConvertFunctionProvider(),
+                new SystemFunctionProvider(),
+                new DataFunctionProvider(datasourceService));
+        return new FormulaEngine(new FormulaFunctionRegistry(providers));
     }
 
     @AfterEach
@@ -464,6 +504,65 @@ class SysFormServiceTest {
 
         assertFormError(() -> service.publish(FORM_ID), CS_FORM_VERSION_STATE_INVALID);
         verify(formDao, never()).updateCurrentVersionId(anyString(), anyString(), anyString(), anyString(), any());
+    }
+
+    // ---------------------------------------------------------------- publish P4：公式静态校验（F15-BE-005，分册 §7.2 复用映射）
+
+    @Test
+    void publishRejectsUnknownFormulaReference() {
+        SysForm exist = formRow(SysFormStatus.DRAFT, null);
+        when(formDao.selectById(FORM_ID)).thenReturn(exist);
+        // 公式引用不存在的字段（P4 第③道：引用字段存在，CS_FORMULA_VARIABLE_INVALID）
+        when(versionDao.selectList(any(SysFormVersion.class), any()))
+                .thenReturn(List.of(draftRow(FORM_ID, "{\"fields\":["
+                        + "{\"field\":\"total\",\"type\":\"formula\",\"label\":\"合计\","
+                        + "\"props\":{\"expression\":\"${nope} + 1\",\"expectedReturnType\":\"NUMBER\"}}]}")));
+
+        String message = assertFormError(() -> service.publish(FORM_ID), "CS_FORMULA_VARIABLE_INVALID");
+        assertTrue(message.contains("nope"), "错误定位未知引用字段: " + message);
+        verify(versionDao, never()).freezeDraft(anyString(), any(), any(Date.class), anyString(), any(Date.class));
+    }
+
+    @Test
+    void publishRejectsFormulaDependencyCycle() {
+        SysForm exist = formRow(SysFormStatus.DRAFT, null);
+        when(formDao.selectById(FORM_ID)).thenReturn(exist);
+        // 公式依赖图环（P4 第④道：CS_FORMULA_EXECUTE_FAILED，运行期拓扑熔断同码兜底）
+        when(versionDao.selectList(any(SysFormVersion.class), any()))
+                .thenReturn(List.of(draftRow(FORM_ID, "{\"fields\":["
+                        + "{\"field\":\"formulaA\",\"type\":\"formula\",\"label\":\"公式A\","
+                        + "\"props\":{\"expression\":\"${formulaB} + 1\"}},"
+                        + "{\"field\":\"formulaB\",\"type\":\"formula\",\"label\":\"公式B\","
+                        + "\"props\":{\"expression\":\"${formulaA} + 1\"}}]}")));
+
+        assertFormError(() -> service.publish(FORM_ID), "CS_FORMULA_EXECUTE_FAILED");
+        verify(versionDao, never()).freezeDraft(anyString(), any(), any(Date.class), anyString(), any(Date.class));
+    }
+
+    @Test
+    void publishAcceptsValidFormulaSchema() {
+        SysForm exist = formRow(SysFormStatus.DRAFT, null);
+        when(formDao.selectById(FORM_ID)).thenReturn(exist);
+        // 合法公式 Schema（行内公式 + 主表 SUM 投影 + 系统变量豁免）：P4 通过照常发布
+        when(versionDao.selectList(any(SysFormVersion.class), any()))
+                .thenReturn(List.of(draftRow(FORM_ID, "{\"fields\":["
+                        + "{\"field\":\"quantity\",\"type\":\"number\",\"label\":\"数量\"},"
+                        + "{\"field\":\"total\",\"type\":\"formula\",\"label\":\"合计\","
+                        + "\"props\":{\"expression\":\"SUM(${SYS_CURRENT_ROLE}.length) + ${quantity}\","
+                        + "\"expectedReturnType\":\"NUMBER\"}},"
+                        + "{\"field\":\"details\",\"type\":\"detailTable\",\"label\":\"明细\","
+                        + "\"children\":["
+                        + "{\"field\":\"price\",\"type\":\"number\",\"label\":\"单价\"},"
+                        + "{\"field\":\"amount\",\"type\":\"formula\",\"label\":\"金额\","
+                        + "\"props\":{\"expression\":\"ROUND(${price} * 2, 2)\","
+                        + "\"expectedReturnType\":\"NUMBER\"}}]}]}")));
+        when(versionDao.selectMaxVersion(FORM_ID)).thenReturn(null);
+        when(versionDao.freezeDraft(eq(DRAFT_ID), eq(1), any(Date.class), eq(USER_ID), any(Date.class))).thenReturn(1);
+        when(formDao.updateCurrentVersionId(anyString(), anyString(), anyString(), anyString(), any())).thenReturn(1);
+
+        SysFormVersionCreatedVo vo = service.publish(FORM_ID);
+
+        assertEquals(DRAFT_ID, vo.getFieldVersionId(), "P4 通过的合法公式 Schema 照常发布");
     }
 
     // ---------------------------------------------------------------- rollback：重发布副本

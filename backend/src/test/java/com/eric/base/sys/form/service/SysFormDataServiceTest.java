@@ -25,7 +25,21 @@ import com.eric.base.sys.form.response.SysFormDataSavedVo;
 import com.eric.base.sys.form.response.SysFormDataValidateVo;
 import com.eric.base.sys.form.response.SysFormDataVo;
 import com.eric.base.sys.form.service.engine.FormDataBasicValidator;
+import com.eric.base.sys.form.service.engine.FormFormulaEvaluator;
 import com.eric.base.sys.form.service.engine.FormValidationEngine;
+import com.eric.base.sys.datasource.service.SysDatasourceService;
+import com.eric.base.sys.formula.service.engine.FormulaEngine;
+import com.eric.base.sys.formula.service.engine.FormulaFunctionRegistry;
+import com.eric.base.sys.formula.service.engine.functions.collection.CollectionFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.compare.CompareFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.convert.ConvertFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.data.DataFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.date.DateFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.logic.LogicFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.math.MathFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.string.StringFunctionProvider;
+import com.eric.base.sys.formula.service.engine.functions.system.SystemFunctionProvider;
+import com.eric.base.sys.formula.spi.FormulaFunctionProvider;
 import com.eric.base.sys.org.model.SysOrgRole;
 import com.eric.base.sys.org.model.SysOrgUser;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -101,7 +115,8 @@ class SysFormDataServiceTest {
         formDao = mock(SysFormDao.class);
         versionDao = mock(SysFormVersionDao.class);
         service = new SysFormDataService(dataDao, formDao, versionDao,
-                new FormDataBasicValidator(), new FormValidationEngine());
+                new FormDataBasicValidator(), new FormValidationEngine(),
+                new FormFormulaEvaluator(newFormulaEngine()));
         userUtilMock = Mockito.mockStatic(UserUtil.class);
         userUtilMock.when(UserUtil::getCurrentUserId).thenReturn(USER_ID);
         userUtilMock.when(UserUtil::getCurrentUser).thenReturn(sessionUser(null));
@@ -423,6 +438,125 @@ class SysFormDataServiceTest {
         assertEquals("张三", vo.getFormData().get("applicant"), "可见字段照常下发");
     }
 
+    // ---------------------------------------------------------------- 公式重算与级联复核（F15-BE-005 并联）
+
+    @Test
+    void saveRecalculatesFormulaServerAuthoritative() {
+        mockPublishedVersionWithSchema(formulaSchemaJson());
+
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("quantity", 2);
+        row.put("price", 3.5);
+        row.put("amount", 999); // 前端任意值（服务端不信任，ADR-09）
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("applicant", "张三");
+        formData.put("purchaseDetails", List.of(row));
+        formData.put("totalAmount", 888);
+
+        SysFormDataSavedVo vo = service.save(saveRequest(formData));
+
+        // 行内金额 = 数量×单价（真实 FormulaEngine 受限执行，F14 联通用例）
+        assertNumEquals(7, ((Map<?, ?>) ((List<?>) vo.getFormData().get("purchaseDetails")).get(0)).get("amount"),
+                "行内公式重算值 2×3.5（前端任意值 999 被服务端结果覆盖，差额不报错）");
+        assertNumEquals(7, vo.getFormData().get("totalAmount"),
+                "主表合计 SUM(${purchaseDetails.amount}) 投影 COLLECTION 重算");
+        ArgumentCaptor<SysFormData> captor = ArgumentCaptor.forClass(SysFormData.class);
+        verify(dataDao).insert(captor.capture());
+        String stored = captor.getValue().getFieldFormData().toString();
+        assertTrue(stored.contains("\"amount\":7"), "落库 JSON 为服务端重算形态: " + stored);
+        assertFalse(stored.contains("999"), "公式字段不落前端任意值（验收标准）: " + stored);
+        assertFalse(stored.contains("888"), "主表合计不落前端任意值: " + stored);
+    }
+
+    @Test
+    void saveRejectsCascadeOptionViolation() {
+        mockPublishedVersionWithSchema(cascadeSchemaJson());
+
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("applicant", "张三");
+        formData.put("customerType", "personal");
+        formData.put("channel", "keyAccount"); // personal 条件下被过滤选项，越权提交
+
+        String message = assertFormError(() -> service.save(saveRequest(formData)),
+                SysFormConstants.CS_FORM_CASCADE_OPTION_INVALID);
+        assertTrue(message.contains("keyAccount"), "错误定位越权选项值: " + message);
+        verify(dataDao, never()).insert(any(SysFormData.class));
+    }
+
+    @Test
+    void saveAcceptsCascadeOptionWithinAllowedSet() {
+        mockPublishedVersionWithSchema(cascadeSchemaJson());
+
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("applicant", "张三");
+        formData.put("customerType", "enterprise");
+        formData.put("channel", "keyAccount"); // enterprise 条件下允许选项
+
+        SysFormDataSavedVo vo = service.save(saveRequest(formData));
+
+        assertEquals("keyAccount", vo.getFormData().get("channel"), "允许选项集内的提交值照常落库");
+    }
+
+    @Test
+    void saveRejectsFormulaExecutionFailureWithFormulaErrorCode() {
+        mockPublishedVersionWithSchema(formulaMissingVarSchemaJson());
+
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("applicant", "张三");
+
+        String message = assertFormError(() -> service.save(saveRequest(formData)),
+                "CS_FORMULA_EXECUTE_FAILED");
+        assertTrue(message.contains("nope"), "缺失变量确定性失败（复用 CS_FORMULA_* 语义映射，不裸异常穿透）: "
+                + message);
+        verify(dataDao, never()).insert(any(SysFormData.class));
+    }
+
+    @Test
+    void validateReturnsRecalculatedPreviewWithoutPersist() {
+        mockPublishedVersionWithSchema(formulaSchemaJson());
+
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("quantity", 2);
+        row.put("price", 3.5);
+        row.put("amount", 999);
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("applicant", "张三");
+        formData.put("purchaseDetails", List.of(row));
+        formData.put("totalAmount", 888);
+
+        SysFormDataValidateRequest request = new SysFormDataValidateRequest();
+        request.setFormId(FORM_ID);
+        request.setFormData(formData);
+        SysFormDataValidateVo vo = service.validate(request);
+
+        assertTrue(vo.isPass(), "S2/S4 通过后 S5/S6 执行，pass=true");
+        assertNumEquals(7, ((Map<?, ?>) ((List<?>) vo.getFormData().get("purchaseDetails")).get(0)).get("amount"),
+                "预览 formData 为服务端重算/裁剪后形态（分册 §4.4）");
+        assertNumEquals(7, vo.getFormData().get("totalAmount"), "预览含主表公式重算值");
+        verify(dataDao, never()).insert(any(SysFormData.class));
+    }
+
+    @Test
+    void validateSkipsCascadeAndFormulaWhenFieldErrorsPresent() {
+        mockPublishedVersionWithSchema(cascadeSchemaJson());
+
+        // 字段级校验失败（applicant 必填缺失）+ 级联越权值：同 save 失败短路语义，S5/S6 不执行
+        // ——字段级结果以 data.errors 结构化承载（不被确定性拒绝异常掩盖）
+        Map<String, Object> formData = new LinkedHashMap<>();
+        formData.put("customerType", "personal");
+        formData.put("channel", "keyAccount");
+
+        SysFormDataValidateRequest request = new SysFormDataValidateRequest();
+        request.setFormId(FORM_ID);
+        request.setFormData(formData);
+        SysFormDataValidateVo vo = service.validate(request);
+
+        assertFalse(vo.isPass(), "字段级校验失败 pass=false（正常业务结果不抛异常）");
+        assertFalse(vo.getErrors().isEmpty(), "errors 结构化承载字段级错误");
+        assertNull(vo.getFormData(), "pass=false 时 formData 为 null（分册 §4.4）");
+        verify(dataDao, never()).insert(any(SysFormData.class));
+    }
+
     // ---------------------------------------------------------------- load：回显与归属判定
 
     @Test
@@ -610,6 +744,27 @@ class SysFormDataServiceTest {
 
     // ---------------------------------------------------------------- 测试小件
 
+    /**
+     * 真实 FormulaEngine（九类内置函数注册中心装配，DS_QUERY 挂 mock 数据源服务；
+     * F15-BE-005 公式重算与级联复核用例经真实引擎受限执行通道，非 mock）
+     */
+    private static FormulaEngine newFormulaEngine() {
+        SysDatasourceService datasourceService = mock(SysDatasourceService.class);
+        when(datasourceService.execute(any(), any(), any(), any(), any()))
+                .thenReturn(new SysDatasourceService.SysDatasourceExecution(List.of(), 0, List.of()));
+        List<FormulaFunctionProvider> providers = List.of(
+                new MathFunctionProvider(),
+                new LogicFunctionProvider(),
+                new CompareFunctionProvider(),
+                new StringFunctionProvider(),
+                new DateFunctionProvider(),
+                new CollectionFunctionProvider(),
+                new ConvertFunctionProvider(),
+                new SystemFunctionProvider(),
+                new DataFunctionProvider(datasourceService));
+        return new FormulaEngine(new FormulaFunctionRegistry(providers));
+    }
+
     private static SysFormDataSaveRequest saveRequest(Map<String, Object> formData) {
         SysFormDataSaveRequest request = new SysFormDataSaveRequest();
         request.setFieldId(DATA_ID);
@@ -678,6 +833,70 @@ class SysFormDataServiceTest {
         SysFormFieldDo secret = field("secretField", "input", "内部备注");
         secret.setProps(Map.of("permission", "hidden"));
         return schemaJsonOf(applicant, secret);
+    }
+
+    /**
+     * 公式 Schema 存储态原文（F15-BE-005 公式重算用例）：行内公式 amount=数量×单价 +
+     * 主表合计 totalAmount=SUM(${purchaseDetails.amount})（COLLECTION 投影）——
+     * 功能设计 §2.3 示例同构，经真实 FormulaEngine 受限执行（F14 联通用例）
+     */
+    private static String formulaSchemaJson() {
+        SysFormFieldDo applicant = field("applicant", "input", "申请人");
+        applicant.setProps(Map.of("required", true));
+        SysFormFieldDo quantity = field("quantity", "number", "数量");
+        SysFormFieldDo price = field("price", "number", "单价");
+        SysFormFieldDo amount = formulaField("amount", "ROUND(${quantity} * ${price}, 2)");
+        SysFormFieldDo detail = detailTableOf("purchaseDetails", List.of(quantity, price, amount));
+        SysFormFieldDo totalAmount = formulaField("totalAmount", "SUM(${purchaseDetails.amount})");
+        return schemaJsonOf(applicant, detail, totalAmount);
+    }
+
+    /** 缺失变量公式 Schema 存储态原文（公式执行失败确定性错误码用例） */
+    private static String formulaMissingVarSchemaJson() {
+        SysFormFieldDo applicant = field("applicant", "input", "申请人");
+        applicant.setProps(Map.of("required", true));
+        SysFormFieldDo broken = formulaField("brokenTotal", "${nope} + 1");
+        return schemaJsonOf(applicant, broken);
+    }
+
+    /** 级联 Schema 存储态原文（F15-BE-005 级联复核用例）：必填 applicant + channel 选项 keyAccount 条件 enterprise */
+    private static String cascadeSchemaJson() {
+        SysFormFieldDo applicant = field("applicant", "input", "申请人");
+        applicant.setProps(Map.of("required", true));
+        SysFormFieldDo customerType = field("customerType", "select", "客户类型");
+        customerType.setProps(new LinkedHashMap<>(Map.of("multi", false,
+                "options", List.of(option("enterprise", "企业"), option("personal", "个人")))));
+        SysFormFieldDo channel = field("channel", "cascade", "渠道");
+        Map<String, Object> keyAccount = option("keyAccount", "大客户渠道");
+        keyAccount.put("showCondition", Map.of("operator", "equal", "value", "enterprise"));
+        channel.setProps(new LinkedHashMap<>(Map.of("parentField", "customerType",
+                "options", List.of(option("public", "公开渠道"), keyAccount))));
+        return schemaJsonOf(applicant, customerType, channel);
+    }
+
+    /** 公式字段构造（props：expression + expectedReturnType=NUMBER） */
+    private static SysFormFieldDo formulaField(String code, String expression) {
+        SysFormFieldDo field = field(code, "formula", "公式-" + code);
+        field.setProps(new LinkedHashMap<>(Map.of(
+                "expression", expression, "expectedReturnType", "NUMBER")));
+        return field;
+    }
+
+    /** 明细表字段构造（props：rowMin/rowMax；children 行内字段） */
+    private static SysFormFieldDo detailTableOf(String code, List<SysFormFieldDo> children) {
+        SysFormFieldDo detail = field(code, "detailTable", "明细-" + code);
+        detail.setProps(Map.of("rowMin", 1, "rowMax", 50));
+        detail.setChildren(children);
+        return detail;
+    }
+
+    /** 数值形态断言（容忍 BigDecimal/Integer/Double 序列化形态漂移） */
+    private static void assertNumEquals(Object expected, Object actual, String message) {
+        assertNotNull(actual, message);
+        java.math.BigDecimal expectedNumber = new java.math.BigDecimal(String.valueOf(expected));
+        java.math.BigDecimal actualNumber = new java.math.BigDecimal(String.valueOf(actual));
+        assertTrue(expectedNumber.compareTo(actualNumber) == 0,
+                message + "（期望 " + expectedNumber + "，实际 " + actualNumber + "）");
     }
 
     /** Schema POJO → 存储态原文（Jackson 序列化，杜绝手写 JSON 配平错误） */

@@ -8,6 +8,7 @@ import com.eric.base.sys.form.model.SysFormFieldDo;
 import com.eric.base.sys.form.model.SysFormRuleDo;
 import com.eric.base.sys.form.model.SysFormSchemaDo;
 import com.eric.base.sys.form.properties.SysFormConstants;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.eric.base.sys.form.properties.SysFormConstants.CS_FORM_CASCADE_OPTION_INVALID;
 import static com.eric.base.sys.form.properties.SysFormConstants.CS_FORM_DATA_INVALID;
 import static com.eric.base.sys.form.properties.SysFormConstants.CS_FORM_RULE_CYCLE_EXCEEDED;
 import static com.eric.base.sys.form.properties.SysFormConstants.MAX_RULE_CHAIN_DEPTH;
@@ -59,6 +61,12 @@ import static com.eric.base.sys.form.properties.SysFormConstants.MAX_RULE_EXECUT
  *                  {@code CS_FORM_RULE_CYCLE_EXCEEDED}（确定性错误，不允许无限求值）；
  *                  幂等短路——setValue 目标值与当前值相等时不回写、不触发后续规则链
  *                  （切断 A→B→A 最常见的无限振荡形态）。</li>
+ *              <li><b>级联选项复核</b>（F15-BE-005 并联，分册 §4.3 S5 / R08 第 3 条「保存时
+ *                  服务端统一入口复核」）：{@link #assertCascadeOptions(SysFormSchemaDo, Map)}
+ *                  复用本引擎同一 DSL 条件求值器（显隐复算/级联复核共用——功能设计 §7
+ *                  FormRuleEngine 候选名的落位形态）复核 type=cascade 提交值 ∈ 父项当前
+ *                  条件允许选项集，不匹配抛 {@code CS_FORM_CASCADE_OPTION_INVALID}；
+ *                  禁止逐项调用 formula simulate 接口（R08 第 1 条）。</li>
  *              </ul>
  *              <p><b>一期边界</b>（§3.6）：显隐复算裁剪作用于主表（顶层 + group/grid 容器内）
  *              字段与 permission=hidden 字段；明细行内显隐一期为渲染层语义——行内 show/hide
@@ -78,6 +86,24 @@ public class FormValidationEngine {
 
     /** 明细表组件 type（行上下文宿主） */
     private static final String TYPE_DETAIL_TABLE = "detailTable";
+
+    /** 级联选择器组件 type（S5 选项复核对象） */
+    private static final String TYPE_CASCADE = "cascade";
+
+    /** props 键：级联父数据项字段码（限定宿主数据层级内已配置的数据类字段，R08 第 4 条） */
+    private static final String PROP_PARENT_FIELD = "parentField";
+
+    /** props 键：级联选择项列表（options[{label, value, showCondition?}]，R08 条件 DSL） */
+    private static final String PROP_OPTIONS = "options";
+
+    /** props 键：级联单/多选（multi=true 值为数组，逐元素复核） */
+    private static final String PROP_MULTI = "multi";
+
+    /** props 键：选项显隐条件（{ operator, value }，语义同 §3.2 operator 全集，R08 第 1 条） */
+    private static final String PROP_SHOW_CONDITION = "showCondition";
+
+    /** 级联选项显隐条件反序列化（showCondition Map → SysFormRuleConditionDo，先例 FormSchemaValidator） */
+    private static final ObjectMapper CONDITION_MAPPER = new ObjectMapper();
 
     /* ---------- 条件 operator 全集分组（功能设计 §3.2，10 个，与 FormSchemaValidator 同口径） ---------- */
 
@@ -306,6 +332,191 @@ public class FormValidationEngine {
                         + "」提交值与既有值不一致，拒绝写入: " + code);
             }
         }
+    }
+
+    /* ==================== 对外入口四：级联选项复核（S5，R08 第 3 条服务端统一入口） ==================== */
+
+    /**
+     * 级联选项复核（分册 §4.3 S5 / 功能设计 §6.4，R08 第 3 条「保存时服务端统一入口复核」）：
+     * type=cascade 字段的提交值必须 ∈ 父项当前条件下允许的选项集——允许集 = props.options
+     * 中无 showCondition 的选项（恒允许）∪ showCondition 对父项当前值求值匹配的选项
+     * （条件为规则 DSL 条件形态 { operator, value }，与前端本地过滤共用
+     * {@link #conditionMatches} 同一求值语义——R08「前后端共用同一 DSL 条件求值语义保证
+     * 过滤与复核结果一致」）。不匹配抛 {@code CS_FORM_CASCADE_OPTION_INVALID}（确定性拒绝：
+     * 前端本地过滤是交互预演，越权提交——直接调接口提交被过滤选项——由后端权威兜底）。
+     *
+     * <p>复核口径：</p>
+     * <ul>
+     * <li>主表级联：父项当前值取载荷中 parentField 字段值（父项条件判定复用规则 DSL 的
+     *     条件求值语义，禁止逐项调用 formula simulate 接口，R08）；父项字段不在宿主数据
+     *     层级（定义期结构校验已拒绝，防御性）跳过复核。</li>
+     * <li>明细行内级联：逐行复核，父项当前值取本行 parentField 字段值（行上下文优先、
+     *     回落主表层级——与联动引用解析同口径；设计期校验限定 parentField 为宿主行上下文
+     *     内数据类字段）。</li>
+     * <li>父项为空：不特判、按条件求值——空值对 notEmpty/equal 等不匹配（被过滤选项的
+     *     提交值拒绝）、对 empty 匹配（允许），与前端过滤行为一致；「父项值清空时清空本
+     *     字段已选值」为组件内置联动（前端行为），服务端以提交值 ∈ 允许集复核兜底。</li>
+     * <li>multi=true 多选值逐元素复核；提交值为空（null/空白/空数组）跳过复核（必填
+     *     语义由 S2/S4 承载）；未配置 parentField（「存在即校验」口径，R08 第 4 条为条件
+     *     校验）或未配置选项/选项无 value 键跳过复核（枚举选项值已由 S2 承载）。</li>
+     * </ul>
+     *
+     * @param schema  实例锁定版本 Schema 协议对象（null 跳过）
+     * @param payload 合并裁决后的最终载荷（S5 位于 S2/S4 之后、S6 公式重算之前，分册 §4.3 步骤序）
+     */
+    public void assertCascadeOptions(SysFormSchemaDo schema, Map<String, Object> payload) {
+        if (null == schema || null == payload || payload.isEmpty()) {
+            return;
+        }
+        RuleIndex index = buildIndex(schema);
+        for (Map.Entry<String, SysFormFieldDo> entry : index.mainFields.entrySet()) {
+            SysFormFieldDo field = entry.getValue();
+            if (!TYPE_CASCADE.equals(field.getType())) {
+                continue;
+            }
+            assertMainCascadeOptions(field, entry.getKey(), index, payload);
+        }
+        for (Map.Entry<String, Map<String, SysFormFieldDo>> scopeEntry : index.rowScopes.entrySet()) {
+            for (SysFormFieldDo rowField : scopeEntry.getValue().values()) {
+                if (TYPE_CASCADE.equals(rowField.getType())) {
+                    assertRowCascadeOptions(rowField, scopeEntry.getKey(), payload);
+                }
+            }
+        }
+    }
+
+    /** 主表级联复核：父项当前值取载荷 parentField 字段值，提交值 ∈ 允许选项集 */
+    private void assertMainCascadeOptions(SysFormFieldDo field, String code, RuleIndex index,
+                                          Map<String, Object> payload) {
+        Object value = payload.get(code);
+        if (isEmptyValue(value)) {
+            return;
+        }
+        Map<String, Object> props = field.getProps();
+        String parentField = null == props ? null : textProp(props, PROP_PARENT_FIELD);
+        if (!nonBlank(parentField) || !index.mainFields.containsKey(parentField)) {
+            return; // 未配置父项（存在即校验）或父项不在宿主层级（定义期已拒绝，防御性跳过）
+        }
+        Set<Object> allowed = allowedOptionValues(field, payload.get(parentField));
+        if (null == allowed) {
+            return;
+        }
+        assertOptionMembership(field, code, null, value, allowed);
+    }
+
+    /** 明细行内级联复核：逐行取本行 parentField 字段值（行上下文优先、回落主表层级） */
+    private void assertRowCascadeOptions(SysFormFieldDo field, String detailCode, Map<String, Object> payload) {
+        Object rowsValue = payload.get(detailCode);
+        if (!(rowsValue instanceof List<?> rows) || rows.isEmpty()) {
+            return;
+        }
+        Map<String, Object> props = field.getProps();
+        String parentField = null == props ? null : textProp(props, PROP_PARENT_FIELD);
+        if (!nonBlank(parentField)) {
+            return;
+        }
+        for (int i = 0; i < rows.size(); i++) {
+            Object row = rows.get(i);
+            if (!(row instanceof Map<?, ?> rowMap)) {
+                continue; // 行对象结构违规由 S2 承载，防御性跳过
+            }
+            Map<String, Object> rowVars = asStringMap(rowMap);
+            Object value = rowVars.get(field.getField());
+            if (isEmptyValue(value)) {
+                continue;
+            }
+            // 父项当前值：行上下文优先、回落主表层级（与 setValue 联动引用解析同口径）
+            Object parentValue = rowVars.containsKey(parentField)
+                    ? rowVars.get(parentField) : payload.get(parentField);
+            Set<Object> allowed = allowedOptionValues(field, parentValue);
+            if (null == allowed) {
+                continue;
+            }
+            assertOptionMembership(field, field.getField(), i, value, allowed);
+        }
+    }
+
+    /**
+     * 允许选项集计算（R08 第 3 条「父项当前条件下允许的选项集」）：无 showCondition 选项
+     * 恒允许；showCondition 按父项当前值经 {@link #conditionMatches} 求值（同一 DSL 条件
+     * 语义）。未配置选项 / 选项均无 value 键返回 null（无可判定允许集，跳过复核——枚举
+     * 选项值已由 S2 承载）；选项齐备但条件全不匹配返回空集（提交任何值都拒绝）。
+     */
+    private static Set<Object> allowedOptionValues(SysFormFieldDo field, Object parentValue) {
+        Map<String, Object> props = field.getProps();
+        Object optionsRaw = null == props ? null : props.get(PROP_OPTIONS);
+        if (!(optionsRaw instanceof List<?> optionList) || optionList.isEmpty()) {
+            return null;
+        }
+        Set<Object> allowed = new LinkedHashSet<>();
+        boolean hasValueKey = false;
+        for (Object option : optionList) {
+            if (!(option instanceof Map<?, ?> optionMap) || !optionMap.containsKey("value")) {
+                continue;
+            }
+            hasValueKey = true;
+            Object showCondition = optionMap.get(PROP_SHOW_CONDITION);
+            if (null == showCondition) {
+                allowed.add(optionMap.get("value")); // 无显隐条件选项恒允许
+                continue;
+            }
+            SysFormRuleConditionDo condition;
+            try {
+                condition = CONDITION_MAPPER.convertValue(showCondition, SysFormRuleConditionDo.class);
+            } catch (IllegalArgumentException e) {
+                continue; // 条件结构违规由定义期结构校验器拦截（防御性跳过）
+            }
+            if (conditionMatches(condition, parentValue)) {
+                allowed.add(optionMap.get("value"));
+            }
+        }
+        return hasValueKey ? allowed : null;
+    }
+
+    /**
+     * 提交值 ∈ 允许选项集复核（multi=true 多选值逐元素；选项值比对容忍原始值相等或
+     * 字符串形态相等——同一数值的 JSON 表示漂移，口径同 FormDataBasicValidator 枚举校验）。
+     * 不匹配抛 {@code CS_FORM_CASCADE_OPTION_INVALID}（S5 确定性拒绝）。
+     */
+    private void assertOptionMembership(SysFormFieldDo field, String code, Integer rowIndex,
+                                        Object value, Set<Object> allowed) {
+        List<?> items = Boolean.TRUE.equals(valueMulti(field)) && value instanceof List<?> list
+                ? list : List.of(value);
+        for (Object item : items) {
+            if (!optionValueMatches(allowed, item)) {
+                String label = nonBlank(field.getLabel()) ? field.getLabel() : code;
+                String where = null == rowIndex ? "「" + label + "」" : "「" + label + "」（第 " + (rowIndex + 1) + " 行）";
+                log.debug("form cascade option rejected: code={}, value={}", code, item);
+                throw new IllegalArgumentException(CS_FORM_CASCADE_OPTION_INVALID + ": 级联选择器" + where
+                        + "提交值不在父项当前条件允许选项集内: " + item);
+            }
+        }
+    }
+
+    /** props.multi 判定（multi=true 值为数组、逐元素复核） */
+    private static boolean valueMulti(SysFormFieldDo field) {
+        Map<String, Object> props = field.getProps();
+        return null != props && Boolean.TRUE.equals(props.get(PROP_MULTI));
+    }
+
+    /** 选项值比对：原始值相等或字符串形态相等（容忍 JSON 表示漂移，同 S2 枚举校验口径） */
+    private static boolean optionValueMatches(Set<Object> allowed, Object item) {
+        if (allowed.contains(item)) {
+            return true;
+        }
+        String text = String.valueOf(item);
+        for (Object option : allowed) {
+            if (String.valueOf(option).equals(text)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** props 文本属性（非 String 或缺省返回 null） */
+    private static String textProp(Map<String, Object> props, String key) {
+        Object raw = null == props ? null : props.get(key);
+        return raw instanceof String text ? text : null;
     }
 
     /* ==================== 规则复算会话（固定点迭代 + 双熔断 + 幂等短路） ==================== */

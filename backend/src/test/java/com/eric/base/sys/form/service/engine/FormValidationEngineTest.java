@@ -37,7 +37,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *              {@code CS_FORM_RULE_CYCLE_EXCEEDED}（深度熔断：setValue/clearValue 互写
  *              振荡；次数熔断：单次求值动作执行计数达 MAX_RULE_EXECUTIONS_PER_CYCLE）、
  *              readonly 基线比对拒绝（assertReadonlyBaseline，二期实例更新接口预留通道——
- *              一期 save 无基线跳过）。
+ *              一期 save 无基线跳过）；F15-BE-005 级联选项复核（assertCascadeOptions，S5
+ *              R08 第 3 条服务端统一入口）：提交值 ∈ 父项条件允许选项集放行、越权选项
+ *              CS_FORM_CASCADE_OPTION_INVALID、无 showCondition 选项恒允许、multi 多选
+ *              逐元素复核、父项为空按条件求值（empty 条件允许 / equal 条件拒绝）、行内
+ *              级联逐行复核（行上下文父子）、未配置 parentField/选项与空值跳过复核。
  */
 class FormValidationEngineTest {
 
@@ -412,6 +416,160 @@ class FormValidationEngineTest {
         Map<String, Object> stored = payload("a", 1);
         assertEquals(stored, engine.clipForRead(null, stored), "Schema 缺失防御性原样下发");
         assertNull(engine.clipForRead(payTypeSchema(), null), "载荷缺失原样返回");
+    }
+
+    // ---------------------------------------------------------------- 级联选项复核（F15-BE-005，S5，R08 第 3 条）
+
+    /** 提交值 ∈ 父项条件允许选项集：放行（与前端本地过滤同一条件求值语义） */
+    @Test
+    void cascadeOptionAllowedWhenParentConditionMatches() {
+        SysFormSchemaDo schema = cascadeSchema();
+        Map<String, Object> payload = payload("customerType", "enterprise", "channel", "keyAccount");
+
+        engine.assertCascadeOptions(schema, payload); // 不抛即通过
+    }
+
+    /** 提交值 ∉ 父项条件允许选项集（被过滤选项越权提交）：CS_FORM_CASCADE_OPTION_INVALID */
+    @Test
+    void cascadeOptionRejectedWhenParentConditionNotMatched() {
+        SysFormSchemaDo schema = cascadeSchema();
+        // personal 条件下 keyAccount 选项被过滤（showCondition equal enterprise），越权提交拒绝
+        Map<String, Object> payload = payload("customerType", "personal", "channel", "keyAccount");
+
+        String message = assertCascadeError(() -> engine.assertCascadeOptions(schema, payload));
+        assertTrue(message.contains("渠道") && message.contains("keyAccount"),
+                "错误定位级联字段 label 与越权选项值: " + message);
+    }
+
+    /** 无 showCondition 选项恒允许；multi 多选值逐元素复核（任一元素越权即拒绝） */
+    @Test
+    void cascadeMultiChecksEachElementAndUnconditionalOptionAlwaysAllowed() {
+        SysFormFieldDo parent = field("customerType", "select", "客户类型");
+        parent.setProps(props("multi", false,
+                "options", List.of(option("enterprise", "企业"), option("personal", "个人"))));
+        SysFormFieldDo contacts = field("contacts", "cascade", "联系人渠道");
+        // optionA 无条件恒允许；optionB 条件 enterprise；multi=true 值为数组
+        Map<String, Object> optionA = option("public", "公开渠道");
+        Map<String, Object> optionB = option("keyAccount", "大客户渠道");
+        optionB.put("showCondition", condition("equal", "enterprise"));
+        contacts.setProps(props("parentField", "customerType", "multi", true,
+                "options", List.of(optionA, optionB)));
+        SysFormSchemaDo schema = schemaOf(parent, contacts);
+
+        // enterprise 下两选项均允许
+        engine.assertCascadeOptions(schema,
+                payload("customerType", "enterprise", "contacts", List.of("public", "keyAccount")));
+        // personal 下 keyAccount 被过滤，多选数组中任一越权元素即拒绝
+        assertCascadeError(() -> engine.assertCascadeOptions(schema,
+                payload("customerType", "personal", "contacts", List.of("public", "keyAccount"))));
+    }
+
+    /** 父项为空：不特判按条件求值——empty 条件选项允许、equal 条件选项拒绝（与前端过滤一致） */
+    @Test
+    void cascadeEmptyParentEvaluatesConditionsAgainstEmptyValue() {
+        SysFormFieldDo parent = field("customerType", "select", "客户类型");
+        parent.setProps(props("multi", false,
+                "options", List.of(option("enterprise", "企业"), option("personal", "个人"))));
+        SysFormFieldDo fallback = field("fallbackChannel", "cascade", "兜底渠道");
+        Map<String, Object> emptyConditionOption = option("any", "通用渠道");
+        emptyConditionOption.put("showCondition", condition("empty", null));
+        Map<String, Object> enterpriseOnlyOption = option("keyAccount", "大客户渠道");
+        enterpriseOnlyOption.put("showCondition", condition("equal", "enterprise"));
+        fallback.setProps(props("parentField", "customerType",
+                "options", List.of(emptyConditionOption, enterpriseOnlyOption)));
+        SysFormSchemaDo schema = schemaOf(parent, fallback);
+
+        // 父项为空：empty 条件选项允许
+        engine.assertCascadeOptions(schema, payload("fallbackChannel", "any"));
+        // 父项为空：equal enterprise 条件选项拒绝（父项清空时前端清空本字段值，越权提交兜底拒绝）
+        String message = assertCascadeError(() ->
+                engine.assertCascadeOptions(schema, payload("fallbackChannel", "keyAccount")));
+        assertTrue(message.contains("keyAccount"), message);
+    }
+
+    /** 明细行内级联：逐行复核，父项取本行值（行上下文优先），越权行确定性拒绝 */
+    @Test
+    void cascadeInDetailRowsCheckedPerRow() {
+        SysFormFieldDo detail = field("purchaseDetails", "detailTable", "采购明细");
+        detail.setChildren(List.of(
+                field("category", "select", "品类"),
+                rowCascadeField("supplier")));
+        SysFormSchemaDo schema = schemaOf(detail);
+
+        Map<String, Object> row1 = new LinkedHashMap<>();
+        row1.put("category", "hardware");
+        row1.put("supplier", "brandSupplier");
+        Map<String, Object> row2 = new LinkedHashMap<>();
+        row2.put("category", "service");
+        row2.put("supplier", "brandSupplier");
+        Map<String, Object> payload = payload("purchaseDetails", List.of(row1, row2));
+
+        // 第 1 行 category=hardware 允许 brandSupplier；第 2 行 service 下 brandSupplier 被过滤 → 拒绝
+        String message = assertCascadeError(() -> engine.assertCascadeOptions(schema, payload));
+        assertTrue(message.contains("第 2 行"), "错误定位越权行号: " + message);
+    }
+
+    /** 提交值为空 / 未配置 parentField：跳过复核（必填与枚举语义由 S2/S4 承载） */
+    @Test
+    void cascadeRecheckSkipsEmptyValueAndMissingParentField() {
+        SysFormFieldDo parent = field("customerType", "select", "客户类型");
+        parent.setProps(props("multi", false,
+                "options", List.of(option("enterprise", "企业"), option("personal", "个人"))));
+        SysFormFieldDo withoutParent = field("channel", "cascade", "渠道");
+        Map<String, Object> conditionalOption = option("keyAccount", "大客户渠道");
+        conditionalOption.put("showCondition", condition("equal", "enterprise"));
+        withoutParent.setProps(props("options", List.of(conditionalOption)));
+        SysFormSchemaDo schema = schemaOf(parent, withoutParent);
+
+        // 未配置 parentField：跳过复核（「存在即校验」口径，R08 第 4 条为条件校验）
+        engine.assertCascadeOptions(schema, payload("channel", "keyAccount"));
+        // 未配置选项（无可判定允许集）：跳过复核
+        SysFormFieldDo noOptions = field("channel2", "cascade", "渠道2");
+        noOptions.setProps(props("parentField", "customerType"));
+        SysFormSchemaDo schema2 = schemaOf(parent, noOptions);
+        engine.assertCascadeOptions(schema2, payload("customerType", "personal", "channel2", "任意值"));
+        // 提交值为空：跳过复核
+        SysFormSchemaDo schema3 = cascadeSchema();
+        engine.assertCascadeOptions(schema3, payload("customerType", "personal"));
+    }
+
+    /** 级联 Schema 构造：customerType 父项 + channel 级联（keyAccount 选项条件 enterprise） */
+    private static SysFormSchemaDo cascadeSchema() {
+        SysFormFieldDo parent = field("customerType", "select", "客户类型");
+        parent.setProps(props("multi", false,
+                "options", List.of(option("enterprise", "企业"), option("personal", "个人"))));
+        SysFormFieldDo channel = field("channel", "cascade", "渠道");
+        Map<String, Object> keyAccount = option("keyAccount", "大客户渠道");
+        keyAccount.put("showCondition", condition("equal", "enterprise"));
+        channel.setProps(props("parentField", "customerType",
+                "options", List.of(option("public", "公开渠道"), keyAccount)));
+        return schemaOf(parent, channel);
+    }
+
+    /** 行内级联字段构造（supplier 选项条件 category=hardware，行上下文父子） */
+    private static SysFormFieldDo rowCascadeField(String code) {
+        SysFormFieldDo cascade = field(code, "cascade", "供应商");
+        Map<String, Object> brand = option("brandSupplier", "品牌供应商");
+        brand.put("showCondition", condition("equal", "hardware"));
+        cascade.setProps(props("parentField", "category",
+                "options", List.of(option("ordinary", "普通供应商"), brand)));
+        return cascade;
+    }
+
+    private static String assertCascadeError(Runnable runnable) {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, runnable::run);
+        assertTrue(null != error.getMessage()
+                        && error.getMessage().startsWith(SysFormConstants.CS_FORM_CASCADE_OPTION_INVALID + ":"),
+                "错误码应为 CS_FORM_CASCADE_OPTION_INVALID，实际: " + error.getMessage());
+        return error.getMessage();
+    }
+
+    private static Map<String, Object> props(Object... pairs) {
+        Map<String, Object> props = new LinkedHashMap<>();
+        for (int i = 0; i < pairs.length; i += 2) {
+            props.put((String) pairs[i], pairs[i + 1]);
+        }
+        return props;
     }
 
     // ---------------------------------------------------------------- 构造辅助

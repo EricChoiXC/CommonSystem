@@ -19,6 +19,8 @@ import com.eric.base.sys.form.request.SysFormUpdateRequest;
 import com.eric.base.sys.form.response.SysFormVersionCreatedVo;
 import com.eric.base.sys.form.response.SysFormVersionVo;
 import com.eric.base.sys.form.response.SysFormVo;
+import com.eric.base.sys.form.service.engine.FormDataBasicValidator;
+import com.eric.base.sys.form.service.engine.FormFormulaEvaluator;
 import com.eric.base.sys.form.service.engine.FormSchemaValidator;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -102,12 +104,16 @@ public class SysFormService {
 
     private final FormSchemaValidator schemaValidator;
 
+    private final FormFormulaEvaluator formulaEvaluator;
+
     public SysFormService(SysFormDao formDao, SysFormVersionDao versionDao,
-                          SysFormDataDao dataDao, FormSchemaValidator schemaValidator) {
+                          SysFormDataDao dataDao, FormSchemaValidator schemaValidator,
+                          FormFormulaEvaluator formulaEvaluator) {
         this.formDao = formDao;
         this.versionDao = versionDao;
         this.dataDao = dataDao;
         this.schemaValidator = schemaValidator;
+        this.formulaEvaluator = formulaEvaluator;
     }
 
     /* ==================== 定义面管理 ==================== */
@@ -364,7 +370,9 @@ public class SysFormService {
      * 发布表单（分册 §3.8，事务内）。发布校验链按序全部通过方可发布，任一失败确定性拒绝：
      * P1 草稿行存在（无草稿行直接发布为非法流转，CS_FORM_NO_DRAFT）→ P2/P3 Schema 结构
      * 与资源上限校验（按存储原文 String 形态，含体积上限；CS_FORM_SCHEMA_INVALID /
-     * CS_FORM_SCHEMA_LIMIT_EXCEEDED）→ P4 公式静态校验随 F15-BE-005 并入。发布成功动作：
+     * CS_FORM_SCHEMA_LIMIT_EXCEEDED）→ P4 公式静态校验（{@link FormFormulaEvaluator
+     * #assertPublishable}：表达式合法 / 期望返回类型与引用字段存在 / 依赖图无环，错误码
+     * 复用 CS_FORMULA_* 族——分册 §7.2 复用映射）。发布成功动作：
      * 草稿行原地冻结（版本号回填 = 现存最大 + 1、状态 DRAFT → PUBLISHED、published_at
      * 回填）→ 原当前发布版本（若有）PUBLISHED → DEPRECATED → 主档 field_current_version_id
      * 切换至新版本行、主档状态 DRAFT → PUBLISHED（首次发布）。表单停用不阻断发布
@@ -384,8 +392,13 @@ public class SysFormService {
         }
         // P2/P3 Schema 结构与资源上限校验（按存储原文校验——体积上限仅 String 入口检查）
         requireSchemaValid(toStoreJson(draftRow.getFieldSchemaJson()));
-        // P4 公式静态校验（表达式合法 / 引用字段存在 / 依赖图无环，错误码复用 CS_FORMULA_*）：
-        // 随 F15-BE-005 集成 FormFormulaEvaluator 后并入本校验链（发布校验链扩展点）。
+        // P4 公式静态校验（F15-BE-005，分册 §7.2 复用映射）：表达式合法（引擎 validate
+        //   宽松模式，CS_FORMULA_EXPRESSION_TOO_LONG / SYNTAX_INVALID / FUNCTION_NOT_FOUND
+        //   原样透出）/ 期望返回类型合法（CS_FORMULA_TYPE_MISMATCH）/ 引用字段存在（宿主
+        //   数据层级内已配置字段 + ${list.field} 投影根码与行内字段存在，CS_FORMULA_VARIABLE_
+        //   INVALID）/ 依赖图无环（CS_FORMULA_EXECUTE_FAILED，运行期拓扑熔断同码兜底）——
+        //   引擎首错即抛，失败阻断发布（功能设计 §5.2 发布校验链）
+        formulaEvaluator.assertPublishable(parseSchema(draftRow.getFieldSchemaJson()));
 
         Integer maxVersion = versionDao.selectMaxVersion(exist.getFieldId());
         int nextVersion = (null == maxVersion ? 0 : maxVersion) + 1;
