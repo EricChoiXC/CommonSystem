@@ -35,6 +35,7 @@
 | 版本 | 日期 | 变更说明 |
 | --- | --- | --- |
 | V1.0 | 2026-11-23 | 初版：6 条路由与菜单冻结（R06 填写页路由形态定稿）、设计器三区域与画布交互冻结（R07 依赖倾向登记）、属性面板固定属性项 + 18 组件扩展属性项登记、规则面板四类规则配置形态、渲染器三形态消费方式、管理列表页 / 元数据表单页 / 填写页 / 数据详情页契约、`api/form.js` 15 函数清单、组件目录规划、走查清单与待确认事项 |
+| V1.1 | 2026-11-25 | F15-FE-008 实现期回写：§4.1 拖拽依赖实现期裁决为原生 HTML5 DnD（零新依赖，R07 收口 CLOSED，§4.4 两处联动修正）；§9.2 设计器子组件实现命名落位（MaterialsPanel / PropertyPanel / RulePanel / PreviewDialog / SchemaImportDialog / VersionsDialog / designerSupport.js，designerSupport 承载快照栈与导入校验器）且 FormDesigner 经 components/index.js 统一出口导出（编译覆盖，区别于「不进统一出口」初版规划）；§4.4 补选中/落点解析实现口径（`.renderer-field-item[data-field]` 委托 + 码链消歧）、§4.9 补发布前置「画布有未保存改动先保存」预判；§11 T-01/T-05 收口 |
 
 ---
 
@@ -195,14 +196,14 @@ if (path.startsWith('/form/')) return '/form/manage'
 > v1_5 待实现（F15-FE-008 设计器组件、F15-FE-009 页面接入；画布分层形态参照 v1.7 流程设计器先例 `frontend/src/components/process/designer/`——物料面板 / 画布容器 / 配置弹窗分层）。
 > 设计器页路由 `form/design/:id`（独立整页路由，区别于 v1.7 流程模板「表单页内嵌画布」形态——表单元数据与 Schema 编排分离为两个页面，元数据在 §7 表单页维护、设计器页专注 Schema 编排）。
 
-### 4.1 依赖与加载策略（R07 依赖倾向登记，不裁决）
+### 4.1 依赖与加载策略（R07 已收口：零新依赖）
 
 | 项 | 约定 |
 | --- | --- |
-| 拖拽依赖 | **一期必需引入**：拖拽放置与排序基于 vuedraggable / SortableJS（**倾向 vuedraggable 4**（Vue 3 适配层），具体选型与版本随 F15-FE-002 收口——本分册只登记依赖倾向，不裁决，R07 保持 OPEN） |
+| 拖拽依赖 | **一期不引入任何拖拽依赖（实现期裁决，R07 收口 CLOSED）**：拖拽放置与排序基于原生 HTML5 DnD（dragstart/dragover/drop + `elementFromPoint`/`closest` 落点解析）。裁决理由——画布 DOM 由配置态渲染器（`FormRenderer` 内部递归渲染）拥有，SortableJS 直接改 DOM 会与 Vue 状态失同步、vuedraggable 无法接管渲染器内部列表，原生 DnD 零依赖同时彻底消除新依赖体积与 Vite 5 兼容风险（R07 验收口径）；本行替代 V1.0 的「一期必需引入 vuedraggable / SortableJS」倾向登记 |
 | Monaco Editor | **一期不引入**（R02 已裁决一期无代码编辑器；设计器无代码块编辑面板，§4.6 响应函数占位不提供配置入口） |
 | Ajv | **一期不引入**（R01 倾向自研轻量结构校验器：校验规则 = 功能详细设计 §2.2 资源限制常量 + §3 DSL 合法性，不需要完整 JSON Schema Draft 校验器；随 F15-BE-001 / F15-FE-002 编码复核） |
-| 引入方式 | 设计器组件仅在 `form/design/:id` 路由被访问时随路由分块懒加载（`component: () => import(...)` 既有写法天然分块），不进主包；`npm run build` 验证 chunk 体积（R07 验收口径，随 F15-FE-008 执行） |
+| 引入方式 | 设计器组件仅在 `form/design/:id` 路由被访问时随路由分块懒加载（`component: () => import(...)` 既有写法天然分块），不进主包；`npm run build` 验证 chunk 体积（R07 验收口径，F15-FE-008 已验证：设计器独立 chunk 约 54KB / gzip 约 17KB，零新依赖、无新增 chunk 体积异常，主包 chunk 告警为 element-plus 既有口径不变） |
 
 ### 4.2 三区域布局
 
@@ -253,7 +254,7 @@ if (path.startsWith('/form/')) return '/form/manage'
 
 | 交互 | 触发方式 | 行为约定 |
 | --- | --- | --- |
-| 拖拽放置 | 物料卡片拖入画布（vuedraggable / SortableJS，R07 倾向见 §4.1） | 落点生成新字段对象（默认名称 + 默认字段码），推入目标层级的 `fields[]` / `children[]` / 列 `fields[]` |
+| 拖拽放置 | 物料卡片拖入画布（**原生 HTML5 DnD**，实现期裁决见 §4.1——R07 收口零新依赖） | 落点生成新字段对象（默认名称 + 默认字段码），推入目标层级的 `fields[]` / `children[]` / 列 `fields[]`；落点解析：`elementFromPoint` → `closest('.renderer-field-item[data-field]')`（明细表设计骨架行内单元格回落 `[data-field]`）→ 由外到内字段码链反查扁平索引条目（行内字段码可与主表同码，码链消歧），目标矩形上半/下半判定同层 before/after、悬于容器中部（15%~85%）判定拖入容器成为其子字段；悬停以插入位置指示条可视化 |
 | 点击插入 | 物料卡片单击 | 插入画布末尾（或当前选中容器的 `children` 末尾——选中容器时插入其内部） |
 | 排序 | 同层级拖拽 | 仅调整同层级字段顺序（含容器内与明细行内），跨层拖拽由拖拽目标位置语义决定（拖入容器即成为其子字段） |
 | 选中态 | 点击画布组件 | 选中高亮（描边）+ 右侧属性面板联动（属性 Tab 加载该字段属性、规则 Tab 加载该字段触发源规则）；点击画布空白处取消选中（属性 Tab 回落画布级摘要） |
@@ -365,7 +366,7 @@ if (path.startsWith('/form/')) return '/form/manage'
 
 | 入口 | 行为约定 |
 | --- | --- |
-| 发布（设计器页【发布】） | 前端预判：无草稿行（已发布未再编辑，`draftSchema` 为 null 且画布无未保存改动）时按钮置灰 + 提示「无草稿可发布，请先修改表单」（对应 `CS_FORM_NO_DRAFT` 非法流转预判）；可发布时弹**发布确认弹窗**：「发布将把当前草稿冻结为不可变新版本（版本号 Vn+1），已发布版本不可再修改；在途数据继续使用原版本，新填写使用新版本。确定发布？」→ 确认调 `publishForm({ fieldId })` → 成功提示新版本号（响应 `{ fieldVersionId, fieldVersion }`）并刷新画布状态（草稿行已冻结、后续编辑产生新草稿）；发布失败按校验链逐条展示（P1 `CS_FORM_NO_DRAFT` / P2 `CS_FORM_SCHEMA_INVALID` 中文原因列表 / P3 `CS_FORM_SCHEMA_LIMIT_EXCEEDED` / P4 `CS_FORMULA_*` 透传，API 分册 §3.8） |
+| 发布（设计器页【发布】） | 前端预判：无草稿行（已发布未再编辑，`draftSchema` 为 null 且画布无未保存改动）时按钮置灰 + 提示「无草稿可发布，请先修改表单」（对应 `CS_FORM_NO_DRAFT` 非法流转预判）；**画布有未保存改动（dirty）时发布入口提示「请先【保存草稿】再发布」**（避免发布与画布不一致的服务端存量草稿，实现期预判细化）；可发布时弹**发布确认弹窗**：「发布将把当前草稿冻结为不可变新版本（版本号 Vn+1），已发布版本不可再修改；在途数据继续使用原版本，新填写使用新版本。确定发布？」→ 确认调 `publishForm({ fieldId })` → 成功提示新版本号（响应 `{ fieldVersionId, fieldVersion }`）并刷新画布状态（草稿行已冻结、后续编辑产生新草稿）；发布失败按校验链逐条展示（P1 `CS_FORM_NO_DRAFT` / P2 `CS_FORM_SCHEMA_INVALID` 中文原因列表 / P3 `CS_FORM_SCHEMA_LIMIT_EXCEEDED` / P4 `CS_FORMULA_*` 透传，API 分册 §3.8） |
 | 版本列表（设计器页【版本】+ 管理页行【版本】共用弹窗） | 打开版本列表弹窗（`getFormVersions(fieldId)`，响应按 `fieldVersion` 降序）：列 = 版本号 / 状态（`DRAFT` 草稿 tag info（至多一行）/ `PUBLISHED` 当前发布 tag success / `DEPRECATED` 已替代 tag info）/ 发布时间（草稿行显示「-」）/ 创建时间 / 操作（回滚——仅 `PUBLISHED` / `DEPRECATED` 行可回滚，`DRAFT` 行禁用）；**版本行不携带 Schema 内容，弹窗不做历史版本内容预览 / 对比**（API 分册 §3.9 / §10-6 登记） |
 | 回滚（版本弹窗行【回滚】） | 确认文案：「回滚将复制该历史版本内容发布为新版本（Vn+1），不影响既有草稿与在途数据；确定回滚？」→ 确认调 `rollbackForm({ fieldId, fieldVersionId })` → 成功提示新版本号并刷新版本列表与画布状态（回滚 = 重发布副本，不产生指针回拨，功能详细设计 §5.1 原则 5） |
 
@@ -594,18 +595,28 @@ frontend/src/components/form/
 │  ├─ eventBus.js               #   渲染器事件总线订阅入口
 │  ├─ ruleEngine.js             #   register/execute/validate 统一接口
 │  └─ evaluators.js             #   条件求值（operator 十项）与动作执行器（六类动作）
-└─ designer/                    # 设计器子组件（F15-FE-008；不进 components/index.js 统一出口，
-   ├─ MaterialPanel.vue         #   表单模块内部消费——左物料栏（分类分组 + 点击/拖拽）
-   ├─ DesignCanvas.vue          #   中设计画布（配置态渲染器挂载 + 拖拽排序/选中/工具条/嵌套校验）
-   ├─ PropertyPanel.vue         #   右属性面板（固定属性项 + 按物料 propSchema 动态渲染扩展属性）
-   ├─ RulePanel.vue             #   规则配置面板（四类规则可视化 + 上限提示）
-   ├─ PreviewDialog.vue         #   预览弹窗（编辑态渲染器挂载 + 字段权限预演）
-   ├─ SchemaImportDialog.vue    #   Schema 导入弹窗（粘贴 + 轻量结构校验）
-   ├─ VersionDialog.vue         #   版本列表与回滚弹窗（管理页与设计器页共用）
-   └─ snapshot.js               #   Schema 快照栈（撤销重做，仅草稿会话）
+└─ designer/                    # 设计器子组件（F15-FE-008 落地命名；FormDesigner 经
+   ├─ FormDesigner.vue          #   components/index.js 统一出口导出——编译覆盖 + 页面层
+   │                            #   `<FormDesigner :form-id @back>` 整体内嵌消费；
+   │                            #   三区域主组件：顶部工具区与表单级动作（保存草稿/预览/
+   │                            #   导入/导出/版本/发布自持承接）、画布挂载配置态渲染器、
+   │                            #   选中态/拖拽落点解析/悬浮工具条/快照栈接线/脏数据保护
+   │                            #   （expose isDirty()/getSchema() 供页面层路由守卫）
+   ├─ MaterialsPanel.vue        # 左物料栏（分类分组 + 点击插入 / 原生拖拽）
+   ├─ PropertyPanel.vue         # 右属性面板（固定属性项 + 按物料 propSchema 动态渲染
+   │                            #   扩展属性，EDITOR_TYPES 全类型支持；公式项复用
+   │                            #   FormulaDesigner 弹窗）
+   ├─ RulePanel.vue             # 规则配置面板（四类规则可视化 + 上限提示 + 循环防护文案）
+   ├─ PreviewDialog.vue         # 预览弹窗（编辑态渲染器挂载 + 字段权限预演 + 本地校验）
+   ├─ SchemaImportDialog.vue    # Schema 导入弹窗（粘贴 + 轻量结构校验 + 二次确认）
+   ├─ VersionsDialog.vue        # 版本列表与回滚弹窗（管理页与设计器页共用）
+   └─ designerSupport.js        # 设计器纯逻辑模块（零 import、node 可直测）：资源限制
+                                #   等值常量 / Schema 快照栈（undo/redo，栈深 50）/
+                                #   扁平索引（码链消歧）/ 字段码与默认名称生成 /
+                                #   放置约束 / 导入轻量结构校验器 / 规则与条件摘要文案
 ```
 
-- 目录骨架对齐功能详细设计 §0.2 定稿（`registry.js` + `materials/` + `widgets/` + `rules/` + `designer/` + `FormRenderer.vue`）与任务卡 F15-FE-002/005/006/008 影响路径；子组件文件名为**规划名**，实现期可微调、目录分层不变（§11 T-08）。
+- 目录骨架对齐功能详细设计 §0.2 定稿（`registry.js` + `materials/` + `widgets/` + `rules/` + `designer/` + `FormRenderer.vue`）与任务卡 F15-FE-002/005/006/008 影响路径；designer/ 子文件名已按实现落地命名回写（规划名微调，目录分层不变——§11 T-08），与 V1.0 规划的差异：画布逻辑内聚于 FormDesigner 主组件（不拆 DesignCanvas）、快照栈与导入校验器合并入 designerSupport.js 纯逻辑模块、**FormDesigner 经 components/index.js 统一出口导出**（与「不进统一出口」初版规划不同——页面层以 `<FormDesigner :form-id @back>` 整体内嵌消费，统一出口同时保证 `npm run build` 编译覆盖设计器代码）。
 - 渲染器与设计器均只经 `registry` 取物料，任何组件不直接 import 其他组件的运行时实现（开闭原则：新增组件只需注册物料、不改渲染器与规则引擎）。
 - 命名遵循 AGENTS §7：组件 `PascalCase.vue`、api / rules / utils 用小写；页面组件 `views/form/` 下 `PascalCase` + `View.vue` 结尾且显式声明组件名（供 `HomeView` 的 KeepAlive `include` 匹配）。
 
@@ -649,11 +660,11 @@ frontend/src/components/form/
 
 | 编号 | 待确认项 | 影响范围 | 本分册已给口径 / 建议处置 |
 | --- | --- | --- | --- |
-| T-01 | R07 拖拽依赖最终选型（vuedraggable 4 vs SortableJS 直用）与 chunk 体积实测 | 物料库 / 设计器（F15-FE-002/008） | 本分册只登记依赖倾向：**拖拽一期引入、Monaco 不引入（R02）、Ajv 不引入（自研轻量结构校验器）**；选型随 F15-FE-002 收口并回写 §4.1 |
+| T-01 | ~~R07 拖拽依赖最终选型~~ **已收口（2026-11-25，F15-FE-008）**：实现期裁决为原生 HTML5 DnD、零新依赖（裁决理由见 §4.1），R07 CLOSED；chunk 体积已实测（设计器独立分块，主包口径不变） | 物料库 / 设计器（F15-FE-002/008） | ~~本分册只登记依赖倾向~~ 已回写 §4.1 |
 | T-02 | `listFormData` 的页面承接（数据列表页） | 管理视角数据查看（F15-INT-002 评估） | 一期不设数据列表页（§2.2 说明 4）——数据查看经填写页【查看数据】、业务链接或业务内嵌消费；联调期出现管理侧数据列表诉求时补页面与路由并同批回写本分册与 API 分册 |
 | T-03 | 历史版本 Schema 内容预览 / 版本对比 | 版本列表弹窗（§4.9） | 一期不设版本行详情接口（API 分册 §10-6 登记）；版本弹窗仅元信息；出现诉求须先补 `GET /define/version` 接口并回写 API 分册，再补 UI |
 | T-04 | 数据实例再编辑页（`PATCH /data/update`） | 填写页 / 数据详情页 | 一期填写页仅新建、详情页只读（API 分册 §4.3 一期范围说明）；出现「数据再编辑」诉求须补接口与页面并回写两册 |
-| T-05 | 设计器快照栈容量上限与跨页签行为（撤销重做内存策略） | 设计器画布（F15-FE-008） | 前端内存策略（如栈深上限 50 步），实现期定，不改本分册交互语义（仅作用于草稿会话） |
+| T-05 | 设计器快照栈容量上限与跨页签行为（撤销重做内存策略） | 设计器画布（F15-FE-008） | **已实现定值（2026-11-25）**：栈深上限 50 步（`SNAPSHOT_STACK_LIMIT`，超出丢弃最旧快照；仅结构变更压栈），仅作用于草稿会话、离开页面快照丢弃——不改本分册交互语义 |
 | T-06 | 功能详细设计 §6.1 第②步「未知字段裁剪 + 告警」表述与 API 分册 §7.4① 定稿「拒绝（`CS_FORM_UNKNOWN_FIELD`）」的统一 | ~~文档一致性（F15-DOC-006）~~ **已闭环（2026-11-23 核实）**：功能设计保存校验链第②步在 F15-DOC-002 提交时已同步为「拒绝」口径（并登记 API 分册 §7.4 指向），本项无需 DOC-006 再处理；本分册填写页错误提示按「拒绝」口径书写（§8.1） | 以 API 分册定稿为准 |
 | T-07 | 业务系统链接拼接规范细化（`/form/fill/{formId}?businessId=` 的编码与防篡改约定） | 填写页（F15-FE-009） | 本分册仅登记参数位与语义（§2.2 说明 2、§3.4）；`businessId` 为弱关联、归属以会话用户为准，防篡改无附加要求；细化随业务接入批次 |
 | T-08 | §9.2 组件目录子文件名（规划名）与 `materials/` 聚合粒度 | 物料库 / 设计器（F15-FE-002/008） | 实现期可微调，目录分层（`registry.js` + `materials/` + `widgets/` + `rules/` + `designer/` + `FormRenderer.vue`）不变 |

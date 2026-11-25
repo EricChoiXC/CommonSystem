@@ -110,7 +110,7 @@ const props = defineProps({
   dataId: { type: String, default: '' },
 })
 
-const emit = defineEmits(['update:modelValue', 'change'])
+const emit = defineEmits(['update:modelValue', 'change', 'expression'])
 
 /* ==================== 渲染形态与 Schema 视图 ==================== */
 
@@ -389,12 +389,14 @@ function handleRowChange({ detailCode, field, value, oldValue, rowIndex, row }) 
 }
 
 /**
- * FormulaWidget design 态 update:expression：画布数据绑定旁路——渲染器不回写
- * field.props.expression，由 Wave 4 设计器消费该事件决定是否回写（§4.3 第 7 条）；
- * edit/detail 态 FormulaWidget 不触发该事件（值来源仅服务端重算回写，ADR-09）。
+ * FormulaWidget design 态 update:expression：画布数据绑定旁路——渲染器自身不回写
+ * field.props.expression，向上 emit 'expression' 明细 { field, expression } 供设计器
+ * （Wave 4 FormDesigner）决定是否回写（§4.3 第 7 条；F15-FE-008 最小增量：新增 emit
+ * 转发，不改变既有行为——edit/detail 态 FormulaWidget 不触发该事件，值来源仅服务端
+ * 重算回写，ADR-09）。
  */
-function handleFieldExpression() {
-  // 画布数据绑定旁路：有意不处理（设计器 Wave 4 挂载点）
+function handleFieldExpression(payload) {
+  emit('expression', payload)
 }
 
 /* ==================== 初始化与回显（§4.3 第 3 条） ==================== */

@@ -26,7 +26,18 @@
         <span class="detail-table-design-col detail-table-design-op">操作</span>
       </div>
       <div class="detail-table-design-row">
-        <span v-for="child in dataChildren" :key="child.field" class="detail-table-design-cell"></span>
+        <!--
+          F15-FE-008 最小增量：设计骨架行内单元格补稳定 data-field 结构钩子 + 行内字段
+          名称示意——设计器画布对行内字段的选中 / 拖拽放置 / 插入位置解析依赖
+          [data-field] 结构钩子（与 FormFieldNode 每字段项根元素同口径），不改既有
+          行为与契约（design 态仍为占位骨架、数据绑定旁路）。
+        -->
+        <span
+          v-for="child in dataChildren"
+          :key="child.field"
+          class="detail-table-design-cell"
+          :data-field="child.field"
+        >{{ child.label || child.field }}</span>
         <span class="detail-table-design-cell detail-table-design-op"></span>
       </div>
       <div class="detail-table-design-hint">
@@ -606,6 +617,15 @@ function isCellRequired(child, rowIndex) {
   border: 1px dashed var(--el-border-color);
   border-radius: 4px;
   background: var(--el-fill-color-lighter);
+  /* F15-FE-008：单元格承载行内字段名称示意（画布选中 / 嵌套放置定位消费），截断防溢出 */
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail-table-design-cell.detail-table-design-op {

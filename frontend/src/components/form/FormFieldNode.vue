@@ -48,7 +48,12 @@
   </section>
   <div v-else-if="isGrid" class="renderer-grid renderer-field-item" :data-field="node.field">
     <el-row :gutter="16">
-      <el-col v-for="(column, colIndex) in gridColumns" :key="colIndex" :span="columnSpan(column)">
+      <el-col
+        v-for="(column, colIndex) in gridColumns"
+        :key="colIndex"
+        :span="columnSpan(column)"
+        :data-col-index="colIndex"
+      >
         <FormFieldNode
           v-for="child in columnFields(column)"
           :key="child.field"
@@ -225,6 +230,11 @@ const ruleVisibility = computed(() =>
 
 /**
  * 是否不渲染（动态状态桥，F15-FE-006）：
+ * - design 配置态恒渲染（F15-FE-008 最小增量：画布需对 props.hidden=true 静态初始隐藏
+ *   字段做半透明 + 〈初始隐藏〉角标可视化，UI 分册 §4.4——隐藏字段的呈现样式由设计器
+ *   画布层叠加承载，本组件只放开渲染；permission=hidden 字段同为可编辑配置对象，
+ *   设计态一并渲染供属性面板改回；edit/detail 态语义不变——三类隐藏仍不渲染，
+ *   §5.3 隐藏不占布局位）；
  * - permission=hidden → 恒隐且值不进提交载荷（渲染器数据层经 cropPayloadData 裁剪，
  *   §4.3 第 4 条 / §3.6 ②③层）；
  * - 规则显隐终态覆盖优先：false=规则隐藏（§3.6 ①渲染层隐藏不删值）、true=规则显示；
@@ -232,6 +242,7 @@ const ruleVisibility = computed(() =>
  * 容器（group/grid）生效隐藏时整块不渲染（子树随之不可见）。
  */
 const hidden = computed(() => {
+  if (props.mode === 'design') return false
   if (effectivePermission.value === 'hidden') return true
   if (ruleVisibility.value === false) return true
   if (ruleVisibility.value === true) return false

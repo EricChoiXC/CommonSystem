@@ -14,5 +14,6 @@ import ImportDialog from './ImportDialog.vue'
 import ProcessApprovalPanel from './process/ProcessApprovalPanel.vue'
 import FormulaDesigner from './formula/FormulaDesigner.vue'
 import FormRenderer from './form/FormRenderer.vue'
+import FormDesigner from './form/designer/FormDesigner.vue'
 
-export { AddressBook, Attachment, DateTimePicker, DatasourceTable, NumberRuleComposer, Selector, TreeSelector, CateTableSelector, ImportDialog, ProcessApprovalPanel, FormulaDesigner, FormRenderer }
+export { AddressBook, Attachment, DateTimePicker, DatasourceTable, NumberRuleComposer, Selector, TreeSelector, CateTableSelector, ImportDialog, ProcessApprovalPanel, FormulaDesigner, FormRenderer, FormDesigner }
